@@ -278,8 +278,28 @@ Lands in **public `agent-afk`** (clean open-source core, per repo topology).
 
 ### Step 2 — Thin terminal app
 
-Only after G1-G6. Tabs, splits, config, theme, font. Nothing else. It either replaces the daily
-terminal or gets abandoned honestly and cheaply.
+> **STATUS 2026-07-26: v0.1 DONE.** Commit `988089e` in this repo. Lives in `app/` — see
+> `app/README.md`. Built and verified: `swift build` clean, `app/build/MacTerminal.app` launches as a
+> real bundle, spawns a login `zsh`, and config fail-soft was verified against six deliberately-bad
+> fields (six warnings, still a working terminal).
+>
+> Shipped: real `.app` bundle via `Scripts/make-app-bundle.sh` (no `.xcodeproj` — the project stays
+> all text), login shell, **native macOS window tabs** (shared `tabbingIdentifier` +
+> `addTabbedWindow`, which buys cycling/overview/reorder/detach/merge/full-screen/VoiceOver for free),
+> live-reloadable JSON config with per-field soft failure, font sizing, Tokyo Night default.
+>
+> NOT shipped: splits, app icon, preferences UI, shell integration (OSC 7/133), search, URL clicking,
+> profiles. The name `MacTerminal` is a placeholder.
+>
+> Three API assumptions from the planning phase were WRONG and corrected by compiling:
+> `LocalProcessTerminalView` exposes only `init(frame:)` (the font-taking init belongs to
+> `TerminalView` and is not inherited); cursor style has no public initialiser either, so it is driven
+> by DECSCUSR; and the SwiftTerm delegate conformance needs `@preconcurrency` because SwiftTerm
+> predates Swift concurrency annotations and Swift 6 rejects a `@MainActor` conformer outright.
+> Worth remembering the shape of that: "assemble off-the-shelf components" was not friction-free.
+
+Original scope, for reference: only after G1-G6. Tabs, splits, config, theme, font. Nothing else. It
+either replaces the daily terminal or gets abandoned honestly and cheaply.
 
 ### Step 3 — Observer panel
 
