@@ -5,6 +5,9 @@
 .swiftpm/
 Package.resolved
 
-# Vendored, locally-patched SwiftTerm copy used by the Step 0 spike.
-# Recreation is documented in spike/README.md — the patch is one exclude line.
-spike/vendor/
+# Assembled .app bundles
+build/
+
+# Vendored, locally-patched SwiftTerm copy (upstream v1.15.0 + one exclude line).
+# Recreation is documented in spike/README.md and app/README.md.
+vendor/
