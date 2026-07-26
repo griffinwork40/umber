@@ -68,10 +68,13 @@ let checklist = """
       (afk emits ZERO newlines - pure absolute CUP positioning.)
 
  [G3] Press Shift+Tab -> the permission-mode ring should cycle.
-      KNOWN RISK: SwiftTerm routes shift+tab through sendKittyFunctionalKey
-      (Mac/MacTerminalView.swift:1439-42). afk never enables the kitty
-      keyboard protocol, and no \\x1b[Z fallback was found in the source.
-      If nothing happens, G3 FAILS -> patch a fork to emit CSI Z.
+      ALREADY PASSED by static analysis; this is just live confirmation.
+      AppKit routes Shift+Tab to insertBacktab(_:), and SwiftTerm's
+      plain-xterm fallback switch sends EscapeSequences.cmdBackTab =
+      [0x1b, 0x5b, 0x5a] = CSI Z, which is exactly what afk parses as
+      {name:'tab', shift:true}. The kitty path is gated on
+      `!terminal.keyboardEnhancementFlags.isEmpty` and afk never enables
+      the protocol, so it is skipped entirely.
 
  [G4] Start a turn, press Ctrl+B -> the turn should background.
 
