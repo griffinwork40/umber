@@ -12,7 +12,7 @@ let package = Package(
         // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with one
         // local patch (the optional Metal shader resource is excluded, because
         // Xcode 26.6 moved the Metal toolchain to a downloadable component that
-        // is not installed here). See ../spike/README.md for the annotated
+        // is not installed here). See README.md ("Dependency note") for the
         // rationale and how to recreate it. Swapping to the real upstream
         // package once `xcodebuild -downloadComponent MetalToolchain` has run is
         // a one-line change.

@@ -9,5 +9,5 @@ Package.resolved
 build/
 
 # Vendored, locally-patched SwiftTerm copy (upstream v1.15.0 + one exclude line).
-# Recreation is documented in spike/README.md and app/README.md.
+# Recreation is documented in app/README.md ("Dependency note").
 vendor/

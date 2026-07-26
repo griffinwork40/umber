@@ -84,7 +84,12 @@ the Metal toolchain to a separate downloadable component that is not installed
 here. The Core Text renderer is used instead; `MetalTerminalRenderer` probes for
 the shader bundle at runtime and returns nil when absent, so nothing traps.
 
-`vendor/` is gitignored. To restore the stock dependency once
+`vendor/` is gitignored. To recreate it: copy an upstream v1.15.0 checkout to
+`vendor/SwiftTerm`, then `chmod -R u+w` it — SPM checkouts are read-only and the
+patch will fail otherwise — and exclude the shader resource in its
+`Package.swift` (the change is annotated in place).
+
+To restore the stock dependency once
 `xcodebuild -downloadComponent MetalToolchain` has run, change `Package.swift`
 back to:
 
@@ -99,8 +104,9 @@ a fork last pushed 2025-07-17.
 
 [SwiftTerm #494](https://github.com/migueldeicaza/SwiftTerm/issues/494) —
 "Buffer reflow produces duplicate/orphan lines when narrowing terminal" — is
-**open**. The Step 0 harness in `../spike` could not reproduce it across three
-deterministic reflow tests, but the reporter describes an intermittent defect, so
-it is reduced, not closed. If duplicated or orphaned lines ever appear after
+**open**. The Step 0 harness could not reproduce it across three deterministic
+reflow tests (evidence retained in `../.afk/plans/native-swift-terminal-afk-host.md`
+§11; the harness itself has since been deleted), but the reporter describes an
+intermittent defect, so it is reduced, not closed. If duplicated or orphaned lines ever appear after
 narrowing a window with scrollback present, that is #494, and
 `TerminalPane.sizeChanged` is the hook to instrument.

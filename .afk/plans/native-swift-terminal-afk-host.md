@@ -377,7 +377,8 @@ protects against.
 ## 11. Step 0 results — 2026-07-26
 
 Environment: Swift 6.4 (swiftlang-6.4.0.27.1), macOS 27.0 (26A5388g), arm64, SwiftTerm **v1.15.0**.
-Harness: `spike/` (see `spike/README.md`). 5 tests, 0 failures.
+Harness: `spike/` — 5 tests, 0 failures. **The harness was deleted once the gates were
+answered** (it was disposable by design); all of its findings are retained verbatim below.
 
 | Gate | Verdict | Method |
 |---|---|---|
@@ -444,7 +445,8 @@ verification (the first was the stale bracketed-paste `// TODO`, §4.2).
    (`xcodebuild -downloadComponent MetalToolchain`). Upstream SwiftTerm compiles
    `Apple/Metal/Shaders.metal` as a resource, so `swift build` fails with
    `unable to spawn process 'metal'`. Worked around with a one-line exclude in a vendored copy at
-   `spike/vendor/SwiftTerm` (gitignored, recreation documented in `spike/README.md`). Renderer-only;
+   `spike/vendor/SwiftTerm`, and now at `vendor/SwiftTerm` for the app (gitignored, recreation
+   documented in `app/README.md`). Renderer-only;
    the gates test the engine. **For the real project, download the Metal toolchain instead.**
 2. **XCTest absent from CommandLineTools.** `xcode-select -p` points at CLT.
    `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test` fixes it for one invocation,
@@ -452,7 +454,8 @@ verification (the first was the stale bracketed-paste `// TODO`, §4.2).
 
 ### Next action
 
-Run `swift run TerminalSpike`, type `afk`, and work G1/G4/G6. G6 is the one that matters: leave a long
-session running, narrow the window repeatedly with scrollback present, overflow the scrollback, and
-compare against Ghostty side by side. If that stays clean, Step 1 (the afk session-status contract)
-is unblocked and the project is real.
+*(Superseded — G1 and G4 passed live; the spike harness is deleted. G6 now runs against the shipped
+app.)* Build and launch `app/` (`./Scripts/make-app-bundle.sh && open build/MacTerminal.app`) and
+daily-drive it. G6 is the one that matters: leave a long session running, narrow the window repeatedly
+with scrollback present, overflow the scrollback, and compare against Ghostty side by side. If that
+stays clean, the terminal premise holds and the project is real.
