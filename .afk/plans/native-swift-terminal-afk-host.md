@@ -219,6 +219,31 @@ built, for the human-judgment gates G1/G4/G6.
 
 ### Step 1 — agent-afk session-status contract (1-2 days TS, PUBLIC repo)
 
+> **STATUS 2026-07-26: items 1 and 2 DONE, item 3 NOT STARTED.**
+> Landed as commit `91bb3c3` on branch `afk/session-status-contract` (branched off `main`) in
+> `/Users/griffinlong/Projects/open_source/agent-afk`. **Committed locally, NOT pushed, no PR opened.**
+> New file `src/agent/process-liveness.ts`; edits to `src/agent/awareness/{presence.ts,index.ts}`
+> plus 13 new tests in `presence.test.ts`. Verified: `npm run lint` clean, full suite
+> 704 files / 13215 tests pass.
+>
+> Two design decisions worth carrying forward:
+> - `schemaVersion`/`heartbeatAt` are stamped **inside `writePresenceFile`**, not at call sites —
+>   two providers write presence today (anthropic-direct, openai-compatible) and a per-caller stamp
+>   would silently miss a future third surface.
+> - `readPresenceFiles()` **annotates** liveness but does **not filter**. The worktree sweep decides
+>   whether a worktree is in use from these records, so a false `'dead'` would let it delete a
+>   worktree out from under a running session. Filtering is opt-in via `readLivePresenceFiles()`,
+>   which retains `'unknown'` and heartbeat-less records for the same reason. A test pins the
+>   non-filtering invariant.
+>
+> Known partial: `touchPresenceHeartbeat()` exists and is tested but is **not yet wired to turn
+> boundaries**, so `heartbeatAt` is currently only stamped at session start. The primary ghost-session
+> fix (pid liveness) is fully effective regardless; the heartbeat is the secondary guard against pid
+> recycling and needs a caller before it earns its keep.
+>
+> `worktree-sweep.ts` keeps its own private `kill(pid,0)` copy — it has unmerged work in flight on
+> `afk/cleanup-agent-worktree`, so consolidating would conflict for no functional gain.
+
 Worth doing whether or not any Swift ships: it fixes a real latent bug (ghost sessions look live
 forever). Additive and backward-compatible.
 
@@ -321,14 +346,22 @@ Harness: `spike/` (see `spike/README.md`). 5 tests, 0 failures.
 
 | Gate | Verdict | Method |
 |---|---|---|
-| G1 render / no tearing | **PENDING** | needs human at the GUI |
+| G1 render / no tearing | **PASS** | operator-confirmed live, 2026-07-26 |
 | **G2 narrowing reflow (#494)** | **PASS** | 3 headless tests, deterministic |
 | **G3 Shift+Tab → permission ring** | **PASS** | static analysis, certain |
-| G4 Ctrl+B backgrounds | **PENDING** | needs human |
+| G4 Ctrl+B backgrounds | **PASS** | operator-confirmed live, 2026-07-26 |
 | **G5 bracketed paste mode** | **PASS** | headless test |
-| G6 soak + differential | **PENDING** | needs human, multi-hour |
+| G6 soak + differential | **PRELIMINARY PASS** | operator eyeballed it clean; NOT the full multi-hour differential soak |
 
-**Verdict: no blocker found. The gates that could have killed the project did not.**
+**Verdict: Step 0 GREEN. No blocker found. The gates that could have killed the project did not.
+Proceeding to Step 1.**
+
+Recorded precisely, because inflating this would be the exact failure mode worth avoiding: the operator
+launched the spike, ran afk in it, and reported "yep seems to be good." That is genuine confirmation of
+G1 and G4. It is **not** the multi-hour differential-vs-Ghostty soak G6 was defined as, and #494 is an
+*intermittent* defect. G6 therefore converts from a gate into a **standing risk retired only by real
+daily use** — if duplicated or orphaned lines ever appear during a narrow-with-scrollback, that is
+#494 and it invalidates the terminal premise. Revisit §9 risk 1 at that point.
 
 ### G2 — PASS
 
