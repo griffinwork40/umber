@@ -26,9 +26,19 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         let frame = NSRect(x: 0, y: 0, width: 960, height: 600)
         self.pane = TerminalPane(config: config, frame: frame)
 
+        // NOT .fullSizeContentView. That flag makes the content view span the
+        // whole window frame, including the 28pt the titlebar occupies — and
+        // since the titlebar here is opaque, it hid the terminal's top ~1.7
+        // rows. Row 0 is where a fresh prompt, the caret, and typed echo all
+        // live, so the pane looked empty and dead while working perfectly:
+        // measured contentView 600pt vs contentLayoutRect 572pt at 37 rows.
+        // A full-screen TUI (afk's own REPL, vim, less) would have lost its top
+        // two lines the same way. Using fullSizeContentView correctly would mean
+        // a transparent titlebar plus insetting the pane to contentLayoutRect;
+        // that buys nothing here, since titlebarAppearsTransparent is false.
         let window = NSWindow(
             contentRect: frame,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
