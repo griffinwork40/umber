@@ -69,7 +69,7 @@ working terminal.
 
 | Field | Notes |
 |---|---|
-| `font.family` | Any installed monospaced family. Falls back: requested → SF Mono → Menlo → Monaco → system mono |
+| `font.family` | Any installed monospaced family. Omitted, or set to `SF Mono`/`system`, gives the system monospaced face (SF Mono) — the default. An unavailable family warns and falls back to it. Note `NSFont(name: "SF Mono")` returns nil, so SF Mono is only reachable via that alias, never by name |
 | `cursor` | `block`, `steady-block`, `bar`, `steady-bar`, `underline`, `steady-underline` |
 | `scrollback` | Lines retained. `0` disables scrollback |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |

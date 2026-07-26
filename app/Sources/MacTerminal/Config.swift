@@ -116,7 +116,7 @@ struct AppConfig {
     /// A default that is intended to look good with zero configuration.
     static func defaults() -> AppConfig {
         AppConfig(
-            font: preferredMonoFont(family: nil, size: 13),
+            font: preferredMonoFont(family: nil, size: 13).font,
             theme: .tokyoNight,
             cursorStyle: .blinkBlock,
             scrollback: 10_000,
@@ -139,10 +139,9 @@ struct AppConfig {
 
         // Font
         let size = file.font?.size ?? 13
-        config.font = preferredMonoFont(family: file.font?.family, size: size)
-        if let requested = file.font?.family, config.font.familyName != requested {
-            config.warnings.append("font.family '\(requested)' unavailable — fell back to \(config.font.familyName ?? "system mono")")
-        }
+        let resolvedFont = preferredMonoFont(family: file.font?.family, size: size)
+        config.font = resolvedFont.font
+        if let warning = resolvedFont.warning { config.warnings.append(warning) }
 
         // Theme, field by field so one bad hex does not lose the rest.
         if let t = file.theme {
@@ -201,14 +200,31 @@ struct AppConfig {
         return config
     }
 
-    /// Resolve a monospaced font, preferring the requested family, then SF Mono,
-    /// then Menlo, then the system monospaced face. Never returns nil — a
-    /// terminal with no font is not a useful failure mode.
-    private static func preferredMonoFont(family: String?, size: Double) -> NSFont {
-        let candidates = [family, "SF Mono", "Menlo", "Monaco"].compactMap { $0 }
-        for name in candidates {
-            if let f = NSFont(name: name, size: size) { return f }
+    /// Names people write in a config when they mean the system monospaced face.
+    /// None of these resolve through `NSFont(name:)`, so they must be mapped.
+    private static let systemMonoAliases: Set<String> = [
+        "sf mono", "sfmono", "sfmono-regular", "sf mono regular", "system", "system mono",
+    ]
+
+    /// Resolve a monospaced font, reporting a human-readable problem when a
+    /// requested family cannot be honoured. Never returns nil — a terminal with
+    /// no font is not a useful failure mode.
+    ///
+    /// With nothing requested this returns the **system monospaced face**, which
+    /// is SF Mono and is also exactly what SwiftTerm's own `FontSet.defaultFont`
+    /// uses. It is deliberately NOT reached via `NSFont(name: "SF Mono")`: that
+    /// call returns nil, because SF Mono is not registered under that name (nor
+    /// under "SFMono-Regular"). v0.1 asked for it by name, silently got Menlo as
+    /// the next candidate, and therefore rendered visibly worse than the Step 0
+    /// spike — which set no font at all and so kept SwiftTerm's default. The
+    /// system-mono call used to sit at the BOTTOM of this function, unreachable,
+    /// because Menlo always resolves first.
+    private static func preferredMonoFont(family: String?, size: Double) -> (font: NSFont, warning: String?) {
+        let systemMono = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        guard let family, !systemMonoAliases.contains(family.lowercased()) else {
+            return (systemMono, nil)
         }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        if let f = NSFont(name: family, size: size) { return (f, nil) }
+        return (systemMono, "font.family '\(family)' unavailable — using the system monospaced face")
     }
 }

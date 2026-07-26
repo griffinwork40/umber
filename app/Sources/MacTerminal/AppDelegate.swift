@@ -131,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let starterConfig = """
     {
-      "// font": "any installed monospaced family; falls back to SF Mono then Menlo",
+      "// font": "any installed monospaced family; omit family for SF Mono (the system monospaced face, and the default)",
       "font": { "family": "SF Mono", "size": 13 },
 
       "// cursor": "block | steady-block | bar | steady-bar | underline | steady-underline",
