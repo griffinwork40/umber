@@ -219,9 +219,24 @@ built, for the human-judgment gates G1/G4/G6.
 
 ### Step 1 — agent-afk session-status contract (1-2 days TS, PUBLIC repo)
 
-> **STATUS 2026-07-26: items 1 and 2 DONE, item 3 NOT STARTED.**
-> Landed as commit `91bb3c3` on branch `afk/session-status-contract` (branched off `main`) in
-> `/Users/griffinlong/Projects/open_source/agent-afk`. **Committed locally, NOT pushed, no PR opened.**
+> **STATUS 2026-07-26: items 1 and 2 DONE and IN REVIEW, item 3 NOT STARTED.**
+> **PR: https://github.com/griffinwork40/agent-afk/pull/716** — OPEN, `MERGEABLE / CLEAN`,
+> +494/-4 across 4 files, 2 commits (`91bb3c3`, `e3727ff`), all CI green
+> (macOS + Ubuntu suites, lint/build, real-PTY scrollback, docs).
+> Branch `afk/session-status-contract` off `main` in
+> `/Users/griffinlong/Projects/open_source/agent-afk`, pushed to `origin`
+> (= public `griffinwork40/agent-afk`).
+>
+> **CI incident worth remembering:** the first run failed on macOS in an unrelated test —
+> `bash.test.ts > [process-group kill] reaps descendant processes`, `expected +0 to be 1`. A re-run
+> with zero code changes passed, so: transient pid-reuse flake, not a regression. But the first
+> commit's test helper spawned and reaped three Node processes purely to obtain a known-dead pid,
+> which churns pids in a suite containing a test that fails when a specific pid is recycled — so it
+> raised that flake's odds, and exposed this file's own assertions to the mirror-image race.
+> `e3727ff` replaced it with `unusedPid()`, which probes for an `ESRCH` pid and creates no process.
+> The flaky assertion itself was left alone (out of scope) and documented in a PR comment: its
+> comment claims the inverse false-positive "cannot occur because kill -0 is non-destructive," which
+> is wrong — pid reuse is symmetric.
 > New file `src/agent/process-liveness.ts`; edits to `src/agent/awareness/{presence.ts,index.ts}`
 > plus 13 new tests in `presence.test.ts`. Verified: `npm run lint` clean, full suite
 > 704 files / 13215 tests pass.
