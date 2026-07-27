@@ -20,9 +20,11 @@ your real `PATH` and rc files load) · **native macOS window tabs**, which means
 ⌘⇧[ / ⌘⇧] cycling, the tab overview, drag-to-reorder, drag-out-to-detach and
 Merge All Windows all work without being implemented · JSON config with live
 reload (⌘R) and per-field soft failure · font sizing · full screen ·
-copy/paste/select-all · window position restored across launches · **AFK Dark**
-by default — the palette from `agent-afk`'s own themes, so the agent's chrome
-and the terminal underneath it agree.
+copy/paste/select-all · window position restored across launches · **no palette
+installed by default**, deliberately — SwiftTerm derives ANSI 16–255 from your
+background and foreground, so installing a theme silently replaces the standard
+256-colour cube with interpolated approximations. `afk-dark` and `tokyo-night`
+are one config line away.
 
 **Not built:** splits · app icon · preferences UI (config is a JSON file) · shell
 integration (OSC 7/133) · search · URL clicking · profiles.

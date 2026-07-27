@@ -46,8 +46,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         window.tabbingMode = .preferred
         window.title = "Terminal"
         // Match the terminal's own background so the titlebar area does not flash
-        // a mismatched colour on open or during a live resize.
-        window.backgroundColor = config.theme.background
+        // a mismatched colour on open or during a live resize. A nil theme leaves
+        // SwiftTerm on its own defaults, whose background is black
+        // (`Colors.swift:37` defaultBackground) — so match that, not the system
+        // window colour, or the chrome and the terminal disagree.
+        window.backgroundColor = config.theme?.background ?? .black
         window.titlebarAppearsTransparent = false
         window.contentView = pane.view
         window.minSize = NSSize(width: 320, height: 200)

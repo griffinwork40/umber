@@ -59,15 +59,49 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     func apply(config: AppConfig) {
         self.config = config
-        view.nativeBackgroundColor = config.theme.background
-        view.nativeForegroundColor = config.theme.foreground
-        view.caretColor = config.theme.cursor
-        // installColors is a no-op unless the array is exactly 16 long; Config
-        // guarantees that invariant before we get here.
-        view.installColors(config.theme.ansi.map { $0.asSwiftTermColor })
+
+        // Keep the historical xterm 6x6x6 cube and greyscale ramp for indices
+        // 16–255. SwiftTerm defaults to `.base16Lab`, which *derives* those 240
+        // colours by interpolating between this terminal's background and
+        // foreground (`Terminal.swift:725` rebuildAnsiPalette), so any
+        // 256-colour TUI renders against synthesised approximations rather than
+        // the values it was actually designed for — and every other terminal
+        // (Ghostty, iTerm2, Terminal.app) shows the standard cube. Set this
+        // before any colour below: under `.xterm`, installing colours stops
+        // triggering a palette rebuild altogether (`Terminal.swift:523`).
+        view.getTerminal().ansi256PaletteStrategy = .xterm
+
+        // A nil theme means "install nothing", leaving SwiftTerm's own defaults
+        // in place — which is the default configuration. Setting a background or
+        // foreground is not free (see above), so we only pay for it on request.
+        if let theme = config.theme {
+            view.nativeBackgroundColor = theme.background
+            view.nativeForegroundColor = theme.foreground
+            view.caretColor = theme.cursor
+            // installColors is a no-op unless the array is exactly 16 long; Config
+            // guarantees that invariant before we get here.
+            view.installColors(theme.ansi.map { $0.asSwiftTermColor })
+        }
         view.optionAsMetaKey = config.optionAsMeta
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
         setFontSize(fontSize)
+        // `MT_DIAG=1` dumps the resolved appearance state to stderr. This app has
+        // no test target, so this is its only observability: it is what caught
+        // the Menlo-instead-of-SF-Mono fallback and the collapsed scrollbar
+        // thumb, both of which were invisible from the source alone. Costs
+        // nothing when the variable is unset.
+        if ProcessInfo.processInfo.environment["MT_DIAG"] != nil {
+            let t = view.getTerminal()
+            // Projected thumb once the scrollback is full — the steady state that
+            // matters. `view.scrollThumbsize` right now is ~1.0 (empty buffer).
+            let projected = max(CGFloat(t.rows) / CGFloat(config.scrollback + t.rows), 0.01)
+            FileHandle.standardError.write("""
+            [diag] theme=\(config.theme == nil ? "nil(SwiftTerm-defaults)" : "custom") \
+            strategy=\(t.ansi256PaletteStrategy) scrollback=\(config.scrollback) \
+            rows=\(t.rows) thumbNow=\(String(format: "%.3f", view.scrollThumbsize)) \
+            thumbWhenFull=\(String(format: "%.4f", projected)) font=\(view.font.fontName)\n
+            """.data(using: .utf8)!)
+        }
     }
 
     /// Cursor style is not settable through a public initialiser, so drive it the

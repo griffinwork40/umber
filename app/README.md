@@ -34,10 +34,12 @@ Spotlight, and behaves like an app rather than a stray process.
   drag-out-to-detach, and Merge All Windows all work without being implemented.
 - Config file with live reload (⌘R), font sizing (⌘+ / ⌘- / ⌘0), full screen (⌘F)
 - Copy/paste/select-all, window position restored across launches
-- **AFK Dark** by default, because it should look good before you configure it —
-  the palette from [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s own
-  themes (`themes/terax/afk-dark.terax-theme`), so afk's chrome and the terminal
-  underneath it agree instead of clashing
+- **No palette installed by default** — and that is the considered choice, not a
+  gap. SwiftTerm generates ANSI indices 16–255 by interpolating between the
+  terminal's background and foreground (`.base16Lab`), so installing *any* custom
+  background or foreground silently replaces the standard 256-colour cube with
+  synthesised approximations. Leaving it alone keeps the colours every other
+  terminal shows. `afk-dark` and `tokyo-night` remain one config line away
 
 ## Not built yet
 
@@ -59,37 +61,33 @@ working terminal.
 {
   "font": { "family": "SF Mono", "size": 13 },
   "cursor": "block",
-  "scrollback": 10000,
+  "scrollback": 1000,
   "optionAsMeta": true,
-  "theme": {
-    "background": "#0D1117",
-    "foreground": "#C9D1D9",
-    "cursor": "#E67E4C",
-    "ansi": ["#15161e", "#f7768e", "…16 total…"]
-  }
+  "theme": { "preset": "afk-dark", "cursor": "#E67E4C" }
 }
 ```
+
+Omit `theme` entirely — the default — and no colours are installed at all.
 
 | Field | Notes |
 |---|---|
 | `font.family` | Any installed monospaced family. Omitted, or set to `SF Mono`/`system`, gives the system monospaced face (SF Mono) — the default. An unavailable family warns and falls back to it. Note `NSFont(name: "SF Mono")` returns nil, so SF Mono is only reachable via that alias, never by name |
 | `cursor` | `block`, `steady-block`, `bar`, `steady-bar`, `underline`, `steady-underline` |
-| `scrollback` | Lines retained. `0` disables scrollback |
+| `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line three times on each window resize |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
+| `theme` | **Omitted by default.** Present at all ⇒ colours get installed, which regenerates ANSI 16–255 out of your bg/fg. See the note above |
+| `theme.preset` | `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
-Tokyo Night was the default before AFK Dark; paste this into `theme` to get it back:
+Both former defaults survive as presets — no hex-pasting required:
 
 ```json
-"background": "#1a1b26", "foreground": "#c0caf5", "cursor": "#c0caf5",
-"ansi": [
-  "#15161e", "#f7768e", "#9ece6a", "#e0af68",
-  "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
-  "#414868", "#f7768e", "#9ece6a", "#e0af68",
-  "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"
-]
+"theme": { "preset": "tokyo-night" }
 ```
+
+`tokyo-night` was the v0.1 default, `afk-dark` briefly replaced it. Either
+installs a full palette, with the 256-colour trade-off described above.
 
 ## Dependency note
 

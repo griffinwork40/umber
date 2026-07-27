@@ -57,9 +57,10 @@ struct Theme {
     /// at construction rather than trusted.
     var ansi: [NSColor]
 
-    /// AFK Dark — the default, because the whole point of this terminal is to
-    /// host agent-afk, and afk's own chrome should not fight the palette
-    /// underneath it. Taken verbatim from the `terminal` block of
+    /// AFK Dark — a preset, selected with `"theme": {"preset": "afk-dark"}`.
+    /// It was briefly the default; it is not any more, because SwiftTerm's own
+    /// defaults (see `AppConfig.theme == nil`) measurably render better and were
+    /// what the Step 0 spike showed. Taken verbatim from the `terminal` block of
     /// `themes/terax/afk-dark.terax-theme` in the agent-afk repo, which is
     /// itself a 1:1 port of that project's Cursor/VS Code and Ghostty themes:
     /// a GitHub-Dark skeleton with the AFK warm-orange accent (#E67E4C) — which
@@ -75,6 +76,29 @@ struct Theme {
             "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4",
         ].map { NSColor.fromHex($0)! }
     )
+
+    /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
+    static let tokyoNight = Theme(
+        background: NSColor.fromHex("#1A1B26")!,
+        foreground: NSColor.fromHex("#C0CAF5")!,
+        cursor: NSColor.fromHex("#C0CAF5")!,
+        ansi: [
+            "#15161E", "#F7768E", "#9ECE6A", "#E0AF68",
+            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#A9B1D6",
+            "#414868", "#F7768E", "#9ECE6A", "#E0AF68",
+            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#C0CAF5",
+        ].map { NSColor.fromHex($0)! }
+    )
+
+    /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
+    /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
+    static func preset(named name: String) -> Theme? {
+        switch name.lowercased() {
+        case "afk-dark", "afkdark": return .afkDark
+        case "tokyo-night", "tokyonight": return .tokyoNight
+        default: return nil
+        }
+    }
 }
 
 // MARK: - Config file shape
@@ -86,6 +110,9 @@ private struct ConfigFile: Decodable {
         var size: Double?
     }
     struct ThemeSpec: Decodable {
+        /// "afk-dark" | "tokyo-night" | "classic". Omitted with other fields
+        /// present means "afk-dark, with my overrides on top".
+        var preset: String?
         var background: String?
         var foreground: String?
         var cursor: String?
@@ -104,7 +131,13 @@ private struct ConfigFile: Decodable {
 /// and the reasons are surfaced in `warnings` rather than thrown.
 struct AppConfig {
     var font: NSFont
-    var theme: Theme
+    /// `nil` means "do not install any colours" — SwiftTerm's own defaults stand.
+    /// That is the default, and it is not laziness: installing a background or
+    /// foreground makes SwiftTerm regenerate ANSI indices 16–255 by interpolating
+    /// them out of your bg/fg (`Terminal.swift:513-542` → `rebuildAnsiPalette`),
+    /// so a custom theme silently replaces the standard 256-colour cube with
+    /// synthesised approximations. See `TerminalPane.apply(config:)`.
+    var theme: Theme?
     var cursorStyle: CursorStyle
     var scrollback: Int
     var shell: String
@@ -122,9 +155,16 @@ struct AppConfig {
     static func defaults() -> AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: 13).font,
-            theme: .afkDark,
+            theme: nil,
             cursorStyle: .blinkBlock,
-            scrollback: 10_000,
+            // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
+            // thumb as `max(rows / lines.count, 0.01)`
+            // (`AppleTerminalView.swift:2002`), so past ~3,500 lines the thumb
+            // hits the 1% floor and degenerates into a fixed hairline that no
+            // longer tracks position. `Buffer.resize` also walks every line three
+            // times per resize, so a 10k buffer made window resizing ~20x more
+            // expensive than it needed to be. Raise it if you want; know the cost.
+            scrollback: 1_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
             optionAsMeta: true
         )
@@ -150,17 +190,32 @@ struct AppConfig {
 
         // Theme, field by field so one bad hex does not lose the rest.
         if let t = file.theme {
-            var theme = config.theme
+            // Pick the base. "classic" (and only "classic") stays nil, which is
+            // the one setting that leaves SwiftTerm's defaults genuinely untouched.
+            let wantsClassic = t.preset?.lowercased() == "classic"
+            var theme: Theme? = wantsClassic ? nil : (t.preset.flatMap(Theme.preset(named:)) ?? .afkDark)
+            if let raw = t.preset, !wantsClassic, Theme.preset(named: raw) == nil {
+                config.warnings.append("theme.preset '\(raw)' unrecognised — using afk-dark")
+            }
+            // Any explicit colour needs a full palette to sit on; classic + an
+            // override cannot stay nil, so promote it to afk-dark first.
+            let hasOverride = t.background != nil || t.foreground != nil || t.cursor != nil || t.ansi != nil
+            if theme == nil && hasOverride {
+                config.warnings.append("theme.preset 'classic' cannot take colour overrides — using afk-dark as the base")
+                theme = .afkDark
+            }
+            // Optional-chained: if `theme` is still nil there are no overrides to
+            // apply (we just promoted the only case where both could be true).
             if let raw = t.background {
-                if let c = NSColor.fromHex(raw) { theme.background = c }
+                if let c = NSColor.fromHex(raw) { theme?.background = c }
                 else { config.warnings.append("theme.background '\(raw)' is not a hex colour") }
             }
             if let raw = t.foreground {
-                if let c = NSColor.fromHex(raw) { theme.foreground = c }
+                if let c = NSColor.fromHex(raw) { theme?.foreground = c }
                 else { config.warnings.append("theme.foreground '\(raw)' is not a hex colour") }
             }
             if let raw = t.cursor {
-                if let c = NSColor.fromHex(raw) { theme.cursor = c }
+                if let c = NSColor.fromHex(raw) { theme?.cursor = c }
                 else { config.warnings.append("theme.cursor '\(raw)' is not a hex colour") }
             }
             if let rawList = t.ansi {
@@ -171,7 +226,7 @@ struct AppConfig {
                 } else {
                     let parsed = rawList.compactMap { NSColor.fromHex($0) }
                     if parsed.count == 16 {
-                        theme.ansi = parsed
+                        theme?.ansi = parsed
                     } else {
                         config.warnings.append("theme.ansi contains \(16 - parsed.count) unparseable colour(s) — keeping default palette")
                     }

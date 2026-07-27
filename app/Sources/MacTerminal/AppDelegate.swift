@@ -44,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         for controller in TerminalWindowController.open {
             controller.pane.apply(config: config)
-            controller.window?.backgroundColor = config.theme.background
+            // nil theme == SwiftTerm defaults, whose background is black.
+            controller.window?.backgroundColor = config.theme?.background ?? .black
         }
     }
 
@@ -138,23 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       "cursor": "block",
 
       "// scrollback": "lines to retain; 0 disables scrollback entirely",
-      "scrollback": 10000,
+      "// scrollback-note": "past ~3500 the scrollbar thumb hits its 1% floor and stops tracking position, and every window resize walks the whole buffer",
+      "scrollback": 1000,
 
       "// shell": "defaults to $SHELL; launched with -l so your PATH loads",
       "// optionAsMeta": "true lets Option act as Meta instead of typing accents",
       "optionAsMeta": true,
 
-      "// theme": "ansi must contain exactly 16 colours: 8 normal then 8 bright",
-      "theme": {
-        "background": "#0D1117",
-        "foreground": "#C9D1D9",
-        "cursor": "#E67E4C",
-        "ansi": [
-          "#161B22", "#F85149", "#9CB04A", "#E5C07B",
-          "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
-          "#484F58", "#F85149", "#A8E060", "#E67E4C",
-          "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4"
-        ]
+      "// theme": "OMITTED ON PURPOSE. With no theme, SwiftTerm's own colours stand and ANSI 16-255 keep the standard xterm values. Setting a background or foreground makes SwiftTerm regenerate indices 16-255 by interpolating them out of your bg/fg, so 256-colour programs render against synthesised approximations. Uncomment below only if you want that trade.",
+      "// theme-example": {
+        "preset": "afk-dark",
+        "// preset-values": "afk-dark | tokyo-night | classic",
+        "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
+        "cursor": "#E67E4C"
       }
     }
 
