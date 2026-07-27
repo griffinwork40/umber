@@ -2,9 +2,10 @@
 
 **Status (2026-07-27):** Step 0 **DONE** (`114e9f8`, `f1e59a8`, `4053a7a`) · Step 1 probe **RUN, D
 chosen** — see §6.1 (flip-condition check) and §6.2 (spike results, branch `afk/libghostty-spike`
-@ `123919f`) · next is §6.2's "Next, in order" list, starting at `GhosttyPane: SpaceDocument` ·
-supersedes nothing; **amends** `native-swift-terminal-afk-host.md` §9 risk 1, §11 G2, and §12's
-Step 3/4 ordering.
+@ `123919f`) · **next is §8.4**, which supersedes §6.2's "Next, in order": the container must be
+regenericized *before* `GhosttyPane` is added, because two `as?` casts would otherwise leave it
+silently inert (§8.2) · supersedes nothing; **amends** `native-swift-terminal-afk-host.md` §9 risk 1,
+§11 G2, and §12's Step 3/4 ordering, and corrects its own §7 risk 2 (there is no version pin, §8.1).
 
 Companion to the plan of record. Read `native-swift-terminal-afk-host.md` first — this document
 does not restate it, it corrects two of its findings and inserts a decision procedure ahead of its
@@ -372,7 +373,12 @@ which contradicts plan §4.2's own founding principle.
 
 1. **The probe may cost two days and return nothing.** Bounded by the kill criterion.
 2. **libghostty's ABI is pre-stable and its embedding API is undocumented outside Zig source.**
-   Mitigated by the version pin; upgrades become deliberate.
+   ~~Mitigated by the version pin; upgrades become deliberate.~~ **Corrected 2026-07-27 (§8.1) —
+   there is no pin.** The spike manifest says `from: "1.2.0"`, which permits any `>=1.2.0 <2.0.0`,
+   so a stray `swift package update` can move the pre-stable ABI silently. `Package.resolved`
+   happens to record 1.3.2, but a resolved file is a lockfile, not a declared constraint, and it is
+   the manifest that governs re-resolution. The mitigation becomes real only when production
+   declares `.exact("1.3.2")`. Until then this risk is **unmitigated**, not mitigated.
 3. **An XCFramework is not auditable text.** A real convention loss with no mitigation; if adopted,
    the convention in `AFK.md` must be amended honestly rather than quietly.
 4. **#494 remains unfixed if SwiftTerm wins the probe.** Step 0 item 2 at least stops the plan from
@@ -381,3 +387,113 @@ which contradicts plan §4.2's own founding principle.
 6. `.afk/plans/native-swift-terminal-afk-host.md` still carries three absolute `/Users/griffinlong`
    paths (one naming an unrelated fork). Unchanged here, still blocking on any
    `gh repo edit --visibility public`.
+
+---
+
+## 8. Step 1 plan — verified seam map, and three things §6.2 got wrong
+
+Written 2026-07-27 after `/ground-state` + two research agents (seam map, spike API recovery) +
+`/shadow-verify` with 4 independent verifiers, each given the bare claim with all citations
+stripped. All four returned `CONFIRMED` on `evidence_base: independent-rederivation`. The
+verifiers also found three things the first pass missed; those are §8.1–§8.3, and two of them
+change the work.
+
+### 8.1 There is no version pin — §7 risk 2 was unsupported
+
+Corrected in place at §7. `app/Package.swift:24` (spike worktree) declares
+`.package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.2.0")` — a floating
+minimum admitting all of `>=1.2.0 <2.0.0`. `app/Package.resolved:9-10` records `1.3.2` @
+`b146b73a8ba3ed2678a22a9de5feecfcbf298d48`. A lockfile is not a constraint. **Production must
+declare `.exact("1.3.2")`** — on a pre-stable ABI consumed as an opaque 127 MB binary, floating
+minor upgrades are the one thing the vendor-integrity work in `f1e59a8` existed to prevent, and it
+would be incoherent to hash-pin SwiftTerm's source while letting its replacement float.
+
+### 8.2 "The seam's four methods" understates Step 1 by about 4×
+
+`SpaceDocument` is genuinely clean — 4 requirements (`documentView: NSView`, `documentTitle: String`,
+`documentSymbolName: String`, `func documentDidBecomeActive()`, at `SpaceDocument.swift:27/29/33/37`),
+declared in a file that imports only AppKit, with no SwiftTerm type anywhere in it. Conforming
+`GhosttyPane` really is trivial.
+
+**But conforming is not integrating.** Every app-wide behaviour is routed through *concrete*
+`TerminalPane` types, and two `as?` casts are the whole reason a second conformer would be
+silently inert rather than loudly broken:
+
+| Path | Filter that excludes a second conformer | Verified consequence |
+|---|---|---|
+| Font zoom / ⌘0 reset | `SpaceViewController.swift:95` — `documents.compactMap { $0 as? TerminalPane }`, reached from `AppDelegate.swift:150` `allPanes` | ⌘+/⌘−/⌘0 silently no-op on a `GhosttyPane` |
+| Live config reload (⌘R) | same cast at `:95`, iterated at `SpaceViewController.swift:156-158` | theme/font/scrollback changes never reach it |
+| File-tree activate → inject text | `SpaceViewController.swift:98` `activeTerminalPane`, then `:211-214` calls SwiftTerm's `view.send(txt:)` | clicking a file in the sidebar does nothing |
+
+Two further sites the spike write-up missed entirely:
+
+- **No polymorphic factory.** `SpaceViewController.addTerminalDocument()` (`:102-109`) hardcodes
+  `TerminalPane(config:frame:)` and returns concrete `-> TerminalPane`. There is no
+  `add(document:)`. A second kind needs a new entry point, not new wiring.
+- **The delegate cannot carry it.** `TerminalPaneDelegate` (`TerminalPane.swift:10-15`) types both
+  callbacks to the concrete class — `paneDidTerminate(_ pane: TerminalPane)`,
+  `pane(_ pane: TerminalPane, didChangeTitle:)`, implemented at `SpaceViewController.swift:187-199`.
+  A `GhosttyPane`'s shell-exit and title-change events have **no route to the container at all**.
+  This is load-bearing: title changes drive the document strip and the window subtitle.
+
+**Consequence for ordering:** the honest Step 1 is *regenericize the container first, then add the
+conformer* — otherwise `GhosttyPane` renders in a strip that never retitles it, ignores ⌘R, and
+ignores zoom, which is indistinguishable from "libghostty is broken" during the side-by-side
+daily-drive that Step 3 depends on for signal.
+
+### 8.3 The keymap survives — but a new collision surface arrives with it
+
+Confirmed structurally: `AppTerminalView` is `open class AppTerminalView: NSView`
+(`.build/checkouts/libghostty-spm/Sources/GhosttyTerminal/Platform/AppKit/AppTerminalView.swift:13`)
+and already overrides `performKeyEquivalent` (`AppTerminalView+Input.swift:17`). So the
+`UmberTerminalView` pattern ports directly, and the reason it existed under SwiftTerm — `keyDown`
+being `public` not `open` — does not even apply here.
+
+The part §6.2 did not know: **that parent override never calls `super`**, and it consumes any event
+libghostty's own binding table claims —
+
+```swift
+if keyIsBinding(event, on: surface) { keyDown(with: event); return true }   // +Input.swift:22-25
+```
+
+where `keyIsBinding` bottoms out in `ghostty_surface_key_is_binding` (`:291`), a C call into the
+Zig core. **The contents of that binding table are not visible from Swift source**, so whether any
+of Umber's ⌘-chords collide with a libghostty default is *not statically knowable* — it is a
+runtime question. Two consequences:
+
+1. `GhosttyTerminalView` must check `MacLineEditing.controlBytes` **first** and call
+   `super.performKeyEquivalent` only as fallback — exactly the ordering `UmberTerminalView.swift:32-53`
+   already uses. Overriding without `super` would silently delete libghostty's entire binding
+   pipeline (⌃-Return, ⌃-/, the two-pass command-key translation at `+Input.swift:43-84`).
+2. Add a **chord-collision check** to Step 1's exit criteria: run the 17 cases from
+   `check-keybindings.sh` against a live `GhosttyPane` and confirm the bytes that reach the pty are
+   identical. `check-keybindings.sh` itself stays valid — it compiles `KeyBindings.swift` headlessly
+   and that file is engine-free — but it proves the *table*, not the *delivery*, and delivery is
+   precisely what changed.
+
+### 8.4 Revised Step 1, in order
+
+Ordering differs from §6.2 in one way that matters: 0 comes before 1.
+
+0. **Regenericize the container** (no libghostty yet, `TerminalPane` still the only conformer, so
+   this is provably behaviour-preserving and verifiable by `check-keybindings.sh` +
+   `make-app-bundle.sh` alone): widen `TerminalPaneDelegate` to a `SpaceDocument`-typed
+   `SpaceDocumentDelegate`; add whatever minimal requirements the three fan-out paths need
+   (font sizing, `apply(config:)`, send-text) to `SpaceDocument` or a sibling protocol; replace the
+   two `as?` casts; add a polymorphic `add(document:)` beside `addTerminalDocument()`.
+1. Add the dependency at `.exact("1.3.2")` (§8.1) and amend the auditable-vendor convention in
+   `AFK.md` honestly, per §7 risk 3 — the convention dies here, and it should die in writing.
+2. `GhosttyPane: SpaceDocument` + `GhosttyTerminalView: AppTerminalView`, `super`-fallback ordering
+   per §8.3. Config surface known-unexercised by the spike: font size, theme, scrollback limit,
+   `envVars`, selection/copy-paste, resize beyond initial `fitToSize()`.
+3. Wire the delegates the spike proved live: `TerminalSurfacePwdDelegate` (OSC 7),
+   `TerminalSurfaceCommandFinishedDelegate` (OSC 133 `exitCode` + `durationNanos`),
+   `TerminalSurfaceTitleDelegate`, `TerminalSurfaceCloseDelegate` → the new document delegate.
+4. Gate on: 17-case chord parity (§8.3), ⌘R/zoom/file-tree reaching a `GhosttyPane`, and the
+   narrowing-with-scrollback test that SwiftTerm fails (`Buffer.swift:1171`/`:1211`) passing.
+5. Then §6.2's steps 3–5 unchanged: daily-drive both, build the find bar on
+   `ghostty_surface_read_text`, and only then delete `TerminalPane`, `vendor/SwiftTerm`, the pin,
+   and the patch.
+
+**Do not copy from the spike:** the `asyncAfter(deadline: .now() + 2.5)` shell-readiness guess
+(`main.swift:78-81`), stderr-only logging (`:35-41`), and the 8-string blind search probe (`:90-93`).
