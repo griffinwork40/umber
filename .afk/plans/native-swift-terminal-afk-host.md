@@ -219,8 +219,9 @@ built, for the human-judgment gates G1/G4/G6.
 
 ### Step 1 — agent-afk session-status contract (1-2 days TS, PUBLIC repo)
 
-> **STATUS 2026-07-26: items 1 and 2 DONE and IN REVIEW, item 3 NOT STARTED.**
-> **PR: https://github.com/griffinwork40/agent-afk/pull/716** — OPEN, `MERGEABLE / CLEAN`,
+> **STATUS 2026-07-27: items 1 and 2 DONE and MERGED, item 3 NOT STARTED.**
+> **PR: https://github.com/griffinwork40/agent-afk/pull/716** — **MERGED 2026-07-26T23:02Z**
+> (was `MERGEABLE / CLEAN` when this entry was first written),
 > +494/-4 across 4 files, 2 commits (`91bb3c3`, `e3727ff`), all CI green
 > (macOS + Ubuntu suites, lint/build, real-PTY scrollback, docs).
 > Branch `afk/session-status-contract` off `main` in
