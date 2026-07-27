@@ -25,6 +25,21 @@ swift run MacTerminal
 The bundle path is what you want for real use — it gets a Dock icon, appears in
 Spotlight, and behaves like an app rather than a stray process.
 
+## Checks
+
+There is no test target: this app is mostly AppKit glue, and what has actually
+broken here is *observable state* — the font that silently fell back to Menlo, the
+collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
+of pure logic would have caught. So the checks are two scripts and a diagnostic
+env var, each aimed at something that has really gone wrong:
+
+```sh
+./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
+./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
+                                 # needs Accessibility permission for your terminal
+MT_DIAG=1 swift run MacTerminal   # dumps resolved font/theme/scrollback state to stderr
+```
+
 ## What works today (v0.1)
 
 - Real `.app` bundle, ad-hoc signed
@@ -36,6 +51,12 @@ Spotlight, and behaves like an app rather than a stray process.
 - **Font sizing that sticks** — ⌘+ / ⌘- zoom every tab at once and the level
   survives new tabs and relaunches; ⌘0 clears the zoom and hands control back
   to `font.size`. Default is 14pt
+- **Mac line-editing keys** — ⌘⌫ deletes to the start of the line, ⌘⌦ to the
+  end, ⌘←/⌘→ jump to the ends of the line. macOS resolves these to text-view
+  selectors (`deleteToBeginningOfLine:`, …) that SwiftTerm drops, so ⌘⌫ used to
+  write nothing at all and ⌘←/⌘→ moved by *word* — already ⌥←/⌥→'s job. They now
+  send the readline bytes (`^U ^K ^A ^E`) that bash, zsh, fish and afk's own REPL
+  all bind to those operations
 - Copy/paste/select-all, window position restored across launches
 - **No palette installed by default** — and that is the considered choice, not a
   gap. SwiftTerm generates ANSI indices 16–255 by interpolating between the

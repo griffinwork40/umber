@@ -27,7 +27,7 @@ protocol TerminalPaneDelegate: AnyObject {
 /// sanctioned migration path for an un-annotated dependency.
 @MainActor
 final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDelegate {
-    let view: LocalProcessTerminalView
+    let view: MTTerminalView
     private(set) var currentTitle: String = ""
     weak var delegate: TerminalPaneDelegate?
 
@@ -43,7 +43,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // LocalProcessTerminalView only exposes init(frame:) — the font-taking
         // initialiser belongs to TerminalView and is not inherited here, so the
         // font is applied via the property in apply(config:) below.
-        self.view = LocalProcessTerminalView(frame: frame)
+        self.view = MTTerminalView(frame: frame)
         super.init()
         view.processDelegate = self
         view.autoresizingMask = [.width, .height]
