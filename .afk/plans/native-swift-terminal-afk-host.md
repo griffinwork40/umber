@@ -24,8 +24,15 @@ Constraints extracted:
 - **No AI features in the app.** The app makes zero model calls and has no chat UI of its own. It is a
   *host* for an agent, and a *window onto* one. That boundary is the product.
 - **For himself.** Not a product; no stars to chase. But the bar is "beautiful, user-friendly as hell."
-- **Must host `agent-afk`'s interactive REPL correctly.** This is the load-bearing requirement and the
-  reason the project is technically non-trivial.
+- **Must host `agent-afk`'s interactive REPL correctly.** ~~This is the load-bearing requirement and the
+  reason the project is technically non-trivial.~~ **CORRECTED 2026-07-27 — see §12.** This is the
+  load-bearing *technical* requirement, but it is **not the product goal**, and this document treated it
+  as both. Read the first quote again: *editor / git lead the sentence.* "i'd be running agent-afk in it"
+  is the second quote and is a *usage* statement. §3 inverted them — promoting "host afk" to the thesis
+  and demoting editor/git to Step 4 "explicitly optional."
+- **Terminal-first IDE is the product shape** (operator, 2026-07-27: *"the goal was to make a better
+  terax lol like ide/esque terminal-first"*). Not a terminal that happens to host an agent. "Better
+  terax" minus the AI layer — terminal as the primary object, with editor / file tree / git attached.
 - **Optional, later:** make agent-afk a *native* feature rather than a CLI in a pane.
 
 ## 2. Prior art / what this is reacting to
@@ -59,6 +66,14 @@ the value is.
 What does *not* exist is a **native Mac app whose primary object is an agent-afk session**. afk already
 runs sessions across CLI / daemon / Telegram that outlive any one terminal window, and already writes a
 machine-readable substrate to disk. Nobody has built native UI on that.
+
+> **PARTIALLY RETRACTED 2026-07-27 (§12).** The reframe above rests on a *novelty* premise — "building
+> the solved three isn't where the value is; nobody has built the afk-native thing." Novelty only counts
+> if differentiation counts, and §2 already recorded **"Operator confirmed: for himself."** For an
+> audience of one, "nobody has built it" is not a reason to build it, and "CodeEdit already solved it"
+> is not a reason to skip it — CodeEdit was *rejected as a base* (§4.3), so its existence removes
+> nothing. The afk-observer thesis stays a good idea; it was never the operator's stated goal, and
+> promoting it over editor/git was unforced. Step 3 vs Step 4 ordering is **reopened** — see §12.
 
 **However** — see §7 Wave 3.5 — that substrate is not currently fit to build on, and fixing it is a
 change to *afk*, which the operator owns. That discovery is the single most important output of the
@@ -470,3 +485,111 @@ app.)* Build and launch `app/` (`./Scripts/make-app-bundle.sh && open build/Umbe
 daily-drive it. G6 is the one that matters: leave a long session running, narrow the window repeatedly
 with scrollback present, overflow the scrollback, and compare against Ghostty side by side. If that
 stays clean, the terminal premise holds and the project is real.
+
+---
+
+## 12. Goal correction — 2026-07-27
+
+Operator asked *"when should we add the editor / file explore tree like vs code?"* The first answer
+given cited §6 Step 4's optionality and §9 risk 4's "scope-creeping into an IDE" to argue **against**
+it. That answer was **wrong**, and wrong because it trusted §3's reframe over §1's verbatim quotes.
+Operator's correction: *"the goal was to make a better terax lol like ide/esque terminal-first."*
+
+**The editor and file tree are not scope creep. They are the product.** §1 and §3 are amended above.
+Recorded because the plan's own thesis drift produced the error — a future reader would repeat it.
+
+### 12.1 What "terminal-first IDE" concretely means
+
+Terax's layout, read from the operator's fork at `~/Projects/open_source/terax-ai` and independently
+re-verified (not taken on a subagent's word):
+
+| Property | Terax | Evidence |
+|---|---|---|
+| Windows | **Exactly one** | `src-tauri/tauri.conf.json:14-26` (single `windows` entry) |
+| Top-level layout | Two-region horizontal resizable split: sidebar + workspace | `src/app/App.tsx:1107-1204` |
+| Sidebar | Persistent, collapsible to 0, **px-capped** (`SIDEBAR_MAX_WIDTH` 480); holds Explorer **or** Source Control, mutually exclusive | `App.tsx:1111-1163` |
+| Workspace | `defaultSize="78%"`, `minSize="30%"`, **no maxSize** — absorbs all remaining flex | `App.tsx:1166` |
+| Tabs | **ONE flat heterogeneous strip**, 8-kind union: Terminal · Editor · Preview · Markdown · AiDiff · GitDiff · GitHistory · GitCommitFileDiff | `src/modules/tabs/lib/useTabs.ts:114-122` |
+| Terminal primacy | Boots as tab 1, `kind:"terminal"`, active | `useTabs.ts:244-261` |
+| Terminal splits | Pane tree *inside* a tab, max 4 | `useTabs.ts:18`, `PaneTreeView.tsx:63-79` |
+| Project root | **"Spaces"** — `SpaceMeta.root` is a dir; tabs partitioned by `spaceId` | `src/modules/spaces/lib/store.ts:5-14` |
+| Docking | Fixed positions, resize-only. No drag-to-redock | `App.tsx:1079-1220` |
+
+The load-bearing fact: **editor tabs and terminal tabs live in the same strip.** "Terminal-first" is not
+"terminal plus an editor elsewhere" — it is one tab strip where the terminal happens to be tab 1 and win
+the default space.
+
+### 12.2 The collision this creates with Step 2's shipped architecture
+
+`TerminalWindowController.swift:55` is `window.contentView = pane.view` — the `TerminalPane` **is** the
+window's entire content, and every "tab" is a **separate `NSWindow`** joined by `addTabbedWindow`
+(`:86`, `tabbingIdentifier` `:45`). Consequences, all structural:
+
+1. A macOS window tab **is a window**, so an editor tab beside a terminal tab means an editor `NSWindow`
+   with its own `contentView` — hence **no shared sidebar**, and the file tree duplicated per tab.
+2. The system tab bar spans the full window width, so a **full-height sidebar is not expressible**;
+   Terax's (and VS Code's) sidebar runs floor-to-ceiling beside the tab strip.
+3. There is no container to hold "these N tabs belong to project X" — **no analogue of Spaces.**
+
+So `app/README.md` + `AFK.md`'s convention *"Native window tabs are load-bearing… do not replace them
+with a custom tab bar"* is **correct for a terminal and wrong for the stated product.** It was written
+in Step 2 when the goal was still misread as "terminal that hosts afk."
+
+**This, not time and not Step 3, is what gates the editor and file tree.** And it gets more expensive
+per feature that accretes on the current shape.
+
+### 12.3 RESOLVED 2026-07-27 — (C) hybrid
+
+Operator picked **(C)**, and delegated the remaining calls ("c then whstever u think is best"). The
+three branches as put to him:
+
+- **(A) Keep native window tabs.** Cheapest; forfeits the Terax shape. Per-window sidebar at best,
+  editor never lands cleanly.
+- **(B) Replace with an in-window tab strip** (what Terax and every Electron IDE do). Unlocks the shape;
+  you hand-roll and then own forever: ⌘⇧[/] cycling, tab overview, drag-reorder, drag-out-to-detach,
+  Merge All Windows, full-screen behaviour, VoiceOver — all of which are currently **free**.
+- **(C) Hybrid — recommended.** Native window tabs are promoted to **Spaces/projects** (one `NSWindow`
+  per project root, keeping every free system affordance at the level where detach/merge actually mean
+  something), and a hand-rolled in-window strip carries documents (terminal/editor/diff) inside each
+  window. Sidebar becomes that window's content, full-height, beside the document strip. Pays the
+  hand-roll cost only where unavoidable, and is arguably *more* Mac-native than Terax.
+
+**Chosen: (C).** The next substantive commitment is therefore the **container hierarchy**. §6 Step 3
+(Observer panel) is **not** displaced so much as *absorbed*: it becomes a sidebar rail view beside the
+file tree, which is exactly Terax's Explorer-XOR-SourceControl pattern (§12.1). G6 still gates
+everything — if SwiftTerm #494 kills the terminal premise, none of this matters.
+
+### 12.4 Decision set for (C) — settled 2026-07-27 under delegated judgment
+
+1. **A Space is a project-root directory.** `NSWindow` ⇢ Space ⇢ N documents. Window title is the
+   root's `lastPathComponent`. **Default root is `$HOME`** — a deliberate placeholder: a login shell
+   starts there anyway, and there is no folder-open action yet. `hostCurrentDirectoryUpdate`
+   (OSC 7, `TerminalPane.swift:187`) is *not* used to derive it, because macOS zsh does not emit OSC 7
+   without shell integration, which is still unbuilt.
+2. **Native window tabs are kept and re-pointed at Spaces.** Same `tabbingIdentifier`, same
+   `addTabbedWindow`. This is the whole point of (C): ⌘⇧[ / ⌘⇧] cycling, tab overview, drag-reorder,
+   drag-out-to-detach and Merge All Windows keep working for free, at the level where detaching and
+   merging actually mean something — a *project*, not a shell.
+3. **Documents get a hand-rolled in-window strip**, over the document area only (VS Code's shape), not
+   spanning the sidebar (Terax's shape). The strip is heterogeneous by construction — a `SpaceDocument`
+   protocol — but `TerminalPane` is its only conformer today. Editor/diff/observer tabs slot in later
+   with no further restructuring; that is the unlock this whole change buys.
+4. **Keymap.** ⌘N new Space · ⌘T new document · ⌘W closes the *document*, falling through to closing the
+   Space when it is the last one · ⌘⌥← / ⌘⌥→ cycle documents · ⌘1…⌘9 select by index · ⌘B toggles the
+   sidebar. ⌘0 is untouched (Actual Size). **⌘⌥arrows are verified safe** against
+   `KeyBindings.swift`: its guard is `intent == [.command]` — *exact* equality on the masked set — so
+   adding Option falls through to SwiftTerm rather than colliding with the ⌘←/⌘→ line-editing bytes.
+5. **Sidebar is `NSSplitViewController` + `NSSplitViewItem(sidebarWithViewController:)`**, not a
+   hand-rolled split. That buys system sidebar vibrancy, collapse animation, and a free
+   `toggleSidebar(_:)` responder. Width min 150 / max 480 (Terax's cap, §12.1) / default 220.
+6. **Still no `fullSizeContentView`.** A sidebar item is the textbook reason to reach for it, and it is
+   declined on purpose: `TerminalWindowController.swift:29-38` records that this exact flag once clipped
+   the terminal's top ~1.7 rows — where the prompt, caret and echo live. AppKit would *probably* handle
+   the safe area correctly now that the terminal is nested two levels deeper, but "probably" is not
+   worth re-opening a bug that cost real debugging. Sidebar sits below an opaque titlebar.
+7. **Font zoom fans out across Spaces × documents**, not windows × one pane. Same rationale as the
+   original (`AppDelegate.swift:69-71`): zoom is a property of your eyes, not of one tab.
+
+**Consequence for the docs:** `AFK.md` and `app/README.md` both assert "native window tabs are
+load-bearing — do not replace them with a custom tab bar." Under (C) that is half-true and must be
+restated: native tabs are load-bearing **for Spaces**; documents are a custom strip by design.
