@@ -1,7 +1,10 @@
 # Emulator foundation: pin the vendor, correct the record, probe libghostty
 
-**Status (2026-07-27):** Step 0 in progress · Step 1 (probe) not started · supersedes nothing;
-**amends** `native-swift-terminal-afk-host.md` §9 risk 1, §11 G2, and §12's Step 3/4 ordering.
+**Status (2026-07-27):** Step 0 **DONE** (`114e9f8`, `f1e59a8`, `4053a7a`) · Step 1 probe **RUN, D
+chosen** — see §6.1 (flip-condition check) and §6.2 (spike results, branch `afk/libghostty-spike`
+@ `123919f`) · next is §6.2's "Next, in order" list, starting at `GhosttyPane: SpaceDocument` ·
+supersedes nothing; **amends** `native-swift-terminal-afk-host.md` §9 risk 1, §11 G2, and §12's
+Step 3/4 ordering.
 
 Companion to the plan of record. Read `native-swift-terminal-afk-host.md` first — this document
 does not restate it, it corrects two of its findings and inserts a decision procedure ahead of its
