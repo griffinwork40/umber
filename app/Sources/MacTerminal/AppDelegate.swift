@@ -66,9 +66,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? TerminalWindowController.open.last?.pane
     }
 
-    @objc func biggerFont(_ sender: Any?) { focusedPane?.adjustFontSize(by: 1) }
-    @objc func smallerFont(_ sender: Any?) { focusedPane?.adjustFontSize(by: -1) }
-    @objc func resetFont(_ sender: Any?) { focusedPane?.resetFontSize() }
+    /// Zoom every pane, not just the focused one. Per-pane sizing reads as a bug
+    /// in a tabbed terminal: you zoom because the text is too small for your eyes
+    /// and this screen, which is not a property of one tab.
+    private func zoomAllPanes(by delta: CGFloat) {
+        guard let anchor = focusedPane else { return }
+        let target = anchor.currentFontSize + delta
+        anchor.setFontSize(target)
+        // Mirror the anchor's post-clamp size so every pane agrees even at a bound.
+        let settled = anchor.currentFontSize
+        for controller in TerminalWindowController.open where controller.pane !== anchor {
+            controller.pane.setFontSize(settled, persist: false)
+        }
+    }
+
+    @objc func biggerFont(_ sender: Any?) { zoomAllPanes(by: 1) }
+    @objc func smallerFont(_ sender: Any?) { zoomAllPanes(by: -1) }
+
+    @objc func resetFont(_ sender: Any?) {
+        for controller in TerminalWindowController.open { controller.pane.resetFontSize() }
+    }
 
     // MARK: - Menu
 
@@ -111,7 +128,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // View menu
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
+        // Shown as ⌘+ because that is what people read, but a key equivalent of
+        // "+" only matches the literal plus glyph — i.e. ⌘⇧=. Pressing ⌘= (what
+        // everyone actually does, and what every other app honours) matched
+        // nothing in v0.1, so zoom appeared not to work at all. Verified with a
+        // performKeyEquivalent harness: a HIDDEN item still matches its key
+        // equivalent, which is the standard way to register the ⌘= alias without
+        // showing a duplicate row in the menu.
         viewMenu.addItem(withTitle: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "+")
+        let plusAlias = NSMenuItem(
+            title: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "=")
+        plusAlias.isHidden = true
+        viewMenu.addItem(plusAlias)
         viewMenu.addItem(withTitle: "Smaller Font", action: #selector(smallerFont(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(resetFont(_:)), keyEquivalent: "0")
         viewMenu.addItem(.separator())
@@ -133,7 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let starterConfig = """
     {
       "// font": "any installed monospaced family; omit family for SF Mono (the system monospaced face, and the default)",
-      "font": { "family": "SF Mono", "size": 13 },
+      "// font.size": "points, 6-48. Default 14. Cmd+ / Cmd- zoom live on top of this and persist; Cmd0 clears the zoom and hands control back to this value.",
+      "font": { "family": "SF Mono", "size": 14 },
 
       "// cursor": "block | steady-block | bar | steady-bar | underline | steady-underline",
       "cursor": "block",

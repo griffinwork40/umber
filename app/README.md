@@ -32,7 +32,10 @@ Spotlight, and behaves like an app rather than a stray process.
 - **Native macOS window tabs** — ⌘T for a tab, ⌘N for a window. Because these
   are real system tabs, ⌘⇧[ / ⌘⇧] cycling, the tab overview, drag-to-reorder,
   drag-out-to-detach, and Merge All Windows all work without being implemented.
-- Config file with live reload (⌘R), font sizing (⌘+ / ⌘- / ⌘0), full screen (⌘F)
+- Config file with live reload (⌘R), full screen (⌘F)
+- **Font sizing that sticks** — ⌘+ / ⌘- zoom every tab at once and the level
+  survives new tabs and relaunches; ⌘0 clears the zoom and hands control back
+  to `font.size`. Default is 14pt
 - Copy/paste/select-all, window position restored across launches
 - **No palette installed by default** — and that is the considered choice, not a
   gap. SwiftTerm generates ANSI indices 16–255 by interpolating between the
@@ -59,7 +62,7 @@ working terminal.
 
 ```json
 {
-  "font": { "family": "SF Mono", "size": 13 },
+  "font": { "family": "SF Mono", "size": 16 },
   "cursor": "block",
   "scrollback": 1000,
   "optionAsMeta": true,
@@ -72,6 +75,7 @@ Omit `theme` entirely — the default — and no colours are installed at all.
 | Field | Notes |
 |---|---|
 | `font.family` | Any installed monospaced family. Omitted, or set to `SF Mono`/`system`, gives the system monospaced face (SF Mono) — the default. An unavailable family warns and falls back to it. Note `NSFont(name: "SF Mono")` returns nil, so SF Mono is only reachable via that alias, never by name |
+| `font.size` | Points, **6–48**, default **14**. Out of range warns and uses the default rather than silently clamping. ⌘+ / ⌘- zoom on top of this and persist; ⌘0 clears the zoom so this value applies again |
 | `cursor` | `block`, `steady-block`, `bar`, `steady-bar`, `underline`, `steady-underline` |
 | `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line three times on each window resize |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |

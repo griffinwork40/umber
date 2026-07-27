@@ -19,7 +19,9 @@ Launchable and usable. Not yet daily-driven long enough to trust.
 your real `PATH` and rc files load) · **native macOS window tabs**, which means
 ⌘⇧[ / ⌘⇧] cycling, the tab overview, drag-to-reorder, drag-out-to-detach and
 Merge All Windows all work without being implemented · JSON config with live
-reload (⌘R) and per-field soft failure · font sizing · full screen ·
+reload (⌘R) and per-field soft failure · **font sizing that sticks** (⌘+/⌘−
+zoom every tab and persist across relaunch; ⌘0 resets; 14pt default,
+`font.size` 6–48 in config) · full screen ·
 copy/paste/select-all · window position restored across launches · **no palette
 installed by default**, deliberately — SwiftTerm derives ANSI 16–255 from your
 background and foreground, so installing a theme silently replaces the standard

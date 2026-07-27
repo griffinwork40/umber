@@ -126,6 +126,37 @@ private struct ConfigFile: Decodable {
     var optionAsMeta: Bool?
 }
 
+// MARK: - Font zoom
+
+/// The live ⌘+ / ⌘− zoom level, app-wide and persisted.
+///
+/// Deliberately **not** written back into `config.json`: that file is
+/// hand-edited and carries the user's own comments, so an app that rewrote it
+/// would clobber them. `UserDefaults` is the idiomatic home for transient UI
+/// state of exactly this kind.
+///
+/// `nil` means "no zoom — use the configured size", which is what ⌘0 restores.
+/// It is app-wide rather than per-pane because the alternative is what v0.1
+/// shipped: zooming in one tab left every other tab, every tab opened
+/// afterwards, and every subsequent launch back at the configured size.
+enum FontZoom {
+    private static let key = "MacTerminal.fontSizeOverride"
+
+    static var override: CGFloat? {
+        get {
+            let stored = UserDefaults.standard.double(forKey: key)
+            return stored > 0 ? CGFloat(stored) : nil
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(Double(newValue), forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+}
+
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
 /// partially-invalid config file yields defaults for whatever could not be read,
 /// and the reasons are surfaced in `warnings` rather than thrown.
@@ -145,6 +176,17 @@ struct AppConfig {
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
+    /// 14pt, not 13. The default has to be comfortable on a Retina display
+    /// without touching a config file, and 13 read as cramped in use. Both
+    /// `font.size` and ⌘+ / ⌘− override this.
+    static let defaultFontSize: Double = 14
+
+    /// Bounds for both `font.size` and the live zoom. Below ~6pt the glyphs stop
+    /// being legible; above ~48 a standard window holds too few columns for a TUI
+    /// to lay out. Shared so the config path and the zoom path cannot disagree.
+    static let minFontSize: Double = 6
+    static let maxFontSize: Double = 48
+
     static var configURL: URL {
         FileManager.default
             .homeDirectoryForCurrentUser
@@ -154,7 +196,7 @@ struct AppConfig {
     /// A default that is intended to look good with zero configuration.
     static func defaults() -> AppConfig {
         AppConfig(
-            font: preferredMonoFont(family: nil, size: 13).font,
+            font: preferredMonoFont(family: nil, size: defaultFontSize).font,
             theme: nil,
             cursorStyle: .blinkBlock,
             // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
@@ -182,8 +224,19 @@ struct AppConfig {
             return config
         }
 
-        // Font
-        let size = file.font?.size ?? 13
+        // Font. An out-of-range size is reported rather than silently clamped:
+        // every other field in this file explains itself when it is ignored, and
+        // a size that quietly did nothing is precisely the failure that makes a
+        // configurable setting feel unconfigurable.
+        var size = defaultFontSize
+        if let requested = file.font?.size {
+            if requested >= minFontSize && requested <= maxFontSize {
+                size = requested
+            } else {
+                config.warnings.append(
+                    "font.size \(requested) is outside \(Int(minFontSize))–\(Int(maxFontSize)) — using \(Int(size))")
+            }
+        }
         let resolvedFont = preferredMonoFont(family: file.font?.family, size: size)
         config.font = resolvedFont.font
         if let warning = resolvedFont.warning { config.warnings.append(warning) }

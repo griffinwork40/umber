@@ -36,7 +36,10 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     init(config: AppConfig, frame: NSRect) {
         self.config = config
-        self.fontSize = config.font.pointSize
+        // A zoom set with ⌘+ applies to every pane, including ones opened later
+        // and ones opened in a future launch — so a new tab never springs back to
+        // the configured size while the tab beside it stays zoomed.
+        self.fontSize = FontZoom.override ?? config.font.pointSize
         // LocalProcessTerminalView only exposes init(frame:) — the font-taking
         // initialiser belongs to TerminalView and is not inherited here, so the
         // font is applied via the property in apply(config:) below.
@@ -84,7 +87,10 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         }
         view.optionAsMetaKey = config.optionAsMeta
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
-        setFontSize(fontSize)
+        // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
+        // hitting ⌘R actually changes the size. A live ⌘+ zoom still outranks the
+        // file — ⌘0 drops it and hands control back to the config.
+        setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
         // `MT_DIAG=1` dumps the resolved appearance state to stderr. This app has
         // no test target, so this is its only observability: it is what caught
         // the Menlo-instead-of-SF-Mono fallback and the collapsed scrollbar
@@ -99,7 +105,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
             [diag] theme=\(config.theme == nil ? "nil(SwiftTerm-defaults)" : "custom") \
             strategy=\(t.ansi256PaletteStrategy) scrollback=\(config.scrollback) \
             rows=\(t.rows) thumbNow=\(String(format: "%.3f", view.scrollThumbsize)) \
-            thumbWhenFull=\(String(format: "%.4f", projected)) font=\(view.font.fontName)\n
+            thumbWhenFull=\(String(format: "%.4f", projected)) font=\(view.font.fontName) \
+            size=\(view.font.pointSize) configSize=\(config.font.pointSize) \
+            zoom=\(FontZoom.override.map { String(describing: $0) } ?? "none")\n
             """.data(using: .utf8)!)
         }
     }
@@ -121,19 +129,46 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     // MARK: - Font sizing
 
-    private static let minFontSize: CGFloat = 6
-    private static let maxFontSize: CGFloat = 48
+    private static let minFontSize = CGFloat(AppConfig.minFontSize)
+    private static let maxFontSize = CGFloat(AppConfig.maxFontSize)
 
-    func setFontSize(_ size: CGFloat) {
+    /// Resize the configured face. Derived from the resolved font's **descriptor**,
+    /// not re-resolved from its family name: the system monospaced face is
+    /// `.AppleSystemUIFontMonospaced`, a dot-prefixed internal family that is not
+    /// guaranteed to survive `NSFont(name:)`, and the old code's fallback for that
+    /// miss was hardcoded Menlo — the exact silent substitution that made v0.1
+    /// render worse than the spike (see `Config.preferredMonoFont`). The
+    /// descriptor carries the resolved face, so zooming cannot change it.
+    private func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
+        NSFont(descriptor: base.fontDescriptor, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    /// `persist: false` is for applying someone else's already-stored zoom (a
+    /// reload, or a newly-opened tab) — only a real user gesture should write.
+    func setFontSize(_ size: CGFloat, persist: Bool = true) {
         let clamped = min(max(size, Self.minFontSize), Self.maxFontSize)
         fontSize = clamped
-        let family = config.font.familyName ?? "Menlo"
-        view.font = NSFont(name: family, size: clamped)
-            ?? NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+        view.font = resized(config.font, to: clamped)
+        if persist {
+            // Store nothing when the zoom lands back on the configured size, so
+            // editing `font.size` later still takes effect instead of being
+            // permanently masked by a stale override.
+            FontZoom.override = clamped == config.font.pointSize ? nil : clamped
+        }
     }
 
     func adjustFontSize(by delta: CGFloat) { setFontSize(fontSize + delta) }
-    func resetFontSize() { setFontSize(config.font.pointSize) }
+
+    /// ⌘0 — back to the configured size, dropping the stored zoom.
+    func resetFontSize() {
+        FontZoom.override = nil
+        setFontSize(config.font.pointSize, persist: false)
+    }
+
+    /// The size this pane is currently rendering at, so a zoom applied in one tab
+    /// can be mirrored into the others.
+    var currentFontSize: CGFloat { fontSize }
 
     // MARK: - LocalProcessTerminalViewDelegate
 
