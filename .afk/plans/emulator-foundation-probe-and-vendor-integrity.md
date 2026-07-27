@@ -230,6 +230,67 @@ genuine differentiator — nearly every competitor hand-rolls SwiftUI chrome and
 drag-out-to-detach, Merge All Windows, the tab overview, and the accessibility that comes free with
 real `NSWindow` tabs.
 
+## 6.1 Flip-condition check on D — run 2026-07-27, after choosing D
+
+§6 named two capabilities that, if libghostty could not deliver them, would reopen the A/D
+trade: **scrollback search** (just shipped on SwiftTerm in under 3 hours, `114e9f8`) and the
+**image protocols** (SwiftTerm verifiably ships sixel + kitty graphics + iTerm2 inline).
+Checked both. Result: **D survives, but search stops being free.**
+
+**Search — engine yes, UI no, wrapper no.** `include/ghostty.h` exposes 90 `GHOSTTY_API`
+functions and **not one of them initiates or drives a search.** What exists is the opposite
+direction — outbound *actions* libghostty emits to the host:
+
+```c
+// apprt.action.StartSearch.C
+typedef struct { const char* needle; }  ghostty_action_start_search_s;
+typedef struct { ssize_t total; }       ghostty_action_search_total_s;
+typedef struct { ssize_t selected; }    ghostty_action_search_selected_s;
+```
+plus `GHOSTTY_ACTION_START_SEARCH` / `_END_SEARCH` / `_SEARCH_TOTAL` / `_SEARCH_SELECTED`.
+
+Contrast selection, which *does* have callable entry points (`ghostty_surface_has_selection`,
+`ghostty_surface_read_selection`, `ghostty_surface_read_text`). So the matching engine lives
+inside libghostty and is driven by its own keybinding layer; the embedder is told the match
+total and selected index so it can render its own find bar. The escape hatch for triggering
+it is `performBindingAction(_:)` (GhosttyKit README). Net: search is **reachable but
+unbuilt** — a day or two of find-bar UI consuming the action stream, not 3 hours of menu
+plumbing, and not "implement scrollback matching from scratch" either.
+
+Worse in the short term: GhosttyKit's *documented* API surface
+(`lakr233.github.io/libghostty-spm/api/terminal.html`) contains **no search of any kind** —
+no method, no delegate — across `TerminalViewState`, `TerminalSurfaceView`, `TerminalView`,
+`TerminalController`, `InMemoryTerminalSession`. So today the action stream would have to be
+reached below the wrapper, or the wrapper extended upstream.
+
+**Images: not checked, and lower risk.** Sixel/kitty graphics are renderer-internal rather
+than API surface, so they plausibly "just render" without an embedder-visible entry point —
+but that is an inference, not a verified fact. Flagged as open.
+
+**The offsetting find, which is larger than the loss.** `TerminalViewState` already publishes:
+
+```swift
+@Published public internal(set) var workingDirectory: String? { get }
+@Published public internal(set) var lastCommandExitCode: Int? { get }
+@Published public internal(set) var lastCommandDurationNanos: UInt64? { get }
+```
+
+That is OSC 7 **and** OSC 133 command telemetry, already parsed and surfaced as observable
+state. On SwiftTerm those were costed at ~1 day (OSC 7) + ~3 days (OSC 133) in the discarded
+ordering, and `TerminalPane.hostCurrentDirectoryUpdate` is still an empty stub. It is also
+precisely the substrate the Observer panel needs — i.e. the differentiator identified in §4.2
+arrives closer to free on this foundation than on SwiftTerm.
+
+**Revised trade:** give up a 3-hour ⌘F win and owe a day or two of find-bar UI; get ~4 days of
+shell integration, command telemetry as first-class state, and the four SwiftTerm ceilings
+(reflow, threading, ligatures, GPU) gone. Still clearly favourable. **Decision stands: D.**
+
+**Consequence for Step 1.** The spike gains a task and an ordering change: before wrapping
+anything as a `SpaceDocument`, confirm (a) a login shell renders, and (b) `performBindingAction`
+can start a search and the action stream reports totals. If (b) fails, search must be rebuilt
+on `ghostty_surface_read_text` with no incremental highlighting — which is the one outcome that
+would make the trade genuinely close, and is worth knowing on day one rather than day two.
+
 ## 7. Risks this plan accepts
 
 1. **The probe may cost two days and return nothing.** Bounded by the kill criterion.
