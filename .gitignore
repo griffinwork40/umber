@@ -11,3 +11,6 @@ build/
 # Vendored, locally-patched SwiftTerm copy (upstream v1.15.0 + one exclude line).
 # Recreation is documented in app/README.md ("Dependency note").
 vendor/
+
+# Python bytecode from Scripts/
+__pycache__/

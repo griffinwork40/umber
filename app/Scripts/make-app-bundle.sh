@@ -47,6 +47,19 @@ for bundle in "$BIN_DIR"/*.bundle; do
 done
 shopt -u nullglob
 
+# App icon. Resources/Umber.icns is committed so a build needs no Python or
+# Pillow; regenerate it with Scripts/make-icon.py --icns when the design changes.
+ICON_SRC="$ROOT/Resources/$APP_NAME.icns"
+if [[ -f "$ICON_SRC" ]]; then
+  cp "$ICON_SRC" "$APP/Contents/Resources/$APP_NAME.icns"
+  ICON_PLIST_ENTRY="	<key>CFBundleIconFile</key>
+	<string>$APP_NAME</string>
+"
+else
+  echo "==> warning: $ICON_SRC missing; bundling without an icon" >&2
+  ICON_PLIST_ENTRY=""
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,7 +73,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<string>$APP_NAME</string>
 	<key>CFBundleDisplayName</key>
 	<string>$APP_NAME</string>
-	<key>CFBundlePackageType</key>
+${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$VERSION</string>
