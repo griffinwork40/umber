@@ -31,7 +31,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
     let space: SpaceViewController
 
+    /// This Space's project root. Stored, not just handed to `SpaceViewController`,
+    /// so `AppDelegate.openFolder` can focus an already-open Space for a folder
+    /// instead of opening a second Space onto the same directory.
+    let root: URL
+
     init(config: AppConfig, root: URL) {
+        self.root = root
         let frame = NSRect(x: 0, y: 0, width: 1100, height: 680)
         self.space = SpaceViewController(config: config, root: root)
 

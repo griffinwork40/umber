@@ -26,10 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
-    /// A Space's project root. `$HOME` is a deliberate placeholder until there is a
-    /// folder-open action: a login shell starts there anyway, and OSC 7 — the other
-    /// way to learn a real cwd — is not emitted by macOS zsh without shell
-    /// integration, which is unbuilt (plan §12.4 item 1).
+    /// The root a Space gets when the user did not name one (⌘N, ⌘⇧N, first launch).
+    /// `$HOME` because a login shell starts there anyway. Naming a real project root
+    /// is now ⌘O — `openFolder(_:)` — which is what the sidebar file tree is for.
     private var defaultSpaceRoot: URL { FileManager.default.homeDirectoryForCurrentUser }
 
     /// ⌘N — a new Space, joining the existing tab group. A system tab *is* a Space
@@ -43,6 +42,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func newSpaceInWindow(_ sender: Any?) {
         SpaceWindowController(config: config, root: defaultSpaceRoot).present()
+    }
+
+    /// ⌘O — choose a project folder and open it as a Space.
+    ///
+    /// This is what makes the sidebar file tree worth having: until now every Space
+    /// rooted at `$HOME`, so the tree showed the home directory and nothing else was
+    /// reachable. The root was already a threaded init parameter
+    /// (`SpaceWindowController.init(config:root:)` → `SpaceViewController` →
+    /// `FileTreeViewController`), so this action only has to supply a URL.
+    ///
+    /// Re-opening a folder that already has a Space focuses it instead of making a
+    /// duplicate — two Spaces onto one root would give the same project two file
+    /// trees and two titles with no way to tell them apart.
+    @objc func openFolder(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a project folder to open as a Space."
+        panel.prompt = "Open as Space"
+        // Start where the focused Space already is, so opening a sibling project is
+        // one level up rather than a walk from $HOME.
+        panel.directoryURL = focusedSpaceWindow?.root ?? defaultSpaceRoot
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // resolvingSymlinksInPath so /tmp and /private/tmp — or any symlinked
+        // checkout — do not read as two different roots and defeat the dedupe.
+        let target = url.resolvingSymlinksInPath()
+        if let existing = SpaceWindowController.open.first(
+            where: { $0.root.resolvingSymlinksInPath() == target })
+        {
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let host = NSApp.keyWindow ?? SpaceWindowController.open.last?.window
+        SpaceWindowController(config: config, root: url).presentAsTab(relativeTo: host)
     }
 
     /// ⌘T — a new document inside the focused Space. This is the semantic change at
@@ -95,9 +132,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    /// The Space whose window has focus, falling back to the most recently opened.
+    /// Same resolution order as `focusedSpace`; this one keeps the window controller
+    /// because `openFolder` needs its `root`, which `SpaceViewController` does not
+    /// expose.
+    private var focusedSpaceWindow: SpaceWindowController? {
+        SpaceWindowController.open.first { $0.window === NSApp.keyWindow }
+            ?? SpaceWindowController.open.last
+    }
+
     private var focusedSpace: SpaceViewController? {
-        SpaceWindowController.open.first { $0.window === NSApp.keyWindow }?.space
-            ?? SpaceWindowController.open.last?.space
+        focusedSpaceWindow?.space
     }
 
     /// Every terminal in every Space. Zoom and config reload are app-wide, so they
@@ -162,6 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         newWindowItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(newWindowItem)
         fileMenu.addItem(.separator())
+        fileMenu.addItem(
+            withTitle: "Open Folder…", action: #selector(openFolder(_:)), keyEquivalent: "o")
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newDocument(_:)), keyEquivalent: "t")
         // ⌘W closes the document. Closing the whole Space out from under the other
         // terminals in it is ⌘⇧W, which is the ordering every tabbed app uses.
@@ -179,6 +227,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+
+        // Scrollback search. Nothing here implements searching — SwiftTerm already
+        // ships the engine, the find bar, and the validation:
+        // `performFindPanelAction` is `@objc open`
+        // (`Mac/MacTerminalView.swift:2169`), it dispatches on `NSFindPanelAction`
+        // raw values to `showFindBar` / `performFind(next:)`, and
+        // `validateUserInterfaceItem` (`:2119`) already returns true for
+        // showFindPanel/next/previous and gates setFindString on an active
+        // selection. `UmberTerminalView` inherits all of it, so this menu is the
+        // only missing piece.
+        //
+        // Two details that are load-bearing:
+        //   * target stays nil so AppKit walks the responder chain to the focused
+        //     terminal view. A hardcoded target would break the moment splits exist.
+        //   * `performFindPanelAction` early-returns unless the sender IS an
+        //     NSMenuItem and reads `menuItem.tag`, so every item below must carry a
+        //     tag or it silently does nothing.
+        let findItems: [(String, String, NSEvent.ModifierFlags, NSFindPanelAction)] = [
+            ("Find…", "f", [.command], .showFindPanel),
+            ("Find Next", "g", [.command], .next),
+            ("Find Previous", "g", [.command, .shift], .previous),
+            ("Use Selection for Find", "e", [.command], .setFindString),
+        ]
+        for (title, key, mask, action) in findItems {
+            let item = NSMenuItem(
+                title: title,
+                action: #selector(NSTextView.performFindPanelAction(_:)),
+                keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            item.tag = Int(action.rawValue)
+            editMenu.addItem(item)
+        }
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
@@ -200,7 +281,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Smaller Font", action: #selector(smallerFont(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(resetFont(_:)), keyEquivalent: "0")
         viewMenu.addItem(.separator())
-        viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        // ⌃⌘F, not ⌘F. ⌘F belonged to full screen until scrollback search existed,
+        // and ⌘F is search's key everywhere on this platform — so full screen moves
+        // rather than search taking a non-standard chord. ⌃⌘F is also what macOS
+        // itself uses (System Settings › Keyboard › Shortcuts), so this is a
+        // correction to the platform default, not a compromise.
+        let fullScreenItem = NSMenuItem(
+            title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
+            keyEquivalent: "f")
+        fullScreenItem.keyEquivalentModifierMask = [.control, .command]
+        viewMenu.addItem(fullScreenItem)
         viewMenu.addItem(.separator())
         // No custom action and no target: the responder chain reaches
         // SpaceViewController, which is the window's contentViewController and
