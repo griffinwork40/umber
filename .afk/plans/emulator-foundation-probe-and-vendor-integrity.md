@@ -291,6 +291,80 @@ can start a search and the action stream reports totals. If (b) fails, search mu
 on `ghostty_surface_read_text` with no incremental highlighting — which is the one outcome that
 would make the trade genuinely close, and is worth knowing on day one rather than day two.
 
+## 6.2 Step 1 spike results — 2026-07-27, branch `afk/libghostty-spike`
+
+Spike target `GhosttySpike` (that branch only; Umber's sources untouched), commit `123919f`.
+`libghostty-spm` resolved to **1.3.2**, a 51.8 MB prebuilt XCFramework, in 18 s, pulling two
+unexpected transitive dependencies: `msdisplaylink` 2.1.0 and `swift-argument-parser` 1.8.2.
+
+**Q3 — PTY cost: DISSOLVED, and my earlier claim was wrong.** `TerminalSessionBackend` has
+exactly two cases, `.exec` and `.inMemory`, and **`.exec` is the default**: libghostty spawns
+the child process itself and honours `workingDirectory` and `envVars`. The claim that Umber
+would have to own `forkpty` came from the README's examples, which use `.inMemory` because the
+sample app is sandboxed. Cost is zero, not a day.
+
+**Q1 — does a login shell render in AppKit: PASS, first build.** No PTY code. And shell
+integration is live with `configSource: .none` and no rc changes — actual transcript:
+
+```
+[spike] Q1: surface configured, backend=.exec (libghostty spawns the shell)
+[spike] OSC 7 pwd -> /Users/griffinlong/…/.afk-worktrees/libghostty-spike/app
+[spike] title -> griffinlong@Griffins-MacBook-Pro:~/Projects/…/app
+[spike] title -> …/.afk-worktrees/libghostty-spike/app      <- libghostty abbreviates paths itself
+```
+
+**Q2 — can an embedder start a search: FAIL.** All eight candidate spellings rejected by
+`performBindingAction`; two controls accepted:
+
+```
+control  scroll_to_top      -> true        search  toggle_search   -> false
+control  jump_to_prompt:-1  -> true        search  search          -> false
+control  copy_to_clipboard  -> false       search  open_search     -> false
+                                           search  show_search     -> false
+   (+ find, toggle_find, search_forward, start_search — all false)
+```
+
+Consistent with §6.1's ABI reading. **Caveat against overclaiming:** `false` can also mean
+"known action declined" — `copy_to_clipboard` returned false with no selection — so this is
+strong but not airtight proof that no search action exists under some unguessed name. Either
+way it is not drivable from an embedder today, and Ghostty's search UI plausibly lives in its
+own apprt (Swift app) layer rather than in libghostty.
+
+**Q4 — prompt navigation: PASS.** `jumpToPrompt(by: -1)` and `scrollToRow(0)` both returned
+true. So OSC 133 prompt navigation works even though search does not.
+
+**Bonus finding — the delegate surface covers much of "Not Built Yet."**
+`TerminalSurfacePwdDelegate` (OSC 7), `TerminalSurfaceCommandFinishedDelegate`
+(`exitCode` + `durationNanos`, OSC 133), `TerminalSurfaceHoverLinkDelegate` and
+`TerminalSurfaceOpenURLDelegate` (URL clicking), `TerminalSurfaceScrollbarDelegate`
+(`total`/`offset` — which also retires the ~3,500-line scrollbar-thumb risk in §7),
+`TerminalSurfaceProgressReportDelegate`, `TerminalSurfaceBellDelegate`,
+`TerminalSurfaceDesktopNotificationDelegate`. Also `AppTerminalView` is `open` **and already
+overrides `performKeyEquivalent`**, so `MacLineEditing`'s ⌘-chord table survives the swap by
+subclassing exactly as `UmberTerminalView` does today.
+
+### Verdict: proceed with D. The trade is now measured rather than estimated.
+
+| | |
+|---|---|
+| **Gained, verified by running** | OSC 7 pwd · OSC 133 command boundaries + prompt jumping · title abbreviation · Metal · CoreText shaping (ligatures) · threaded IO · no #494 · hover-link / open-URL / scrollbar / progress / bell / notification delegates · 485 themes |
+| **Lost, confirmed** | ⌘F scrollback search — must be rebuilt on `ghostty_surface_read_text`, without incremental highlighting. Estimate 2–4 days for a find bar with match navigation, versus the 1–3 hours SwiftTerm's ready-made bar cost in `114e9f8`. |
+| **New costs** | 51.8 MB opaque binary + 2 unexpected transitive deps · pre-stable ABI (pinned) · the auditable-vendor convention dies |
+
+This is precisely the outcome §6.1 called "the one outcome that makes the trade close," so it
+deserves a plain statement rather than a shrug: **it is close on search alone, and not close
+overall.** Rebuilding a find bar is bounded, self-contained work with no upstream dependency.
+SwiftTerm's four ceilings are unbounded and require becoming a terminal-engine maintainer,
+which contradicts plan §4.2's own founding principle.
+
+### Next, in order
+
+1. Wrap as `GhosttyPane: SpaceDocument` alongside `TerminalPane` (the seam's four methods).
+2. Subclass `AppTerminalView` for `MacLineEditing`, mirroring `UmberTerminalView`.
+3. Daily-drive both side by side; confirm narrowing-with-scrollback no longer corrupts.
+4. Build the find bar on `read_text` — the one real debt this decision takes on.
+5. Only then delete `TerminalPane`, `vendor/SwiftTerm`, the pin, and the patch.
+
 ## 7. Risks this plan accepts
 
 1. **The probe may cost two days and return nothing.** Bounded by the kill criterion.
