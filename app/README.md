@@ -46,9 +46,18 @@ UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to s
 
 - Real `.app` bundle, ad-hoc signed
 - Your login shell (`$SHELL -l`, so your real `PATH` and rc files load)
-- **Native macOS window tabs** — ⌘T for a tab, ⌘N for a window. Because these
-  are real system tabs, ⌘⇧[ / ⌘⇧] cycling, the tab overview, drag-to-reorder,
-  drag-out-to-detach, and Merge All Windows all work without being implemented.
+- **Spaces and documents — two tab levels.** A **Space** is a project root and is
+  a real native macOS window tab (⌘N), so ⌘⇧[ / ⌘⇧] cycling, the tab overview,
+  drag-to-reorder, drag-out-to-detach and Merge All Windows all work without being
+  implemented. **Documents** live in a hand-rolled strip inside a Space (⌘T,
+  ⌘⌥←/⌘⌥→, ⌘1–⌘9), because a system window tab *is* an `NSWindow` and could
+  therefore never share one sidebar across a mixed terminal/editor strip. The strip
+  hides itself at a single document. See plan §12.3.
+- **Sidebar file tree** (⌘B) — lazy `NSOutlineView` rooted at the Space, Finder
+  icons, dotfiles shown (`.git`/`.DS_Store` excluded), refreshed when the window
+  becomes key. Double-clicking a file types its quoted path into the focused
+  terminal — the pre-editor affordance; when an editor document kind exists it will
+  open in a tab instead.
 - Config file with live reload (⌘R), full screen (⌘F)
 - **Font sizing that sticks** — ⌘+ / ⌘- zoom every tab at once and the level
   survives new tabs and relaunches; ⌘0 clears the zoom and hands control back

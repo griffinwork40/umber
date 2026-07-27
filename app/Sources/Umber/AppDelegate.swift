@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
         }
         buildMenu()
-        newWindow(nil)
+        newSpaceInWindow(nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
@@ -26,13 +26,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
-    @objc func newWindow(_ sender: Any?) {
-        TerminalWindowController(config: config).present()
+    /// A Space's project root. `$HOME` is a deliberate placeholder until there is a
+    /// folder-open action: a login shell starts there anyway, and OSC 7 — the other
+    /// way to learn a real cwd — is not emitted by macOS zsh without shell
+    /// integration, which is unbuilt (plan §12.4 item 1).
+    private var defaultSpaceRoot: URL { FileManager.default.homeDirectoryForCurrentUser }
+
+    /// ⌘N — a new Space, joining the existing tab group. A system tab *is* a Space
+    /// under this design, and `tabbingMode = .preferred` already says macOS wants
+    /// these tabbed; ⌘⇧N exists for when a genuinely separate window is wanted.
+    @objc func newSpace(_ sender: Any?) {
+        let host = NSApp.keyWindow ?? SpaceWindowController.open.last?.window
+        SpaceWindowController(config: config, root: defaultSpaceRoot)
+            .presentAsTab(relativeTo: host)
     }
 
-    @objc func newTab(_ sender: Any?) {
-        let host = NSApp.keyWindow ?? TerminalWindowController.open.last?.window
-        TerminalWindowController(config: config).presentAsTab(relativeTo: host)
+    @objc func newSpaceInWindow(_ sender: Any?) {
+        SpaceWindowController(config: config, root: defaultSpaceRoot).present()
+    }
+
+    /// ⌘T — a new document inside the focused Space. This is the semantic change at
+    /// the heart of the restructure: it used to spawn a whole NSWindow.
+    @objc func newDocument(_ sender: Any?) {
+        guard let space = focusedSpace else { return newSpace(sender) }
+        space.addTerminalDocument()
+    }
+
+    /// ⌘W — close the *document*, falling through to the window only when it was the
+    /// last one (`SpaceViewController` reports that back via its delegate). Wiring ⌘W
+    /// straight to the window would throw away every other terminal in the project.
+    @objc func closeDocument(_ sender: Any?) {
+        guard let space = focusedSpace else { return NSApp.keyWindow?.performClose(sender) ?? () }
+        space.closeActiveDocument()
+    }
+
+    @objc func nextDocument(_ sender: Any?) { focusedSpace?.cycleDocument(by: 1) }
+    @objc func previousDocument(_ sender: Any?) { focusedSpace?.cycleDocument(by: -1) }
+
+    /// ⌘1…⌘9. The index rides in the menu item's `tag` so nine items share one action.
+    @objc func selectDocumentByIndex(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem else { return }
+        focusedSpace?.selectDocument(at: item.tag - 1)
     }
 
     /// Re-read the config file and apply it to every open pane, so tuning the
@@ -42,8 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for warning in config.warnings {
             FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
         }
-        for controller in TerminalWindowController.open {
-            controller.pane.apply(config: config)
+        for controller in SpaceWindowController.open {
+            controller.space.apply(config: config)
             // nil theme == SwiftTerm defaults, whose background is black.
             controller.window?.backgroundColor = config.theme?.background ?? .black
         }
@@ -61,22 +95,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    private var focusedSpace: SpaceViewController? {
+        SpaceWindowController.open.first { $0.window === NSApp.keyWindow }?.space
+            ?? SpaceWindowController.open.last?.space
+    }
+
+    /// Every terminal in every Space. Zoom and config reload are app-wide, so they
+    /// need the flattened list rather than one pane per window as before.
+    private var allPanes: [TerminalPane] {
+        SpaceWindowController.open.flatMap { $0.space.terminalPanes }
+    }
+
     private var focusedPane: TerminalPane? {
-        TerminalWindowController.open.first { $0.window === NSApp.keyWindow }?.pane
-            ?? TerminalWindowController.open.last?.pane
+        focusedSpace?.activeTerminalPane ?? allPanes.last
     }
 
     /// Zoom every pane, not just the focused one. Per-pane sizing reads as a bug
     /// in a tabbed terminal: you zoom because the text is too small for your eyes
-    /// and this screen, which is not a property of one tab.
+    /// and this screen, which is not a property of one tab — and now, not a
+    /// property of one Space either (plan §12.4 item 7).
     private func zoomAllPanes(by delta: CGFloat) {
         guard let anchor = focusedPane else { return }
         let target = anchor.currentFontSize + delta
         anchor.setFontSize(target)
         // Mirror the anchor's post-clamp size so every pane agrees even at a bound.
         let settled = anchor.currentFontSize
-        for controller in TerminalWindowController.open where controller.pane !== anchor {
-            controller.pane.setFontSize(settled, persist: false)
+        for pane in allPanes where pane !== anchor {
+            pane.setFontSize(settled, persist: false)
         }
     }
 
@@ -84,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func smallerFont(_ sender: Any?) { zoomAllPanes(by: -1) }
 
     @objc func resetFont(_ sender: Any?) {
-        for controller in TerminalWindowController.open { controller.pane.resetFontSize() }
+        for pane in allPanes { pane.resetFontSize() }
     }
 
     // MARK: - Menu
@@ -106,15 +151,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
-        // Shell menu
-        let shellItem = NSMenuItem()
-        let shellMenu = NSMenu(title: "Shell")
-        shellMenu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
-        shellMenu.addItem(withTitle: "New Tab", action: #selector(newTab(_:)), keyEquivalent: "t")
-        shellMenu.addItem(.separator())
-        shellMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        shellItem.submenu = shellMenu
-        mainMenu.addItem(shellItem)
+        // File menu — was "Shell". Renamed because its nouns are now Spaces and
+        // documents, and a document is not necessarily a shell any more.
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(withTitle: "New Space", action: #selector(newSpace(_:)), keyEquivalent: "n")
+        let newWindowItem = NSMenuItem(
+            title: "New Space in New Window", action: #selector(newSpaceInWindow(_:)),
+            keyEquivalent: "n")
+        newWindowItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(newWindowItem)
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "New Tab", action: #selector(newDocument(_:)), keyEquivalent: "t")
+        // ⌘W closes the document. Closing the whole Space out from under the other
+        // terminals in it is ⌘⇧W, which is the ordering every tabbed app uses.
+        fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeDocument(_:)), keyEquivalent: "w")
+        let closeSpaceItem = NSMenuItem(
+            title: "Close Space", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeSpaceItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(closeSpaceItem)
+        fileItem.submenu = fileMenu
+        mainMenu.addItem(fileItem)
 
         // Edit menu — the standard selectors; TerminalView implements them.
         let editItem = NSMenuItem()
@@ -144,8 +201,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(resetFont(_:)), keyEquivalent: "0")
         viewMenu.addItem(.separator())
         viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        viewMenu.addItem(.separator())
+        // No custom action and no target: the responder chain reaches
+        // SpaceViewController, which is the window's contentViewController and
+        // inherits toggleSidebar(_:) from NSSplitViewController. Using the system
+        // selector also gets the correct menu-item state and the collapse animation.
+        viewMenu.addItem(
+            withTitle: "Toggle Sidebar",
+            action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
+
+        // Navigate menu — document-level movement, deliberately NOT folded into the
+        // Window menu. That menu carries the standard role, and its native tab
+        // commands (Show All Tabs, Move Tab to New Window) act on *Spaces*; putting
+        // document navigation beside them would present two different tab levels as
+        // one list.
+        let navigateItem = NSMenuItem()
+        let navigateMenu = NSMenu(title: "Navigate")
+        let nextTabItem = NSMenuItem(
+            title: "Next Tab", action: #selector(nextDocument(_:)),
+            keyEquivalent: Self.functionKeyEquivalent(NSRightArrowFunctionKey))
+        nextTabItem.keyEquivalentModifierMask = [.command, .option]
+        navigateMenu.addItem(nextTabItem)
+        let previousTabItem = NSMenuItem(
+            title: "Previous Tab", action: #selector(previousDocument(_:)),
+            keyEquivalent: Self.functionKeyEquivalent(NSLeftArrowFunctionKey))
+        previousTabItem.keyEquivalentModifierMask = [.command, .option]
+        navigateMenu.addItem(previousTabItem)
+        navigateMenu.addItem(.separator())
+        // ⌘1…⌘9 only — ⌘0 is Actual Size and predates this menu.
+        for index in 1...9 {
+            let item = NSMenuItem(
+                title: "Tab \(index)", action: #selector(selectDocumentByIndex(_:)),
+                keyEquivalent: String(index))
+            item.tag = index
+            navigateMenu.addItem(item)
+        }
+        navigateItem.submenu = navigateMenu
+        mainMenu.addItem(navigateItem)
 
         // Window menu — giving it the standard role is what makes the native tab
         // commands (Show All Tabs, Move Tab to New Window, …) appear.
@@ -156,6 +250,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = mainMenu
         NSApp.windowsMenu = windowMenu
+    }
+
+    /// Arrow keys as a menu key equivalent: AppKit expresses them as function-key
+    /// code points, not ASCII, so `"→"` or `"\u{2192}"` would silently never match.
+    ///
+    /// ⌘⌥← / ⌘⌥→ are verified safe against `KeyBindings.swift`: its guard is
+    /// `intent == [.command]`, *exact* equality on the masked modifier set, so
+    /// adding Option cannot collide with the ⌘←/⌘→ line-editing bytes (^A/^E) —
+    /// the event falls through instead (plan §12.4 item 4).
+    private static func functionKeyEquivalent(_ functionKey: Int) -> String {
+        String(utf16CodeUnits: [unichar(functionKey)], count: 1)
     }
 
     private static let starterConfig = """
