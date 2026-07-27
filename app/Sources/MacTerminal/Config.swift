@@ -57,17 +57,22 @@ struct Theme {
     /// at construction rather than trusted.
     var ansi: [NSColor]
 
-    /// Tokyo Night. Chosen as the default because it is legible at small sizes
-    /// and does not fight the macOS window chrome.
-    static let tokyoNight = Theme(
-        background: NSColor.fromHex("#1a1b26")!,
-        foreground: NSColor.fromHex("#c0caf5")!,
-        cursor: NSColor.fromHex("#c0caf5")!,
+    /// AFK Dark — the default, because the whole point of this terminal is to
+    /// host agent-afk, and afk's own chrome should not fight the palette
+    /// underneath it. Taken verbatim from the `terminal` block of
+    /// `themes/terax/afk-dark.terax-theme` in the agent-afk repo, which is
+    /// itself a 1:1 port of that project's Cursor/VS Code and Ghostty themes:
+    /// a GitHub-Dark skeleton with the AFK warm-orange accent (#E67E4C) — which
+    /// is also the caret here, matching afk's brand tone.
+    static let afkDark = Theme(
+        background: NSColor.fromHex("#0D1117")!,
+        foreground: NSColor.fromHex("#C9D1D9")!,
+        cursor: NSColor.fromHex("#E67E4C")!,
         ansi: [
-            "#15161e", "#f7768e", "#9ece6a", "#e0af68",
-            "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
-            "#414868", "#f7768e", "#9ece6a", "#e0af68",
-            "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5",
+            "#161B22", "#F85149", "#9CB04A", "#E5C07B",
+            "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
+            "#484F58", "#F85149", "#A8E060", "#E67E4C",
+            "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4",
         ].map { NSColor.fromHex($0)! }
     )
 }
@@ -117,7 +122,7 @@ struct AppConfig {
     static func defaults() -> AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: 13).font,
-            theme: .tokyoNight,
+            theme: .afkDark,
             cursorStyle: .blinkBlock,
             scrollback: 10_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",

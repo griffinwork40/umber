@@ -146,14 +146,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
       "// theme": "ansi must contain exactly 16 colours: 8 normal then 8 bright",
       "theme": {
-        "background": "#1a1b26",
-        "foreground": "#c0caf5",
-        "cursor": "#c0caf5",
+        "background": "#0D1117",
+        "foreground": "#C9D1D9",
+        "cursor": "#E67E4C",
         "ansi": [
-          "#15161e", "#f7768e", "#9ece6a", "#e0af68",
-          "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
-          "#414868", "#f7768e", "#9ece6a", "#e0af68",
-          "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"
+          "#161B22", "#F85149", "#9CB04A", "#E5C07B",
+          "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
+          "#484F58", "#F85149", "#A8E060", "#E67E4C",
+          "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4"
         ]
       }
     }

@@ -20,8 +20,9 @@ your real `PATH` and rc files load) · **native macOS window tabs**, which means
 ⌘⇧[ / ⌘⇧] cycling, the tab overview, drag-to-reorder, drag-out-to-detach and
 Merge All Windows all work without being implemented · JSON config with live
 reload (⌘R) and per-field soft failure · font sizing · full screen ·
-copy/paste/select-all · window position restored across launches · Tokyo Night
-by default.
+copy/paste/select-all · window position restored across launches · **AFK Dark**
+by default — the palette from `agent-afk`'s own themes, so the agent's chrome
+and the terminal underneath it agree.
 
 **Not built:** splits · app icon · preferences UI (config is a JSON file) · shell
 integration (OSC 7/133) · search · URL clicking · profiles.

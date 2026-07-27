@@ -34,7 +34,10 @@ Spotlight, and behaves like an app rather than a stray process.
   drag-out-to-detach, and Merge All Windows all work without being implemented.
 - Config file with live reload (⌘R), font sizing (⌘+ / ⌘- / ⌘0), full screen (⌘F)
 - Copy/paste/select-all, window position restored across launches
-- Tokyo Night by default, because it should look good before you configure it
+- **AFK Dark** by default, because it should look good before you configure it —
+  the palette from [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s own
+  themes (`themes/terax/afk-dark.terax-theme`), so afk's chrome and the terminal
+  underneath it agree instead of clashing
 
 ## Not built yet
 
@@ -59,9 +62,9 @@ working terminal.
   "scrollback": 10000,
   "optionAsMeta": true,
   "theme": {
-    "background": "#1a1b26",
-    "foreground": "#c0caf5",
-    "cursor": "#c0caf5",
+    "background": "#0D1117",
+    "foreground": "#C9D1D9",
+    "cursor": "#E67E4C",
     "ansi": ["#15161e", "#f7768e", "…16 total…"]
   }
 }
@@ -75,6 +78,18 @@ working terminal.
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
+
+Tokyo Night was the default before AFK Dark; paste this into `theme` to get it back:
+
+```json
+"background": "#1a1b26", "foreground": "#c0caf5", "cursor": "#c0caf5",
+"ansi": [
+  "#15161e", "#f7768e", "#9ece6a", "#e0af68",
+  "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+  "#414868", "#f7768e", "#9ece6a", "#e0af68",
+  "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"
+]
+```
 
 ## Dependency note
 
