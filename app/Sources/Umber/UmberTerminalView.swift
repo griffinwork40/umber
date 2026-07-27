@@ -1,5 +1,5 @@
 //
-//  MTTerminalView.swift
+//  UmberTerminalView.swift
 //  SwiftTerm's view, plus this app's own key handling.
 //
 
@@ -28,7 +28,7 @@ import SwiftTerm
 ///    combos here is exactly how a view is supposed to take a ⌘ chord — and
 ///    returning false leaves every other ⌘ key (⌘C, ⌘T, ⌘+, …) to the menu,
 ///    untouched.
-final class MTTerminalView: LocalProcessTerminalView {
+final class UmberTerminalView: LocalProcessTerminalView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let bytes = MacLineEditing.controlBytes(
             keyCode: event.keyCode, modifiers: event.modifierFlags)

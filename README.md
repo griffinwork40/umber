@@ -1,4 +1,4 @@
-# mac-terminal
+# Umber
 
 A native macOS terminal, written in Swift/AppKit, with **no AI features** — built
 to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly.
@@ -8,8 +8,10 @@ lives *in* the terminal; the terminal itself should be a fast, correct, native
 window that gets out of the way. The bar is that it be beautiful and
 user-friendly as hell before it is clever.
 
-Personal project. `MacTerminal` in the source is a **placeholder name** — only
-`app/Scripts/make-app-bundle.sh` and the `Info.plist` it generates reference it.
+Personal project. The name is **Umber** — a warm earth pigment, after the app's
+own accent colour. Settled 2026-07-27; the candidates, availability checks, and
+reasoning are in
+[`.afk/research/naming-decision-2026-07-27.md`](.afk/research/naming-decision-2026-07-27.md).
 
 ## Status — v0.1
 
@@ -39,15 +41,15 @@ retained in the plan, below) plus use.
 ```sh
 cd app
 ./Scripts/make-app-bundle.sh release   # omit "release" for a debug build
-open build/MacTerminal.app
+open build/Umber.app
 ```
 
-`swift run MacTerminal` is a faster iteration loop, but the bundle is what you
+`swift run Umber` is a faster iteration loop, but the bundle is what you
 want for real use — Dock icon, Spotlight, behaves like an app rather than a
 stray process.
 
 First stop after launching is **⌘,**, which writes a commented starter config to
-`~/.config/macterminal/config.json` and opens it. **⌘R** reloads it live.
+`~/.config/umber/config.json` and opens it. **⌘R** reloads it live.
 
 ## Layout
 

@@ -292,6 +292,9 @@ Lands in **public `agent-afk`** (clean open-source core, per repo topology).
 > NOT shipped: splits, app icon, preferences UI, shell integration (OSC 7/133), search, URL clicking,
 > profiles. The name `MacTerminal` is a placeholder.
 >
+> **Resolved 2026-07-27:** named **Umber**, bundle id `com.griffinlong.umber`. Rationale and
+> availability checks in `.afk/research/naming-decision-2026-07-27.md`.
+>
 > Three API assumptions from the planning phase were WRONG and corrected by compiling:
 > `LocalProcessTerminalView` exposes only `init(frame:)` (the font-taking init belongs to
 > `TerminalView` and is not inherited); cursor style has no public initialiser either, so it is driven
@@ -456,7 +459,7 @@ verification (the first was the stale bracketed-paste `// TODO`, §4.2).
 ### Next action
 
 *(Superseded — G1 and G4 passed live; the spike harness is deleted. G6 now runs against the shipped
-app.)* Build and launch `app/` (`./Scripts/make-app-bundle.sh && open build/MacTerminal.app`) and
+app.)* Build and launch `app/` (`./Scripts/make-app-bundle.sh && open build/Umber.app`) and
 daily-drive it. G6 is the one that matters: leave a long session running, narrow the window repeatedly
 with scrollback present, overflow the scrollback, and compare against Ghostty side by side. If that
 stays clean, the terminal premise holds and the project is real.

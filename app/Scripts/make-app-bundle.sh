@@ -10,13 +10,13 @@
 # Usage:
 #   ./Scripts/make-app-bundle.sh [debug|release]
 #
-# Output: build/MacTerminal.app
+# Output: build/Umber.app
 #
 set -euo pipefail
 
 CONFIG="${1:-debug}"
-APP_NAME="MacTerminal"
-BUNDLE_ID="com.macterminal.app"
+APP_NAME="Umber"
+BUNDLE_ID="com.griffinlong.umber"
 VERSION="0.1.0"
 
 cd "$(dirname "$0")/.."

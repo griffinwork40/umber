@@ -14,7 +14,7 @@ import AppKit
 @MainActor
 final class TerminalWindowController: NSWindowController, NSWindowDelegate, TerminalPaneDelegate {
     /// Shared identifier is what makes separate windows join one tab group.
-    private static let tabbingIdentifier = "com.macterminal.terminal"
+    private static let tabbingIdentifier = "com.griffinlong.umber.terminal"
 
     /// Every open controller, so the app can find one to attach a new tab to and
     /// knows when the last window is gone.
@@ -60,7 +60,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         window.delegate = self
         pane.delegate = self
         // Restore position/size per identifier across launches.
-        window.setFrameAutosaveName("MacTerminalWindow")
+        window.setFrameAutosaveName("UmberWindow")
         window.makeFirstResponder(pane.view)
     }
 

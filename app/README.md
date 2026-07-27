@@ -1,10 +1,12 @@
-# MacTerminal
+# Umber
 
 A native macOS terminal, in Swift, with no AI features. Built to host
 [`agent-afk`](https://github.com/griffinwork40/agent-afk) well.
 
-`MacTerminal` is a **placeholder name** — rename freely. Only
-`Scripts/make-app-bundle.sh` and the `Info.plist` it generates reference it.
+Named **Umber**, after the warm earth pigment that matches its own accent colour
+(`#E67E4C`, see `Sources/Umber/Config.swift`). See
+[`../.afk/research/naming-decision-2026-07-27.md`](../.afk/research/naming-decision-2026-07-27.md)
+for how that was chosen.
 
 Step 2 of [`../.afk/plans/native-swift-terminal-afk-host.md`](../.afk/plans/native-swift-terminal-afk-host.md).
 
@@ -13,13 +15,13 @@ Step 2 of [`../.afk/plans/native-swift-terminal-afk-host.md`](../.afk/plans/nati
 ```sh
 ./Scripts/make-app-bundle.sh          # debug
 ./Scripts/make-app-bundle.sh release  # optimised
-open build/MacTerminal.app
+open build/Umber.app
 ```
 
 Or, for a quick iteration loop without bundling:
 
 ```sh
-swift run MacTerminal
+swift run Umber
 ```
 
 The bundle path is what you want for real use — it gets a Dock icon, appears in
@@ -37,7 +39,7 @@ env var, each aimed at something that has really gone wrong:
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
-MT_DIAG=1 swift run MacTerminal   # dumps resolved font/theme/scrollback state to stderr
+UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
 ```
 
 ## What works today (v0.1)
@@ -72,7 +74,7 @@ integration (OSC 7/133). Search. URL clicking. Profiles.
 
 ## Configuration
 
-Lives at `~/.config/macterminal/config.json`. It does not exist until you create
+Lives at `~/.config/umber/config.json`. It does not exist until you create
 it — **Settings… (⌘,) writes a commented starter file** and opens it. ⌘R reloads
 without restarting.
 

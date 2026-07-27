@@ -2,7 +2,7 @@
 //  Config.swift
 //  User configuration and theming.
 //
-//  Config lives at ~/.config/macterminal/config.json. Every field is optional;
+//  Config lives at ~/.config/umber/config.json. Every field is optional;
 //  anything absent falls back to a default that is meant to already look good,
 //  because the point of this app is that it is beautiful before you configure it.
 //
@@ -140,7 +140,7 @@ private struct ConfigFile: Decodable {
 /// shipped: zooming in one tab left every other tab, every tab opened
 /// afterwards, and every subsequent launch back at the configured size.
 enum FontZoom {
-    private static let key = "MacTerminal.fontSizeOverride"
+    private static let key = "Umber.fontSizeOverride"
 
     static var override: CGFloat? {
         get {
@@ -190,7 +190,7 @@ struct AppConfig {
     static var configURL: URL {
         FileManager.default
             .homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/macterminal/config.json")
+            .appendingPathComponent(".config/umber/config.json")
     }
 
     /// A default that is intended to look good with zero configuration.

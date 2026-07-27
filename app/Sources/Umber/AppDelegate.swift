@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu
 
     private func buildMenu() {
-        let appName = "MacTerminal"
+        let appName = "Umber"
         let mainMenu = NSMenu()
 
         // App menu

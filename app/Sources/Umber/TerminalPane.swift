@@ -27,7 +27,7 @@ protocol TerminalPaneDelegate: AnyObject {
 /// sanctioned migration path for an un-annotated dependency.
 @MainActor
 final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDelegate {
-    let view: MTTerminalView
+    let view: UmberTerminalView
     private(set) var currentTitle: String = ""
     weak var delegate: TerminalPaneDelegate?
 
@@ -43,7 +43,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // LocalProcessTerminalView only exposes init(frame:) — the font-taking
         // initialiser belongs to TerminalView and is not inherited here, so the
         // font is applied via the property in apply(config:) below.
-        self.view = MTTerminalView(frame: frame)
+        self.view = UmberTerminalView(frame: frame)
         super.init()
         view.processDelegate = self
         view.autoresizingMask = [.width, .height]
@@ -91,12 +91,12 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // hitting ⌘R actually changes the size. A live ⌘+ zoom still outranks the
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
-        // `MT_DIAG=1` dumps the resolved appearance state to stderr. This app has
+        // `UMBER_DIAG=1` dumps the resolved appearance state to stderr. This app has
         // no test target, so this is its only observability: it is what caught
         // the Menlo-instead-of-SF-Mono fallback and the collapsed scrollbar
         // thumb, both of which were invisible from the source alone. Costs
         // nothing when the variable is unset.
-        if ProcessInfo.processInfo.environment["MT_DIAG"] != nil {
+        if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
             let t = view.getTerminal()
             // Projected thumb once the scrollback is full — the steady state that
             // matters. `view.scrollThumbsize` right now is ~1.0 (empty buffer).
