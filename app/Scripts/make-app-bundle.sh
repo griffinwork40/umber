@@ -22,6 +22,12 @@ VERSION="0.1.0"
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
+# Verify the vendored SwiftTerm before compiling anything. vendor/ is gitignored and
+# app/Package.swift's path dependency is unpinned, so a re-vendored-but-unpatched tree
+# would otherwise build GREEN against a different dependency than the tested one —
+# see Scripts/verify-vendor.sh for why that case is silent and this one is not.
+"$ROOT/Scripts/verify-vendor.sh"
+
 echo "==> swift build -c $CONFIG"
 swift build -c "$CONFIG"
 

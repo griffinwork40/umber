@@ -1,0 +1,53 @@
+# SwiftTerm vendor pin — read by app/Scripts/verify-vendor.sh
+#
+# WHY THIS FILE EXISTS
+# vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not itself a git repo,
+# app/Package.swift:20 is an unpinned `.package(path:)`, and Package.resolved is
+# ignored too (.gitignore:6). So before this pin existed, NOTHING in the repository
+# recorded which upstream revision was vendored or that a local patch had been
+# applied to it. The failure was asymmetric and that is the whole problem:
+#
+#   * a MISSING vendor/ fails loudly  — SwiftPM cannot resolve the path dependency
+#   * a RE-VENDORED, UNPATCHED tree fails SILENTLY — it compiles and runs fine,
+#     because the patch only removes a build-time resource
+#
+# So following app/README.md's recreation steps faithfully but forgetting the patch
+# produced a green build with a different dependency than the one that was tested.
+# verify-vendor.sh turns that silent case into a loud one.
+#
+# VERIFIED PROVENANCE (2026-07-27)
+# A full recursive diff of the vendored tree against the upstream v1.15.0 tarball
+# reported exactly ONE differing entry: Package.swift. Everything else — all 190+
+# source files including Buffer.swift and Terminal.swift — is byte-identical to
+# upstream. The "upstream + one patch" claim in app/README.md is therefore now
+# mechanically established, not inferred from file mtimes.
+#
+# Regenerate the hashes below with:
+#   shasum -a 256 vendor/SwiftTerm/Package.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift
+
+upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
+upstream_tag    = v1.15.0
+upstream_commit = dd2fb8ac5b861e7bf617c872895e338f38165648
+
+# Package.swift AFTER applying 0001-exclude-metal-shader-from-target.patch.
+# This is the hash verify-vendor.sh requires.
+patched_package_swift  = 90e0a07aab0bd278fcb6d10902158e1f3314063de603c7df627a87b58fc4fab6
+
+# Package.swift as shipped upstream at v1.15.0. Matching THIS hash instead means the
+# tree was re-vendored and the patch was never applied — the silent-failure case, and
+# the specific reason this file exists. verify-vendor.sh reports it by name.
+upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
+
+# Buffer.swift is pinned SEPARATELY from the patch, as a version tripwire rather than a
+# patch check — it is unmodified upstream and must stay that way while option A is unchosen.
+#
+# It carries the confirmed reflow defect of record: lines 1171 and 1211 set
+# `_lines[_y].isWrapped = true` using a SCREEN-relative index, while the adjacent content
+# writes at 1176 and 1224 correctly use the BUFFER-absolute `_lines[_y + _yBase]`. See
+# .afk/plans/emulator-foundation-probe-and-vendor-integrity.md §2 and SwiftTerm issue #494.
+#
+# If this hash changes, the vendored SwiftTerm moved. Re-check whether that defect still
+# exists at those lines before trusting anything the plan or AFK.md says about #494.
+buffer_swift   = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f4d2c16bd
+terminal_swift = 7d29fe260ff9561ac827e3e145838005c1ad5306f5ca0d087fec2b813520ede9
