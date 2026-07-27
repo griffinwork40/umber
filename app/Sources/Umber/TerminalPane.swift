@@ -107,7 +107,10 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
             rows=\(t.rows) thumbNow=\(String(format: "%.3f", view.scrollThumbsize)) \
             thumbWhenFull=\(String(format: "%.4f", projected)) font=\(view.font.fontName) \
             size=\(view.font.pointSize) configSize=\(config.font.pointSize) \
-            zoom=\(FontZoom.override.map { String(describing: $0) } ?? "none")\n
+            zoom=\(FontZoom.override.map { String(describing: $0) } ?? "none") \
+            bgLuminance=\(String(format: "%.4f", config.effectiveBackground.relativeLuminance)) \
+            chrome=\(config.appearance?.name.rawValue ?? "system") \
+            windowChrome=\(view.window?.effectiveAppearance.name.rawValue ?? "unattached")\n
             """.data(using: .utf8)!)
         }
     }

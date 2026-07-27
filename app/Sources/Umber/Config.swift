@@ -34,6 +34,25 @@ extension NSColor {
         )
     }
 
+    /// WCAG 2.1 relative luminance, 0…1. Used to decide whether the window's
+    /// system chrome (sidebar, titlebar, scrollers) should render dark or light.
+    ///
+    /// Converted to sRGB first for the same reason `asSwiftTermColor` does it: the
+    /// no-theme fallback is `NSColor.black`, which lives in a generic *grey* colour
+    /// space, and asking a grey colour for `.redComponent` traps rather than
+    /// returning 0.
+    var relativeLuminance: CGFloat {
+        let c = usingColorSpace(.sRGB) ?? self
+        // Gamma-expand each channel before weighting — luminance is defined on
+        // linear light, and skipping this misjudges mid-tones badly.
+        func linear(_ channel: CGFloat) -> CGFloat {
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(c.redComponent)
+            + 0.7152 * linear(c.greenComponent)
+            + 0.0722 * linear(c.blueComponent)
+    }
+
     /// SwiftTerm's palette type wants 16-bit components.
     var asSwiftTermColor: SwiftTerm.Color {
         let c = usingColorSpace(.sRGB) ?? self
@@ -186,6 +205,48 @@ struct AppConfig {
     /// to lay out. Shared so the config path and the zoom path cannot disagree.
     static let minFontSize: Double = 6
     static let maxFontSize: Double = 48
+
+    // MARK: - Derived chrome
+
+    /// The background the terminal will *actually* paint, theme or no theme.
+    ///
+    /// `theme == nil` means "install nothing and let SwiftTerm's own defaults
+    /// stand", and those default to black (`Colors.swift:37` defaultBackground).
+    /// Every piece of chrome that has to agree with the terminal was open-coding
+    /// `theme?.background ?? .black`; four copies of that fallback is four places
+    /// for the chrome and the content to drift apart.
+    var effectiveBackground: NSColor { theme?.background ?? .black }
+
+    /// As `effectiveBackground`, for text. SwiftTerm's default foreground is white.
+    var effectiveForeground: NSColor { theme?.foreground ?? .white }
+
+    /// The system appearance the window should adopt, derived from the theme.
+    ///
+    /// This is the setting that makes the *sidebar* match the terminal. The file
+    /// tree is deliberately built out of system parts — `NSSplitViewItem(sidebar
+    /// WithViewController:)` and `outlineView.style = .sourceList` (plan §12.4
+    /// item 5) — so its material, its selection pill, its label colours and its
+    /// scroller knob are all chosen by AppKit from the effective `NSAppearance`.
+    /// Nothing used to set one, so they followed *System Settings*: on a Mac in
+    /// Light Mode that put a light-grey tree with black text and full-colour
+    /// Finder icons directly against a black terminal.
+    ///
+    /// Derived rather than hardcoded to `.darkAqua`: the theme is user hex, so a
+    /// light background is expressible today even though no preset ships one, and
+    /// pinning dark would simply invert the same bug. Deriving it also means the
+    /// vibrant sidebar material samples `window.backgroundColor` — already the
+    /// theme background — so the tree picks up the theme's tint for free, without
+    /// hand-painting a single row.
+    var appearance: NSAppearance? {
+        NSAppearance(named: effectiveBackground.relativeLuminance > Self.lightChromeCutoff ? .aqua : .darkAqua)
+    }
+
+    /// WCAG 2.1's contrast crossover: above this luminance a background reads
+    /// better with black text than white, which is exactly the question
+    /// "should this window's chrome be light or dark?" asks. All three shipped
+    /// themes sit far below it (afk-dark ≈ 0.008, tokyo-night ≈ 0.012, black = 0),
+    /// so this only starts discriminating once someone configures a light theme.
+    static let lightChromeCutoff: CGFloat = 0.179
 
     static var configURL: URL {
         FileManager.default

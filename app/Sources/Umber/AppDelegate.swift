@@ -115,8 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         for controller in SpaceWindowController.open {
             controller.space.apply(config: config)
-            // nil theme == SwiftTerm defaults, whose background is black.
-            controller.window?.backgroundColor = config.theme?.background ?? .black
+            controller.window?.backgroundColor = config.effectiveBackground
+            // Re-derived on every reload, not just at init: editing the theme from
+            // a dark background to a light one (or back) has to move the sidebar
+            // and titlebar with it, or ⌘R leaves the chrome showing the old theme.
+            controller.window?.appearance = config.appearance
         }
     }
 

@@ -82,8 +82,7 @@ final class SpaceViewController: NSSplitViewController {
         fileTree.delegate = self
         documentArea.strip.delegate = self
         documentArea.strip.apply(
-            background: config.theme?.background ?? .black,
-            foreground: config.theme?.foreground ?? .white)
+            background: config.effectiveBackground, foreground: config.effectiveForeground)
 
         // Set the initial divider explicitly. `minimumThickness` alone leaves the
         // sidebar at whatever the split view computes, which is not 220.
@@ -157,8 +156,7 @@ final class SpaceViewController: NSSplitViewController {
         self.config = config
         for pane in terminalPanes { pane.apply(config: config) }
         documentArea.strip.apply(
-            background: config.theme?.background ?? .black,
-            foreground: config.theme?.foreground ?? .white)
+            background: config.effectiveBackground, foreground: config.effectiveForeground)
     }
 
     /// Called when the Space's window becomes key — see `FileTreeViewController.refresh()`

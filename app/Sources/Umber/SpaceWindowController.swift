@@ -69,7 +69,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // SwiftTerm on its own defaults, whose background is black
         // (`Colors.swift:37` defaultBackground) — so match that, not the system
         // window colour, or the chrome and the terminal disagree.
-        window.backgroundColor = config.theme?.background ?? .black
+        window.backgroundColor = config.effectiveBackground
+        // Set on the window so it cascades to every system-drawn surface at once —
+        // the sidebar's vibrant material, the source-list selection pill, the label
+        // colours, the scroller knob and the titlebar. Without it they all follow
+        // System Settings instead of the theme, which is what put a Light-Mode grey
+        // file tree against a black terminal. See `AppConfig.appearance`.
+        window.appearance = config.appearance
         window.titlebarAppearsTransparent = false
         window.contentViewController = space
         // Wider floor than the old terminal-only window: below this the sidebar's
