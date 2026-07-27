@@ -3,20 +3,23 @@
 
 Design intent
 -------------
-"Umber" is an earth pigment, so the icon *is* the name: a warm burnt-umber
-squircle carrying a cream shell prompt (`>_`).
+"Umber" contains "ember". The icon is warm light in the dark: a near-black
+squircle with the pigment showing up as a glowing ember-gradient mark, rather
+than as a brown background. Brown backgrounds read as mud; ember reads as heat.
 
-Everything is sized for the WORST case (16x16 in the menu bar / Finder list),
-not the best case (1024 in the App Store). The squircle occupies 824/1024 —
-Apple's macOS icon grid — and the glyph strokes are >=105px at 1024 scale so
-they survive to ~1.6px at 16x16. Anything thinner disappears.
+That also puts it in the right reference class — modern dark developer tools
+(Warp, Cursor, Linear, Raycast) — instead of 2011 skeuomorphism. No lit-sphere
+gradient, no gloss, no heavy drop shadow.
 
-Rendered at 4x and downsampled for antialiasing (PIL has no AA primitives).
+Everything is sized for the WORST case (16x16 in the menu bar / Finder list).
+The squircle occupies 824/1024 (Apple's macOS icon grid) and the mark's stroke
+is >=112px at 1024 scale so it survives to ~1.8px at 16x16.
 
 Usage:
-  python3 make-icon.py                 # writes build/icon/icon_1024.png
-  python3 make-icon.py --preview       # + ASCII luminance previews
-  python3 make-icon.py --icns          # + Umber.icns via iconutil
+  python3 make-icon.py                        # build/icon/icon_1024.png
+  python3 make-icon.py --variant caret        # pick a treatment
+  python3 make-icon.py --all                  # render every variant
+  python3 make-icon.py --icns                 # + Umber.icns via iconutil
 """
 from __future__ import annotations
 
@@ -29,27 +32,29 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
 # ---------------------------------------------------------------- parameters
-S = 1024                 # nominal canvas
-SS = 4                   # supersample factor
-TILE = 824               # squircle edge on the 1024 grid (Apple macOS metric)
-SQUIRCLE_N = 5.4         # superellipse exponent; ~5 matches Apple's continuous corner
+S = 1024
+SS = 4                    # supersample factor
+TILE = 824                # squircle edge on the 1024 grid (Apple macOS metric)
+SQUIRCLE_N = 5.4          # superellipse exponent; ~5.4 matches Apple's corner
 
-TOP = (0xB4, 0x77, 0x3F)      # raw umber, lit
-BOTTOM = (0x2E, 0x19, 0x0C)   # burnt umber, deep — wide range keeps it rich, not milky
-CREAM = (0xF7, 0xEC, 0xD9)    # prompt glyph
+VARIANT_DEFAULT = "prompt"
 
-STROKE = 106             # glyph stroke weight @1024  -> ~1.7px @16
-CHEV_W, CHEV_H = 178, 264
-GAP = 60
-BAR_W = 170
-OPTICAL_LIFT = 0.012     # fraction of tile; mass reads low without it
-VARIANT_DEFAULT = "prompt"   # ">_" — the only treatment that reads as a terminal;
-                             # "cursor" renders as >I (a media-skip button) and
-                             # "chevron" as a play button. Kept for regeneration only.
+# warm near-black: a neutral grey background makes the ember look like a sticker
+BG_TOP = (0x1C, 0x16, 0x12)
+BG_BOTTOM = (0x0B, 0x09, 0x08)
+
+# the ember ramp — this is where "umber" actually lives
+EMBER = [(0.0, (0xFF, 0xD9, 0xA0)), (0.45, (0xF2, 0x93, 0x40)), (1.0, (0xC8, 0x56, 0x1B))]
+# inverse colourway paints the tile with the ember and knocks the mark out dark
+INK = (0x16, 0x10, 0x0C)
+
+STROKE = 116              # mark stroke @1024 -> ~1.8px @16
+BLOOM = 0.62              # ember bloom strength behind the mark
+OPTICAL_LIFT = 0.010
 
 
+# ------------------------------------------------------------------ geometry
 def squircle_mask(size: int, n: float) -> Image.Image:
-    """Superellipse |x|^n + |y|^n = 1, rasterised as an L mask."""
     m = Image.new("L", (size, size), 0)
     px = m.load()
     r = size / 2.0
@@ -57,163 +62,203 @@ def squircle_mask(size: int, n: float) -> Image.Image:
         ny = abs((y + 0.5 - r) / r) ** n
         if ny > 1.0:
             continue
-        # solve |x|^n = 1 - ny  ->  half-width of the filled span on this row
         half = (1.0 - ny) ** (1.0 / n) * r
-        x0, x1 = int(r - half), int(math.ceil(r + half))
-        for x in range(max(0, x0), min(size, x1)):
+        for x in range(max(0, int(r - half)), min(size, int(math.ceil(r + half)))):
             px[x, y] = 255
     return m
 
 
-def vertical_gradient(size: int, top: tuple, bottom: tuple) -> Image.Image:
+def gradient(size: int, stops: list) -> Image.Image:
+    """Vertical multi-stop gradient."""
     g = Image.new("RGB", (1, size))
     d = ImageDraw.Draw(g)
     for y in range(size):
         t = y / max(1, size - 1)
-        d.point((0, y), fill=tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
+        for i in range(len(stops) - 1):
+            p0, c0 = stops[i]
+            p1, c1 = stops[i + 1]
+            if p0 <= t <= p1:
+                k = (t - p0) / max(1e-6, p1 - p0)
+                d.point((0, y), fill=tuple(round(c0[j] + (c1[j] - c0[j]) * k) for j in range(3)))
+                break
+        else:
+            d.point((0, y), fill=stops[-1][1])
     return g.resize((size, size), Image.BILINEAR)
 
 
-def round_cap_line(d: ImageDraw.ImageDraw, p0, p1, width: int, fill) -> None:
-    """A stroked segment with genuine round caps (PIL's joint= is unreliable)."""
-    d.line([p0, p1], fill=fill, width=width)
-    r = width // 2
-    for (x, y) in (p0, p1):
-        d.ellipse([x - r, y - r, x + r, y + r], fill=fill)
+def diagonal_gradient(w: int, h: int, stops: list) -> Image.Image:
+    """45-degree multi-stop ramp sized to a specific box."""
+    g = Image.new("RGB", (w, h))
+    px = g.load()
+    for y in range(h):
+        for x in range(w):
+            t = (x / max(1, w - 1) * 0.42) + (y / max(1, h - 1) * 0.58)
+            for i in range(len(stops) - 1):
+                p0, c0 = stops[i]
+                p1, c1 = stops[i + 1]
+                if p0 <= t <= p1:
+                    k = (t - p0) / max(1e-6, p1 - p0)
+                    px[x, y] = tuple(round(c0[j] + (c1[j] - c0[j]) * k) for j in range(3))
+                    break
+            else:
+                px[x, y] = stops[-1][1]
+    return g
 
 
-def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
-    n = S * scale
-    tile = TILE * scale
-    off = (n - tile) // 2
+def ember_over(tile: int, glyph: Image.Image, stops: list) -> Image.Image:
+    """Ember ramp fitted to the glyph's ink bounds, not the tile."""
+    bb = glyph.getbbox()
+    layer = Image.new("RGB", (tile, tile), stops[-1][1])
+    if bb:
+        layer.paste(diagonal_gradient(bb[2] - bb[0], bb[3] - bb[1], stops), (bb[0], bb[1]))
+    return layer.convert("RGBA")
 
-    # --- body: gradient clipped to the squircle -----------------------------
-    mask = squircle_mask(tile, SQUIRCLE_N)
-    body = vertical_gradient(tile, TOP, BOTTOM)
 
-    # broad top sheen (not a corner blob — that reads blotchy at large sizes)
-    glow = Image.new("L", (tile, tile), 0)
-    gd = ImageDraw.Draw(glow)
-    gd.ellipse(
-        [int(-0.34 * tile), int(-0.62 * tile), int(1.22 * tile), int(0.60 * tile)],
-        fill=42,
-    )
-    glow = glow.filter(ImageFilter.GaussianBlur(tile * 0.14))
-    body = Image.composite(Image.new("RGB", (tile, tile), (0xC9, 0x88, 0x50)), body, glow)
+def _unit(vx: float, vy: float) -> tuple:
+    m = math.hypot(vx, vy) or 1.0
+    return vx / m, vy / m
 
-    # --- glyph: >_ ----------------------------------------------------------
-    gl = Image.new("RGBA", (tile, tile), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(gl)
+
+def mitred_chevron(d: ImageDraw.ImageDraw, p0, p1, p2, t: float, fill) -> None:
+    """A chevron drawn as ONE filled polygon with a true mitre at the apex.
+
+    Round caps read soft and generic (and made the first attempt look like a
+    play button); flat ends with a mitred vertex read precise and technical.
+    """
+    (x0, y0), (x1, y1), (x2, y2) = p0, p1, p2
+    dax, day = _unit(x1 - x0, y1 - y0)
+    dbx, dby = _unit(x2 - x1, y2 - y1)
+    nax, nay = -day, dax          # left normal of segment A
+    nbx, nby = -dby, dbx          # left normal of segment B
+    mx, my = _unit(nax + nbx, nay + nby)
+    denom = max(0.35, mx * nax + my * nay)   # clamp: avoid a spike at sharp angles
+    ml = (t / 2) / denom
+    h = t / 2
+    outer = [(x0 + nax * h, y0 + nay * h), (x1 + mx * ml, y1 + my * ml), (x2 + nbx * h, y2 + nby * h)]
+    inner = [(x2 - nbx * h, y2 - nby * h), (x1 - mx * ml, y1 - my * ml), (x0 - nax * h, y0 - nay * h)]
+    d.polygon(outer + inner, fill=fill)
+
+
+# ---------------------------------------------------------------------- mark
+def mark_mask(tile: int, variant: str, scale: int) -> Image.Image:
+    """White-on-black mask of the glyph, centred on its measured ink bounds."""
+    m = Image.new("L", (tile, tile), 0)
+    d = ImageDraw.Draw(m)
     st = STROKE * scale
-    cy = int(tile * 0.485)                    # optical centre sits just above true centre
+    cy = tile // 2
 
-    if variant == "chevron":
-        # a single, confident chevron — maximum stroke mass at 16px
-        cw, ch = int(250 * scale), int(400 * scale)
-        x0 = (tile - cw) // 2 - int(18 * scale)   # optical: apex pulls the eye right
-        apex_x = x0 + cw
-        round_cap_line(gd, (x0, cy - ch // 2), (apex_x, cy), st, CREAM)
-        round_cap_line(gd, (apex_x, cy), (x0, cy + ch // 2), st, CREAM)
+    if variant in ("caret", "inverse_caret"):
+        w, h = int(268 * scale), int(430 * scale)
+        x0 = (tile - w) // 2
+        mitred_chevron(d, (x0, cy - h // 2), (x0 + w, cy), (x0, cy + h // 2), st, 255)
 
-    elif variant == "cursor":
-        # chevron + block cursor, both vertically centred -> balanced mass
-        cw, ch = int(200 * scale), int(310 * scale)
-        blw, blh = int(132 * scale), int(310 * scale)
+    elif variant == "block":
+        w, h = int(300 * scale), int(430 * scale)
+        d.rounded_rectangle([(tile - w) // 2, cy - h // 2, (tile + w) // 2, cy + h // 2],
+                            radius=int(46 * scale), fill=255)
+
+    elif variant in ("cursorline", "inverse_cursorline"):
+        # caret + a text-cursor block sitting ON the baseline (not centred) —
+        # a centred full-height bar reads as "skip to end", a baseline block reads
+        # as a terminal cursor.
+        cw, ch = int(210 * scale), int(330 * scale)
+        blw, blh = int(150 * scale), int(190 * scale)
         gap = int(104 * scale)
-        group_w = cw + gap + blw
-        x0 = (tile - group_w) // 2
-        apex_x = x0 + cw
-        round_cap_line(gd, (x0, cy - ch // 2), (apex_x, cy), st, CREAM)
-        round_cap_line(gd, (apex_x, cy), (x0, cy + ch // 2), st, CREAM)
-        bx = x0 + cw + gap
-        gd.rounded_rectangle(
-            [bx, cy - blh // 2, bx + blw, cy + blh // 2],
-            radius=int(26 * scale), fill=CREAM,
-        )
+        total = cw + gap + blw
+        x0 = (tile - total) // 2
+        mitred_chevron(d, (x0, cy - ch // 2), (x0 + cw, cy), (x0, cy + ch // 2), st, 255)
+        bx, base = x0 + cw + gap, cy + ch // 2
+        d.rounded_rectangle([bx, base - blh, bx + blw, base],
+                            radius=int(26 * scale), fill=255)
 
-    else:  # "prompt"  ->  >_
-        cw, ch, gap, bw = CHEV_W * scale, CHEV_H * scale, GAP * scale, BAR_W * scale
-        group_w = cw + gap + bw
-        x0 = (tile - group_w) // 2
-        apex_x = x0 + cw
-        top_y, bot_y = cy - ch // 2, cy + ch // 2
-        round_cap_line(gd, (x0, top_y), (apex_x, cy), st, CREAM)
-        round_cap_line(gd, (apex_x, cy), (x0, bot_y), st, CREAM)
-        round_cap_line(gd, (x0 + cw + gap, bot_y), (x0 + cw + gap + bw, bot_y), st, CREAM)
+    else:  # "prompt" / "inverse_prompt" -> the unambiguous  >_
+        cw, ch = int(206 * scale), int(330 * scale)
+        bw = int(224 * scale)
+        gap = int(84 * scale)
+        total = cw + gap + bw
+        x0 = (tile - total) // 2
+        mitred_chevron(d, (x0, cy - ch // 2), (x0 + cw, cy), (x0, cy + ch // 2), st, 255)
+        bx, base = x0 + cw + gap, cy + ch // 2
+        d.rounded_rectangle([bx, base - st, bx + bw, base],
+                            radius=int(st * 0.34), fill=255)
 
-    # Re-centre the glyph on its MEASURED ink bounds rather than trusting the
-    # layout maths. Bounding-box centring alone reads low, so lift optically.
-    body = body.convert("RGBA")
-    bbox = gl.getbbox()
+    bbox = m.getbbox()
     if bbox:
-        ink = gl.crop(bbox)
-        dx = (tile - ink.width) // 2 - bbox[0]
-        dy = (tile - ink.height) // 2 - bbox[1] - int(tile * OPTICAL_LIFT)
-        shifted = Image.new("RGBA", (tile, tile), (0, 0, 0, 0))
-        shifted.paste(ink, (bbox[0] + dx, bbox[1] + dy))
-        gl = shifted
-    body.alpha_composite(gl)
+        ink = m.crop(bbox)
+        out = Image.new("L", (tile, tile), 0)
+        out.paste(ink, ((tile - ink.width) // 2, (tile - ink.height) // 2 - int(tile * OPTICAL_LIFT)))
+        m = out
+    return m
 
-    # --- top inner edge highlight (the native "lit rim") --------------------
+
+# --------------------------------------------------------------------- build
+def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
+    n, tile = S * scale, TILE * scale
+    off = (n - tile) // 2
+    inverse = variant.startswith("inverse")
+
+    shape = squircle_mask(tile, SQUIRCLE_N)
+    glyph = mark_mask(tile, variant, scale)
+
+    if inverse:
+        body = ember_over(tile, squircle_mask(tile, SQUIRCLE_N), EMBER)
+        # knock the mark out of the ember slab
+        ink = Image.new("RGBA", (tile, tile), INK + (255,))
+        body = Image.composite(ink, body, glyph)
+    else:
+        body = gradient(tile, [(0.0, BG_TOP), (1.0, BG_BOTTOM)]).convert("RGBA")
+
+        # ember bloom: the mark lights the surface around it
+        bloom = glyph.filter(ImageFilter.GaussianBlur(tile * 0.045)).point(
+            lambda v: int(v * BLOOM)
+        )
+        body = Image.composite(
+            Image.new("RGBA", (tile, tile), (0xFF, 0x8A, 0x2B, 255)), body, bloom
+        )
+        body = Image.composite(ember_over(tile, glyph, EMBER), body, glyph)
+
+    # a single hairline of warm light along the top edge — depth without gloss
     rim = Image.new("L", (tile, tile), 0)
     ImageDraw.Draw(rim).ellipse(
-        [-tile, -int(tile * 0.10), tile * 2, int(tile * 0.16)], fill=64
+        [int(-0.30 * tile), int(-0.055 * tile), int(1.30 * tile), int(0.030 * tile)], fill=54
     )
-    rim = rim.filter(ImageFilter.GaussianBlur(tile * 0.012))
-    body = Image.composite(Image.new("RGBA", (tile, tile), (255, 245, 230, 255)), body, rim)
+    rim = rim.filter(ImageFilter.GaussianBlur(tile * 0.006))
+    body = Image.composite(Image.new("RGBA", (tile, tile), (255, 226, 190, 255)), body, rim)
 
-    body.putalpha(mask)
+    body.putalpha(shape)
 
-    # --- compose onto the full canvas with a soft contact shadow ------------
     canvas = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     sh = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    sh.paste((0, 0, 0, 72), (off, off + int(11 * scale)), mask)
-    sh = sh.filter(ImageFilter.GaussianBlur(9 * scale))
-    canvas.alpha_composite(sh)
+    sh.paste((0, 0, 0, 64), (off, off + int(10 * scale)), shape)
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(8 * scale)))
     canvas.alpha_composite(body, (off, off))
-
     return canvas.resize((S, S), Image.LANCZOS)
 
 
-# ------------------------------------------------------------------ preview
-RAMP = " .:-=+*#%@"
-
-
-def ascii_preview(img: Image.Image, cols: int) -> str:
-    """Luminance ramp over a checkerboard matte — shows what survives at size."""
-    sm = img.resize((cols, cols), Image.LANCZOS).convert("RGBA")
-    bg = Image.new("RGBA", sm.size, (0, 0, 0, 255))
-    sm = Image.alpha_composite(bg, sm).convert("L")
-    px = sm.load()
-    out = []
-    for y in range(cols):
-        out.append("".join(RAMP[min(len(RAMP) - 1, px[x, y] * len(RAMP) // 256)] * 2
-                           for x in range(cols)))
-    return "\n".join(out)
+VARIANTS = ("prompt", "cursorline", "caret", "inverse_prompt", "inverse_cursorline")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--preview", action="store_true")
+    ap.add_argument("--variant", default=VARIANT_DEFAULT, choices=VARIANTS)
+    ap.add_argument("--all", action="store_true")
     ap.add_argument("--icns", action="store_true")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--variant", default=VARIANT_DEFAULT,
-                    choices=("prompt", "cursor", "chevron"))
     a = ap.parse_args()
 
     root = Path(__file__).resolve().parent.parent
     outdir = Path(a.out) if a.out else root / "build" / "icon"
     outdir.mkdir(parents=True, exist_ok=True)
 
-    img = build(variant=a.variant)
-    master = outdir / "icon_1024.png"
-    img.save(master)
-    print(f"wrote {master}")
+    if a.all:
+        for v in VARIANTS:
+            build(variant=v).save(outdir / f"variant_{v}.png")
+            print(f"wrote {outdir / f'variant_{v}.png'}")
+        return 0
 
-    if a.preview:
-        for c in (16, 32, 64):
-            print(f"\n--- {c}x{c} ---")
-            print(ascii_preview(img, c))
+    img = build(variant=a.variant)
+    img.save(outdir / "icon_1024.png")
+    print(f"wrote {outdir / 'icon_1024.png'}  (variant={a.variant})")
 
     if a.icns:
         iconset = outdir / "Umber.iconset"
@@ -224,7 +269,6 @@ def main() -> int:
         icns = outdir / "Umber.icns"
         subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], check=True)
         print(f"wrote {icns}")
-
     return 0
 
 
