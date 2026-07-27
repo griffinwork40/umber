@@ -14,3 +14,4 @@ vendor/
 
 # Python bytecode from Scripts/
 __pycache__/
+.afk-worktrees/
