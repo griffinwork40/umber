@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/Resources/icon-1024.png" width="132" alt="Umber app icon">
+</p>
+
 # Umber
 
 A native macOS terminal, written in Swift/AppKit, with **no AI features** — built

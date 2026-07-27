@@ -39,12 +39,17 @@ SQUIRCLE_N = 5.4          # superellipse exponent; ~5.4 matches Apple's corner
 
 VARIANT_DEFAULT = "prompt"
 
-# warm near-black: a neutral grey background makes the ember look like a sticker
-BG_TOP = (0x1C, 0x16, 0x12)
-BG_BOTTOM = (0x0B, 0x09, 0x08)
+# The icon is a small window of the app: these are the app's OWN colours.
+# Background is the afk-dark theme background and the mark's mid stop is the
+# real cursor colour -- both from Sources/Umber/Config.swift. Keep them in sync;
+# the cool slate also makes the warm mark read hotter, and unlike a near-black
+# tile it stays visible against a black Dock.
+BG_TOP = (0x15, 0x1B, 0x24)
+BG_BOTTOM = (0x0D, 0x11, 0x17)      # Config.swift afkDark.background
 
 # the ember ramp — this is where "umber" actually lives
-EMBER = [(0.0, (0xFF, 0xD9, 0xA0)), (0.45, (0xF2, 0x93, 0x40)), (1.0, (0xC8, 0x56, 0x1B))]
+EMBER = [(0.0, (0xFF, 0xCB, 0xA4)), (0.46, (0xE6, 0x7E, 0x4C)), (1.0, (0xAE, 0x44, 0x1C))]
+#                                    ^ Config.swift afkDark.cursor (#E67E4C)
 # inverse colourway paints the tile with the ember and knocks the mark out dark
 INK = (0x16, 0x10, 0x0C)
 
