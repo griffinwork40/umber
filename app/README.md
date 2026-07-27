@@ -36,11 +36,22 @@ of pure logic would have caught. So the checks are two scripts and a diagnostic
 env var, each aimed at something that has really gone wrong:
 
 ```sh
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH its patch?
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
 UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
 ```
+
+`verify-vendor.sh` runs first inside `make-app-bundle.sh`, and exists because the two
+vendor failure modes were asymmetric. A **missing** `vendor/` fails loudly — SwiftPM
+cannot resolve the path dependency. A **re-vendored but unpatched** tree failed
+*silently*: it compiled and ran, because the patch only drops a build-time resource, so
+following the recreation steps below and forgetting the patch produced a green build
+against a different dependency than the tested one. Nothing in git recorded otherwise —
+`vendor/` is gitignored, `vendor/SwiftTerm` is not a git repo, `Package.resolved` is
+ignored, and `Package.swift`'s path dependency is unpinned. Exit codes: `2` = present but
+unpatched, `3` = unknown revision, `1` = missing vendor or missing pin.
 
 ## What works today (v0.1)
 
@@ -133,10 +144,29 @@ the Metal toolchain to a separate downloadable component that is not installed
 here. The Core Text renderer is used instead; `MetalTerminalRenderer` probes for
 the shader bundle at runtime and returns nil when absent, so nothing traps.
 
-`vendor/` is gitignored. To recreate it: copy an upstream v1.15.0 checkout to
-`vendor/SwiftTerm`, then `chmod -R u+w` it — SPM checkouts are read-only and the
-patch will fail otherwise — and exclude the shader resource in its
-`Package.swift` (the change is annotated in place).
+`vendor/` is gitignored, so the patch is committed as a real artifact instead —
+`../patches/swiftterm/0001-exclude-metal-shader-from-target.patch`, pinned by
+`../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
+
+```sh
+git clone --depth 1 --branch v1.15.0 \
+    https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
+chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin
+```
+
+Earlier revisions of this file said to "exclude the shader resource in its
+`Package.swift` (the change is annotated in place)" — i.e. the only description of the
+patch lived *inside the ignored file*, so it could not survive losing that file. That is
+fixed: the patch is now reproducible from git, and `verify-vendor.sh` proves the result
+byte-for-byte.
+
+Provenance is mechanically established rather than assumed: a full recursive diff of the
+vendored tree against the upstream `v1.15.0` tarball (commit `dd2fb8a`) reports **exactly
+one** differing entry, `Package.swift`. Every other file — including `Buffer.swift`, which
+carries the #494 defect described above — is byte-identical to upstream, which is why that
+defect is upstream's and not something introduced here.
 
 To restore the stock dependency once
 `xcodebuild -downloadComponent MetalToolchain` has run, change `Package.swift`
@@ -153,9 +183,29 @@ a fork last pushed 2025-07-17.
 
 [SwiftTerm #494](https://github.com/migueldeicaza/SwiftTerm/issues/494) —
 "Buffer reflow produces duplicate/orphan lines when narrowing terminal" — is
-**open**. The Step 0 harness could not reproduce it across three deterministic
-reflow tests (evidence retained in `../.afk/plans/native-swift-terminal-afk-host.md`
-§11; the harness itself has since been deleted), but the reporter describes an
-intermittent defect, so it is reduced, not closed. If duplicated or orphaned lines ever appear after
-narrowing a window with scrollback present, that is #494, and
-`TerminalPane.sizeChanged` is the hook to instrument.
+**open, and untested here.**
+
+This section previously said the Step 0 harness "could not reproduce it across
+three deterministic reflow tests," and concluded the risk was reduced. **That
+conclusion was wrong; corrected 2026-07-27.** The defect requires a non-zero
+scrollback offset to manifest, and the harness never established one —
+`git show 1e84dd0~1:spike/Tests/SpikeGatesTests/ReflowGateTests.swift | grep -c yBase`
+returns `0`. Two of the three cases ran at `_yBase == 0`, where the defect is
+*structurally inexpressible*; the third had scrollback but asserted only
+duplicate-token counts, so the orphaning half went unchecked. A blind test
+passing is absence of evidence, not evidence of absence.
+
+The defect is real and present in the vendored tree. `Buffer.swift:1171` and
+`:1211` set `_lines[_y].isWrapped = true` with a **screen-relative** index, five
+and thirteen lines from `:1176`/`:1224` which correctly use the
+**buffer-absolute** `_lines[_y + _yBase]` (`_y` is screen-relative —
+`Buffer.swift:22,42-43`). Since `isWrapped` is the only flag reflow consults for
+logical-line boundaries, a non-empty scrollback makes it join a falsely-wrapped
+line to an unrelated neighbour and split a genuinely-wrapped one. That mangles
+history silently rather than visibly. Upstream's partial fix (`protectedLines`)
+is on unmerged branch `reflow` @ `0619254f`; vendored v1.15.0 lacks it.
+
+If duplicated or orphaned lines appear after narrowing a window with scrollback
+present, that is #494, and `TerminalPane.sizeChanged` is the hook to instrument.
+Remediation options — patch locally, refuse to reflow, or change emulator — are
+triaged in `../.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §5–6.
