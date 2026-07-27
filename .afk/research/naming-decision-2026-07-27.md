@@ -1,6 +1,6 @@
 # Naming decision brief — what to call this app
 
-**Date:** 2026-07-27 · **Status:** research only, nothing renamed · **Repo state at time of research:** `main` @ `a37c312`, 2 unpushed commits, 6 dirty files (keybindings WIP)
+**Date:** 2026-07-27 · **Status:** RESOLVED AND EXECUTED — renamed to **Umber** in `faf1291`, repo is now `griffinwork40/umber` (the "research only, nothing renamed" state below describes this brief as written, before the rename landed) · **Repo state at time of research:** `main` @ `a37c312`, 2 unpushed commits, 6 dirty files (keybindings WIP)
 
 Research method: two parallel sub-agents (external naming landscape + local rename-cost inventory), followed by
 first-party verification of every load-bearing claim via registry/API calls and direct file reads. Availability

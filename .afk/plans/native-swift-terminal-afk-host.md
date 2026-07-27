@@ -1,6 +1,9 @@
 # Native Swift macOS terminal that hosts agent-afk
 
-**Status:** approved, Step 0 in progress
+**Status (2026-07-27):** approved · Step 0 GREEN (§11, G6 carried as a standing risk) · Step 1 items 1–3
+done (item 3 in review, PR #718) · Step 2 v0.1 DONE and daily-driveable · **Step 3 is the next
+substantive commitment and is the least-specified section in this document** · Step 4 still optional.
+The app was renamed **MacTerminal → Umber** on 2026-07-27 (`faf1291`); repo is now `griffinwork40/umber`.
 **Created:** 2026-07-26
 **Owner:** Griffin Long
 **Repo:** `/Users/griffinlong/Projects/open_source/mac-terminal` (new, empty at plan time)
@@ -219,7 +222,11 @@ built, for the human-judgment gates G1/G4/G6.
 
 ### Step 1 — agent-afk session-status contract (1-2 days TS, PUBLIC repo)
 
-> **STATUS 2026-07-27: items 1 and 2 DONE and MERGED, item 3 NOT STARTED.**
+> **STATUS 2026-07-27 (rev 2): items 1, 2 and 3 all DONE — items 1–2 MERGED, item 3 IN REVIEW.**
+> **Item 3 (blocked-on-human signal): PR https://github.com/griffinwork40/agent-afk/pull/718**,
+> "feat(presence): emit a blocked-on-human marker while an elicitation waits", +558/-11 on
+> `afk/blocked-on-human-signal` — `OPEN`, not draft, `mergeStateStatus: CLEAN`, but **no reviewer has
+> looked yet** (`reviewDecision` empty). This was the gate on Step 3; merging it unblocks the panel.
 > **PR: https://github.com/griffinwork40/agent-afk/pull/716** — **MERGED 2026-07-26T23:02Z**
 > (was `MERGEABLE / CLEAN` when this entry was first written),
 > +494/-4 across 4 files, 2 commits (`91bb3c3`, `e3727ff`), all CI green
