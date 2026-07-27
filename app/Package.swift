@@ -17,13 +17,26 @@ let package = Package(
         // rationale and how to recreate it. Swapping to the real upstream
         // package once `xcodebuild -downloadComponent MetalToolchain` has run is
         // a one-line change.
-        .package(path: "../vendor/SwiftTerm")
+        .package(path: "../vendor/SwiftTerm"),
+        // SPIKE ONLY (branch afk/libghostty-spike): evaluating libghostty as a
+        // replacement emulator core. Prebuilt GhosttyKit.xcframework, MIT.
+        // See ../.afk/plans/emulator-foundation-probe-and-vendor-integrity.md §5 Step 1.
+        .package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.2.0"),
     ],
     targets: [
         .executableTarget(
             name: "Umber",
             dependencies: ["SwiftTerm"],
             path: "Sources/Umber"
+        ),
+        // SPIKE ONLY. Separate target so Umber's own sources stay untouched while
+        // the foundation question is open.
+        .executableTarget(
+            name: "GhosttySpike",
+            dependencies: [
+                .product(name: "GhosttyTerminal", package: "libghostty-spm")
+            ],
+            path: "Sources/GhosttySpike"
         )
     ]
 )
