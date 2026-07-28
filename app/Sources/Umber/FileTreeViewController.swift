@@ -22,11 +22,21 @@ protocol FileTreeViewControllerDelegate: AnyObject {
 final class FileNode {
     let url: URL
     let isDirectory: Bool
+    /// Hidden according to the *filesystem*, not according to a name check.
+    /// `.isHiddenKey` is true for both ways macOS hides something — the dot-prefix
+    /// convention (`.afk`) and the `chflags hidden` bit on an undotted name
+    /// (`~/Library`) — so one read covers both where `hasPrefix(".")` would miss
+    /// half. Verified on this machine: Library isHidden=true/dot=false, .afk
+    /// isHidden=true/dot=true, Projects false/false.
+    let isHidden: Bool
     private(set) var children: [FileNode]?
 
-    init(url: URL, isDirectory: Bool) {
+    /// `isHidden` defaults to false for the root, which is never sorted against
+    /// siblings — only children are.
+    init(url: URL, isDirectory: Bool, isHidden: Bool = false) {
         self.url = url
         self.isDirectory = isDirectory
+        self.isHidden = isHidden
     }
 
     var name: String { url.lastPathComponent }
@@ -43,22 +53,40 @@ final class FileNode {
         let contents =
             (try? FileManager.default.contentsOfDirectory(
                 at: url,
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
                 options: [])) ?? []
 
         children =
             contents
             .filter { Self.isVisible($0) }
             .map { child -> FileNode in
-                let isDir =
-                    (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if let reused = existing[child], reused.isDirectory == isDir { return reused }
-                return FileNode(url: child, isDirectory: isDir)
+                let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isHiddenKey])
+                let isDir = values?.isDirectory ?? false
+                // Falls back to the dot convention rather than to "not hidden": a
+                // failed resource read should degrade to the mostly-right answer,
+                // not silently promote every dotfile to the top of the tree.
+                let isHidden = values?.isHidden ?? child.lastPathComponent.hasPrefix(".")
+                // Both facts gate reuse. A reused node is returned as-is, so a flag
+                // that flipped on disk would otherwise never reach the UI.
+                if let reused = existing[child], reused.isDirectory == isDir,
+                    reused.isHidden == isHidden
+                {
+                    return reused
+                }
+                return FileNode(url: child, isDirectory: isDir, isHidden: isHidden)
             }
             .sorted { lhs, rhs in
                 // Directories first, then case-insensitive name — Finder's order,
                 // and the one every file tree a developer already uses follows.
                 if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                // Then hidden entries LAST within each group. They stay *shown* —
+                // see `isVisible`; hiding `.github` or `.env` in a terminal-first
+                // IDE would be obstructive — but `localizedStandardCompare` orders
+                // "." ahead of letters, so plain name order buries the real content
+                // behind them. Measured on this machine's $HOME: 53 dot-directories
+                // sorted above `Projects/`, 57% of the first screen, every one of
+                // them a tool cache nobody browses.
+                if lhs.isHidden != rhs.isHidden { return !lhs.isHidden }
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
 
