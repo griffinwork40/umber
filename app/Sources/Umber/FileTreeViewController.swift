@@ -190,6 +190,26 @@ extension FileTreeViewController: NSOutlineViewDataSource {
     private func node(for item: Any?) -> FileNode { (item as? FileNode) ?? root }
 }
 
+/// A source-list row whose glyph tracks the row's own state.
+///
+/// The tint has to be re-derived from `backgroundStyle` rather than assigned once
+/// at build time: AppKit flips a selected row to `.emphasized` and expects the cell
+/// to answer, and a fixed `contentTintColor` would leave a dim grey glyph stranded
+/// inside the blue selection pill. `secondaryLabelColor` deliberately sits the icon
+/// *below* the filename in the visual hierarchy — the name is what you read, the
+/// glyph is what you skim.
+@MainActor
+private final class FileCellView: NSTableCellView {
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { applyTint() }
+    }
+
+    func applyTint() {
+        imageView?.contentTintColor =
+            backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+    }
+}
+
 extension FileTreeViewController: NSOutlineViewDelegate {
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any)
         -> NSView?
@@ -202,16 +222,62 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             ?? Self.makeCell(identifier: identifier)
 
         cell.textField?.stringValue = node.name
-        // Finder's own icon for the file type — free, correct for every extension,
-        // and it keeps the tree recognisable without shipping an icon set.
-        let icon = NSWorkspace.shared.icon(forFile: node.url.path)
-        icon.size = NSSize(width: 16, height: 16)
-        cell.imageView?.image = icon
+        cell.imageView?.image = Self.symbol(named: Self.symbolName(for: node))
         return cell
     }
 
+    /// SF Symbols rather than `NSWorkspace.icon(forFile:)`.
+    ///
+    /// Finder's icons are full-colour raster art. Measured against the now-dark
+    /// tree they were 5.4% of the sidebar's pixels in saturated blue, competing
+    /// for attention with the filenames they exist to label — and they are the one
+    /// thing in the sidebar that cannot follow the window's appearance, because a
+    /// baked bitmap has no template to tint. Xcode's navigator, VS Code and Zed all
+    /// draw monochrome glyphs here for the same reason.
+    ///
+    /// Deliberately coarse: enough shape variety to scan a directory by, not a
+    /// per-language icon set to maintain. Dotfiles get their own glyph because this
+    /// tree shows them on purpose (see `FileNode.isVisible`), so they are a category
+    /// a developer actually looks for rather than noise to hide.
+    private static func symbolName(for node: FileNode) -> String {
+        if node.isDirectory { return "folder.fill" }
+        switch node.url.pathExtension.lowercased() {
+        case "swift", "c", "h", "m", "mm", "cpp", "py", "js", "ts", "tsx", "jsx", "rs", "go",
+            "rb", "java", "kt", "lua", "pl", "php", "cs":
+            return "curlybraces"
+        case "json", "yml", "yaml", "toml", "plist", "xml", "lock", "cfg", "conf", "ini", "env":
+            return "list.bullet.rectangle"
+        case "md", "markdown", "txt", "rst", "adoc", "log":
+            return "doc.text"
+        case "sh", "bash", "zsh", "fish", "command":
+            return "terminal"
+        case "png", "jpg", "jpeg", "gif", "svg", "icns", "webp", "heic", "pdf":
+            return "photo"
+        default:
+            return node.name.hasPrefix(".") ? "gearshape" : "doc"
+        }
+    }
+
+    /// Cached because `viewFor` runs on every row recycle during a scroll, and the
+    /// call this replaced (`NSWorkspace.icon(forFile:)`) hit icon services on each
+    /// one. There are a dozen distinct glyphs for any tree, so the cache is bounded
+    /// by the table above, not by the number of files.
+    private static var symbolCache: [String: NSImage] = [:]
+
+    private static func symbol(named name: String) -> NSImage? {
+        if let cached = symbolCache[name] { return cached }
+        guard
+            let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .regular))
+        else { return nil }
+        // Template is what lets `contentTintColor` apply at all — see `FileCellView`.
+        image.isTemplate = true
+        symbolCache[name] = image
+        return image
+    }
+
     private static func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
+        let cell = FileCellView()
         cell.identifier = identifier
 
         let imageView = NSImageView()
@@ -235,6 +301,9 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
             textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
+        // Seed the tint: `backgroundStyle` only fires its observer on a *change*,
+        // so an unselected row built fresh would otherwise draw an untinted glyph.
+        cell.applyTint()
         return cell
     }
 }
