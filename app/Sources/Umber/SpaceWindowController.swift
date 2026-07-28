@@ -55,7 +55,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
     /// you saying you are done, and the next launch should be one fresh default Space
     /// rather than a resurrection of what you just dismissed. `isTerminating` is what
     /// keeps ⌘Q from producing that same empty list for the opposite reason.
-    private static func persistOpenRoots() {
+    ///
+    /// Also called once from `AppDelegate.applicationShouldTerminate` — not as a
+    /// belt-and-braces flush, but because it closes a real gap: dragging tabs to
+    /// reorder changes no window's open/closed state, so nothing else here fires, and
+    /// a reorder followed by ⌘Q would otherwise restore yesterday's order. At
+    /// quit-commit time every window is still open, so `inTabOrder` is accurate.
+    static func persistOpenRoots() {
         guard !isTerminating else { return }
         OpenSpaceRoots.urls = inTabOrder.map(\.root)
     }

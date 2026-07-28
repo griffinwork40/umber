@@ -103,11 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
             return .terminateCancel
         }
-        // Set only once the quit is actually committed — after the veto loop, so a
-        // cancelled ⌘Q leaves persistence live. From here on, a window closing is app
-        // teardown and must not be recorded as the user closing that Space; see
-        // `SpaceWindowController.isTerminating`. The roots were already written when
-        // each Space opened, so there is nothing to flush here.
+        // Record the final order while every window is still open, then stop
+        // persisting. Both halves matter and they must happen in this order:
+        //
+        //   * The write closes a gap nothing else covers — dragging tabs to reorder
+        //     changes no window's open/closed state, so `persistOpenRoots`'s other
+        //     call sites never fire, and a reorder then ⌘Q would restore yesterday's
+        //     order. This is the last moment `tabGroup?.windows` is still accurate.
+        //   * The flag then makes teardown inert: from here a closing window is the
+        //     app exiting, not the user closing that Space, and recording those would
+        //     erase the very list restore needs (`SpaceWindowController.isTerminating`).
+        //
+        // Both sit *after* the veto loop, so a cancelled ⌘Q leaves persistence live.
+        SpaceWindowController.persistOpenRoots()
         SpaceWindowController.isTerminating = true
         return .terminateNow
     }
