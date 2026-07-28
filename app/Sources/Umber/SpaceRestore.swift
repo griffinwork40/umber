@@ -10,7 +10,7 @@ import AppKit
 /// Its own file because it is the one piece of `AppDelegate` with a written
 /// contract about what it deliberately does NOT restore, and that argument (below)
 /// is longer than the code making it. It also has a verification surface of its
-/// own: `Scripts/check-space-restore.sh` compiles `Config.swift` and runs a
+/// own: `Scripts/check-space-restore.sh` compiles `Defaults.swift` and runs a
 /// 12-case truth table over the `OpenSpaceRoots` list this reads, so the concern
 /// is already separable — the restore policy is one thing to understand, the
 /// launch/terminate lifecycle around it is another.

@@ -56,6 +56,20 @@ func check(_ label: String, _ got: [String], _ expect: [String]) {
     }
 }
 
+/// Snapshot the real app's remembered Spaces BEFORE this harness writes anything,
+/// so the isolation assertion at the bottom can compare a delta.
+///
+/// This used to assert the key was *absent* from com.griffinlong.umber, which was
+/// wrong and made the check fail on any machine where Umber had actually been used
+/// — `Umber.openSpaceRoots` is exactly what a real launch is supposed to write, so
+/// the gate went permanently red for the correct reason and reported it as
+/// pollution (found 2026-07-28 by three independent readers during the 350-LOC
+/// split). A red gate nobody can fix is worse than no gate: it trains you to skip
+/// the one signal that would have caught a real regression. Absence was never the
+/// property worth asserting — "the harness did not write here" is.
+let realDomain = UserDefaults(suiteName: "com.griffinlong.umber")
+let realSpacesBefore = realDomain?.stringArray(forKey: "Umber.openSpaceRoots")
+
 let fm = FileManager.default
 let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
     .appendingPathComponent("umber-restore-check-\(getpid())")
@@ -135,12 +149,14 @@ UserDefaults.standard.removeObject(forKey: key)
 
 // The check must not have touched the real app's remembered Spaces. A bundle-less
 // binary gets its own defaults domain, so this asserts that assumption rather
-// than trusting it.
-let realDomain = UserDefaults(suiteName: "com.griffinlong.umber")
+// than trusting it. Compared as a delta against the snapshot taken before any of
+// the writes above — whatever the real domain held, it must still hold, whether
+// that is nothing or a dozen roots from daily use.
+let realSpacesAfter = realDomain?.stringArray(forKey: "Umber.openSpaceRoots")
 check(
     "the real com.griffinlong.umber domain was not written",
-    [realDomain?.stringArray(forKey: key) == nil ? "clean" : "POLLUTED"],
-    ["clean"])
+    [realSpacesBefore == realSpacesAfter ? "unchanged" : "POLLUTED"],
+    ["unchanged"])
 
 try? fm.removeItem(at: sandbox)
 

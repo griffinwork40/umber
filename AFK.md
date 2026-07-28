@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + one patch); everything else is ~7 small AppKit files. Personal project, private repo `griffinwork40/umber`, single `main` branch.
+A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + one patch); everything else is 27 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/umber`, single `main` branch.
 
 Naming: the app was renamed from MacTerminal to **Umber** on 2026-07-27 (commit `faf1291`). Code, scripts, bundle id, env var, and config path are all `umber`/`Umber`/`UMBER_` — but the **checkout directory and this repo's local path are still `mac-terminal`**. Remaining `MacTerminal`/`MT_DIAG` strings in `.afk/` are historical records, not stale code; `MacTerminalView` in `KeyBindings.swift` is SwiftTerm's own upstream type name.
 
@@ -19,12 +19,12 @@ swift run Umber                        # fast iteration loop (no Dock icon / Spo
 UMBER_DIAG=1 swift run Umber           # + dump resolved font/theme/scrollback to stderr
 
 ./Scripts/check-keybindings.sh         # headless: compiles shipped KeyBindings.swift, runs a 17-case truth table
-./Scripts/check-space-restore.sh       # headless: compiles shipped Config.swift, 12-case truth table for OpenSpaceRoots
+./Scripts/check-space-restore.sh       # headless: compiles shipped Defaults.swift, 12-case truth table for OpenSpaceRoots
 ./Scripts/check-keys-e2e.sh            # real NSEvents → real pty bytes; LAUNCHES the app, steals focus
 ./Scripts/check-file-size.sh           # headless: enforces the 350-LOC ceiling on Sources/ + Scripts/
 ```
 
-**There is no test target and no CI.** The four `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless. `check-space-restore.sh` is headless too and runs against a temp dir and its own defaults domain, so it never touches your real remembered Spaces — it asserts that isolation as its last case.
+**There is no test target and no CI.** The four `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless. `check-space-restore.sh` is headless too and runs against a temp dir and its own defaults domain, so it never touches your real remembered Spaces — it asserts that isolation as its last case — as a *delta* against a snapshot taken before the harness runs, not as absence of the key, which is what it wrongly asserted until 2026-07-28 (it therefore failed on every machine where Umber had actually been used).
 
 There is no `.xcodeproj` by design — the project stays all-text, diffable, and scriptable. Do not add one.
 
@@ -32,26 +32,51 @@ There is no `.xcodeproj` by design — the project stays all-text, diffable, and
 
 | Path | Purpose |
 |------|---------|
-| `app/` | The application: SwiftPM package (`swift-tools-version: 6.0`, macOS 14+), 7 source files |
-| `app/Sources/Umber/` | All Swift source |
-| `app/Scripts/` | Bundle assembly + the two verification scripts |
+| `app/` | The application: SwiftPM package (`swift-tools-version: 6.0`, macOS 14+), 27 Swift files, none over 350 LOC |
+| `app/Sources/Umber/` | All Swift source. Flat — no subdirectories, because SwiftPM globs the whole path and a flat list of well-named files is cheaper to scan than a tree to walk |
+| `app/Scripts/` | Bundle assembly + the four verification scripts + icon generation |
 | `vendor/SwiftTerm` | **Gitignored.** Upstream v1.15.0 + one local patch (Metal shader resource excluded). Recreation documented in `app/README.md` ("Dependency note") — needs `chmod -R u+w`, SPM checkouts are read-only |
 | `.afk/plans/native-swift-terminal-afk-host.md` | **Plan of record** — approach, cited evidence, rejected alternatives, Step 0 gate results (§11). Read before any structural change |
 | `.afk/research/naming-decision-2026-07-27.md` | Naming rationale and availability checks |
 
-| Source file | Owns |
-|-------------|------|
-| `main.swift` | Manual `NSApplication` bootstrap — **not** `@main`. Sets `.regular` activation policy, assigns delegate, runs the loop |
-| `AppDelegate.swift` | Lifecycle, the entire `NSMenu` tree (`buildMenu()`), config reload/open actions, app-wide zoom fan-out, Space restore on launch (`restoreSpaces()`), the embedded starter-config template |
-| `SpaceWindowController.swift` | One window == one native macOS tab == one **Space** (project root): `tabbingIdentifier`, `addTabbedWindow`, per-root frame autosave, the static open-Space registry and persisting it for restore, title/subtitle. Owns no PTY and no documents |
-| `SpaceViewController.swift` | The container — `NSSplitViewController` with a sidebar item (file tree) and the document area. Owns the document list, is `TerminalPaneDelegate`, fans config/zoom out. Nested private `DocumentAreaViewController` lays out strip + active document |
-| `SpaceDocument.swift` | The `SpaceDocument` protocol (the seam heterogeneous tabs plug into) + `TerminalPane` conformance |
-| `DocumentTabStrip.swift` | The hand-rolled in-window document tab strip: single-view custom drawing, rect hit-testing, hover, close/new affordances |
-| `FileTreeViewController.swift` | Sidebar `NSOutlineView` + lazy `FileNode` tree, identity-preserving `refresh()` on window-became-key |
-| `TerminalPane.swift` | The shell process + SwiftTerm view binding: `startProcess($SHELL, ["-l"])`, `apply(config:)`, font clamping/zoom, DECSCUSR cursor style, `LocalProcessTerminalViewDelegate` callbacks |
-| `UmberTerminalView.swift` | `LocalProcessTerminalView` subclass whose only job is `performKeyEquivalent(with:)` interception (SwiftTerm declares `keyDown` `public`, not `open`) |
-| `KeyBindings.swift` | Pure, view-free `MacLineEditing.controlBytes(keyCode:modifiers:)` — the single ⌘-chord → control-byte table |
-| `Config.swift` | Hex parsing, `Theme` presets, private `ConfigFile` Decodable, the `FontZoom` / `LastSpaceRoot` / `OpenSpaceRoots` UserDefaults stores, `AppConfig` defaults + fail-soft `load()` |
+Files are grouped by concern below. A `Type+Concern.swift` name always means "an extension of `Type` carrying one whole concern" — the split is by *what the code does*, never by line count, so the file you want is the one whose name matches your question. Every file opens with a header comment stating what it owns and why it is separate; read that before the code.
+
+| Source file | LOC | Owns |
+|-------------|-----|------|
+| **Bootstrap & app-level** | | |
+| `main.swift` | 19 | Manual `NSApplication` bootstrap — **not** `@main`. Sets `.regular` activation policy, assigns delegate, runs the loop |
+| `AppDelegate.swift` | 264 | Lifecycle (launch/terminate), the `@objc` actions the menu sends, config reload/open, app-wide zoom fan-out over `[SpaceDocument]` |
+| `AppMenu.swift` | 214 | The entire `NSMenu` tree (`buildMenu()`) + menu-item validation. **Every find item must keep its `tag`** — see "Search is SwiftTerm's" below |
+| `SpaceRestore.swift` | 93 | `restoreSpaces()` and the written contract for what it deliberately does NOT restore. Verified by `check-space-restore.sh` |
+| `StarterConfig.swift` | 47 | The commented `config.json` template ⌘, writes on first run |
+| **Space = one window = one project root** | | |
+| `SpaceWindowController.swift` | 293 | One window == one native macOS tab == one **Space**: `tabbingIdentifier`, `addTabbedWindow`, per-root frame autosave, the static open-Space registry and persisting it for restore, title/subtitle. Owns no PTY and no documents |
+| `SpaceViewController.swift` | 268 | The container — `NSSplitViewController` with a sidebar item (file tree) and the document area. Owns the document list and activation, fans config/zoom out. Generalized over `SpaceDocument`; **do not reintroduce a concrete-type assumption** |
+| `SpaceViewController+Delegates.swift` | 126 | The four inbound delegate conformances (file viewer, tab strip, terminal, file tree) — one concern: "something the user did elsewhere arrives here" |
+| `DocumentAreaViewController.swift` | 82 | The right-hand region: strip visibility + manual layout of strip over the active document |
+| **Documents — the heterogeneous-tab seam** | | |
+| `SpaceDocument.swift` | 194 | The `SpaceDocument` protocol (the seam heterogeneous tabs plug into), the `DocumentStatus` type, + `TerminalPane` conformance |
+| `DocumentTabStrip.swift` | 276 | The hand-rolled in-window strip: the view, its owner-facing surface, and **all** geometry. Metrics live here and nowhere else |
+| `DocumentTabStrip+Drawing.swift` | 275 | Every mark painted. Reads geometry, never writes strip state |
+| `DocumentTabStrip+Accessibility.swift` | 226 | The AX tree and its element proxies — VoiceOver reaches tabs that overflow off-screen |
+| `DocumentTabStrip+Mouse.swift` | 170 | Tracking, hover, clicks, middle-click close, the overflow menu |
+| `DocumentStatus+Presentation.swift` | 55 | The status dot's colour. Separate because it extends `DocumentStatus`, a type owned by `SpaceDocument.swift` |
+| **Sidebar file tree** | | |
+| `FileTreeViewController.swift` | 218 | View assembly, **identity-preserving `refresh()`** on window-became-key, double-click routing, row context menu |
+| `FileTreeViewController+OutlineView.swift` | 159 | Both `NSOutlineView` conformances + the cell machinery only they build |
+| `FileNode.swift` | 110 | The lazily-populated tree model. `NSOutlineView` identifies rows by object identity, so nodes are updated, never replaced |
+| **File viewer (second `SpaceDocument`)** | | |
+| `FileViewerPane.swift` | 295 | Type + delegate declarations, view construction, and the read path |
+| `FileViewerPane+Editing.swift` | 142 | The write path — dirty tracking, encoding, the confirm alerts, `NSTextViewDelegate` |
+| `FileViewerPane+Document.swift` | 112 | The `SpaceDocument` conformance, self-contained. Adding a document kind must never touch the container |
+| **Terminal** | | |
+| `TerminalPane.swift` | 339 | The shell process + SwiftTerm view binding: `startProcess($SHELL, ["-l"])`, `apply(config:)`, font clamping/zoom, DECSCUSR cursor style, `LocalProcessTerminalViewDelegate` callbacks. ⚠ 11 lines from the ceiling — split it before adding to it |
+| `UmberTerminalView.swift` | 108 | `LocalProcessTerminalView` subclass whose only job is `performKeyEquivalent(with:)` interception (SwiftTerm declares `keyDown` `public`, not `open`) |
+| `KeyBindings.swift` | 65 | Pure, view-free `MacLineEditing.controlBytes(keyCode:modifiers:)` — the single ⌘-chord → control-byte table |
+| **Configuration** | | |
+| `Config.swift` | 289 | Private `ConfigFile` Decodable, `AppConfig`, the font-size statics, `defaults()`, fail-soft `load()`, derived chrome |
+| `Defaults.swift` | 183 | The UserDefaults stores — `FontZoom` / `LastSpaceRoot` / `OpenSpaceRoots` — + the `isUsableSpaceRoot` check they share. **This is the unit `check-space-restore.sh` compiles** |
+| `Theme.swift` | 124 | Hex parsing, luminance/SwiftTerm colour conversion, the two presets |
 
 **There are two tab levels, on purpose** (plan §12.3, branch (C) — settled 2026-07-27).
 
@@ -95,6 +120,6 @@ Adding a new document kind (editor, diff, observer panel) means writing a `Space
 
 ## Not Built Yet
 
-Splits · preferences UI (config is a JSON file) · shell integration (OSC 7/133 — `TerminalPane.hostCurrentDirectoryUpdate` is a wired-but-empty callback, so OSC 7 is a body, not a build) · URL clicking · profiles · editor (`SpaceDocument` has one conformer, `TerminalPane`).
+Splits · preferences UI (config is a JSON file) · shell integration (OSC 7/133 — `TerminalPane.hostCurrentDirectoryUpdate` is a wired-but-empty callback, so OSC 7 is a body, not a build) · URL clicking · profiles · editor — `FileViewerPane` reads and saves a file, but there is no code intelligence. `SpaceDocument` now has two conformers, so the seam is proven, not theoretical.
 
 **Next step is no longer Step 3.** See `.afk/plans/emulator-foundation-probe-and-vendor-integrity.md`: the plan of record's Step 3/Step 4 ordering was reopened after research found (a) the reflow gate that cleared SwiftTerm was a blind test, and (b) ~27 macOS-native agent-workspace terminals shipped on **libghostty** in the preceding months, most of them matching the shape Umber was heading for. The next commitment is a timeboxed 2-day probe writing `GhosttyPane: SpaceDocument` *alongside* `TerminalPane` — the seam makes the foundation choice reversible instead of a bet. Search and the app icon are done (`243fcfb`).
