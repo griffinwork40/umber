@@ -70,13 +70,29 @@ protocol SpaceDocument: AnyObject {
     /// A terminal is fed by its pty and needs nothing; a file viewer needs to
     /// re-read or it quietly shows you a file that no longer exists on disk.
     func documentWindowDidBecomeKey()
+
+    /// Unsaved changes, drawn as a dot in the tab strip.
+    var documentIsEdited: Bool { get }
+
+    /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
+    /// Implementors that can hold unsaved work MUST prompt here — every close path
+    /// in the app funnels through it, so this is the single choke point between a
+    /// dirty buffer and silent data loss.
+    func documentShouldClose() -> Bool
+
+    /// ⌘S. Returns false if the save failed or the user cancelled.
+    func saveDocument() -> Bool
 }
 
 extension SpaceDocument {
-    /// Only genuinely-optional member here. Unlike zoom, a conformer that ignores
-    /// this is *correct* by default rather than broken by default — a live document
-    /// has nothing to re-read.
+    /// The three defaults below are all *correct* for a live document rather than
+    /// merely convenient, which is what separates them from the zoom members above:
+    /// a terminal has nothing to re-read, no buffer to lose, and nothing to write.
+    /// A conformer that ignores them is right by default, not broken by default.
     func documentWindowDidBecomeKey() {}
+    var documentIsEdited: Bool { false }
+    func documentShouldClose() -> Bool { true }
+    func saveDocument() -> Bool { true }
 }
 
 extension TerminalPane: SpaceDocument {

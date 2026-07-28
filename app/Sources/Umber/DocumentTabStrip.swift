@@ -32,6 +32,8 @@ final class DocumentTabStrip: NSView {
     struct Item {
         let title: String
         let symbolName: String
+        /// Unsaved changes. Drawn as a dot where the × would go — see `draw`.
+        var isEdited: Bool = false
     }
 
     /// Matches the visual weight of a Safari/Ghostty tab rail. Anything taller
@@ -226,9 +228,25 @@ final class DocumentTabStrip: NSView {
 
         // The × is drawn only for the active tab or the hovered one. Showing it on
         // every tab turns a quiet rail into a row of buttons.
-        if isActive || hoveredTab == index {
+        //
+        // An edited tab shows a dot in that same box until you hover it, at which
+        // point the × takes over — Safari's and VS Code's arrangement. Sharing the
+        // box rather than adding a second affordance is deliberate: the dot has to
+        // be visible on *inactive* tabs (that is the whole point of an unsaved
+        // marker) and the close box is the only slot already reserved on those.
+        if item(index).isEdited && hoveredTab != index {
+            drawEditedDot(in: closeRect(index))
+        } else if isActive || hoveredTab == index {
             drawCloseGlyph(in: closeRect(index), emphasised: hoveredClose == index)
         }
+    }
+
+    private func drawEditedDot(in box: NSRect) {
+        let side: CGFloat = 7
+        let dot = NSRect(
+            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
+        contentForeground.withAlphaComponent(0.75).setFill()
+        NSBezierPath(ovalIn: dot).fill()
     }
 
     private func drawCloseGlyph(in box: NSRect, emphasised: Bool) {

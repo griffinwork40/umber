@@ -5,32 +5,65 @@
 
 import AppKit
 
+@MainActor
+protocol FileViewerPaneDelegate: AnyObject {
+    /// The unsaved-changes flag flipped — the Space repaints the tab's dot.
+    func fileViewerDidChangeEditedState(_ pane: FileViewerPane)
+}
+
 /// The second `SpaceDocument` conformer — and deliberately the *cheap* one.
 ///
 /// The file tree shipped before there was anywhere to open a file into, so
 /// activating a row typed its path into the terminal and did nothing else: a
-/// picker wired to a hole. This closes it with the smallest thing that is honestly
-/// useful — an `NSTextView` in read-only mode. No editing, no save, no dirty state,
-/// no undo, no syntax highlighting, no tree-sitter.
+/// picker wired to a hole. This closes it with a plain `NSTextView` — editing,
+/// undo and ⌘S, but no syntax highlighting and no tree-sitter. The plan's
+/// highlighting candidate, CodeEditSourceEditor, still self-describes as "not ready
+/// for production use" (plan §4.3), and it is a separate decision from whether you
+/// can type.
 ///
-/// That is a scope decision, not an unfinished one. The plan's editor candidate is
-/// CodeEditSourceEditor, whose own README still says "not ready for production use"
-/// (plan §4.3), and half an editor is worse than an honest viewer in an app whose
-/// premise is that an agent is rewriting these files in the terminal next door: a
-/// buffer you can type into but not trust is a data-loss surface. You edit in the
-/// terminal. You *look* here. Promoting this to an editor later means adding save
-/// and dirty-state to this class, not replacing it.
+/// **The hard part of editing here is not typing, it is the race.** This app's
+/// premise is that an agent is rewriting these same files in the terminal next
+/// door, so "the buffer and the disk disagree" is the normal case, not an edge
+/// case. Two rules keep that from eating work, and they are the reason the code
+/// below is longer than an editable text view has any right to be:
+///
+///  1. A dirty buffer is **never** auto-reloaded. `documentWindowDidBecomeKey`
+///     re-reads only a clean one; on a dirty one it raises `hasExternalChange`
+///     and leaves your text alone.
+///  2. Saving over a file that moved under you **asks first**, and every close
+///     path in the app funnels through `documentShouldClose()`.
+///
+/// The third rule is quieter: a *placeholder* body (binary, too large, unreadable)
+/// is never editable. Without that, ⌘S on a clicked `.png` would write the string
+/// "binary.png is a binary file." over the actual image.
 @MainActor
 final class FileViewerPane: NSObject {
     /// Exposed so `SpaceViewController` can reuse an already-open tab instead of
     /// stacking a twelfth copy of the same file (`openFile(url:)`).
     let url: URL
 
+    weak var delegate: FileViewerPaneDelegate?
+
     private var config: AppConfig
     private let scrollView = NSScrollView()
     private let textView = NSTextView()
 
     private var fontSize: CGFloat
+
+    /// Unsaved edits live in the text view; this is the flag everything else reads.
+    private var isDirty = false
+
+    /// The body is an explanation ("…is a binary file."), not the file's contents.
+    /// Gates editing — see rule 3 in the type comment.
+    private var isPlaceholder = true
+
+    /// Set when disk moved while the buffer was dirty. Not an error state: it means
+    /// the next save has to ask before it overwrites someone else's work.
+    private var hasExternalChange = false
+
+    /// Write the file back as whatever it was read as. Re-encoding a Latin-1 or
+    /// UTF-16 file to UTF-8 behind the user's back is a silent, whole-file diff.
+    private var savedEncoding: String.Encoding = .utf8
 
     /// Identity of the bytes currently on screen, so `documentWindowDidBecomeKey`
     /// can re-read only when disk actually moved. Comparing content would mean
@@ -70,12 +103,18 @@ final class FileViewerPane: NSObject {
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
+        // Re-set per load: `reload` locks this back down for placeholder bodies.
         textView.isEditable = false
-        // Selectable but not editable: copying a path or a stack frame out of a
-        // file is most of why you opened it.
         textView.isSelectable = true
         textView.isRichText = false
-        textView.allowsUndo = false
+        textView.allowsUndo = true
+        textView.delegate = self
+        // Plain-text editing conveniences that are actively wrong for code.
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
         textView.textContainerInset = NSSize(width: 8, height: 8)
 
         // ⌘F/⌘G come free. The Edit-menu items in `AppDelegate.buildMenu()` send
@@ -110,39 +149,50 @@ final class FileViewerPane: NSObject {
     /// never throws and never shows an alert. A missing, huge, or binary file is an
     /// ordinary thing to click in a file tree, so each one degrades to a legible
     /// line of text in the document body — the tab still opens, the app still works.
-    private func read() -> (text: String, isPlaceholder: Bool) {
+    private struct Contents {
+        let text: String
+        let isPlaceholder: Bool
+        let encoding: String.Encoding
+    }
+
+    private func read() -> Contents {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let size = values?.fileSize ?? 0
 
         if size > Self.maxBytes {
             let mb = Double(size) / Double(1 << 20)
-            return (
-                "\(url.lastPathComponent) is \(String(format: "%.1f", mb)) MB — too large to view.\n"
+            return Contents(
+                text: "\(url.lastPathComponent) is \(String(format: "%.1f", mb)) MB — too large to view.\n"
                     + "Umber's viewer lays out the whole file at once, so it caps at "
                     + "\(Self.maxBytes >> 20) MB. Open it in the terminal instead.",
-                true
-            )
+                isPlaceholder: true, encoding: .utf8)
         }
 
         guard let data = try? Data(contentsOf: url) else {
-            return ("Could not read \(url.lastPathComponent).", true)
+            return Contents(
+                text: "Could not read \(url.lastPathComponent).", isPlaceholder: true,
+                encoding: .utf8)
         }
 
         if data.prefix(Self.sniffBytes).contains(0) {
-            return ("\(url.lastPathComponent) is a binary file.", true)
+            return Contents(
+                text: "\(url.lastPathComponent) is a binary file.", isPlaceholder: true,
+                encoding: .utf8)
         }
 
         // UTF-8 first because it is essentially always the answer; the second
         // attempt catches the Latin-1 and UTF-16 stragglers without which a
         // legitimately-readable file would be mislabelled binary.
         if let text = String(data: data, encoding: .utf8) {
-            return (text, false)
+            return Contents(text: text, isPlaceholder: false, encoding: .utf8)
         }
         var encoding: String.Encoding = .utf8
         if let text = try? String(contentsOf: url, usedEncoding: &encoding) {
-            return (text, false)
+            return Contents(text: text, isPlaceholder: false, encoding: encoding)
         }
-        return ("\(url.lastPathComponent) is not text in any encoding Umber recognises.", true)
+        return Contents(
+            text: "\(url.lastPathComponent) is not text in any encoding Umber recognises.",
+            isPlaceholder: true, encoding: .utf8)
     }
 
     /// Pull the current bytes onto the screen.
@@ -152,9 +202,20 @@ final class FileViewerPane: NSObject {
     /// line 1 every time you ⌘-tab into the window.
     private func reload(preservingScroll: Bool) {
         let origin = scrollView.contentView.bounds.origin
-        let (text, isPlaceholder) = read()
+        let contents = read()
+        let text = contents.text
+        isPlaceholder = contents.isPlaceholder
+        savedEncoding = contents.encoding
 
         textView.string = text
+        // Assigning `string` does not notify the delegate, so `isDirty` has to be
+        // cleared by hand — and the undo stack with it, or ⌘Z would "restore" text
+        // from a previous revision of a file that has since changed on disk.
+        textView.undoManager?.removeAllActions()
+        setDirty(false)
+        hasExternalChange = false
+        // Rule 3: an explanation is not the file, so it must not be savable.
+        textView.isEditable = !isPlaceholder
         // Set the font after the string: assigning `string` on a plain-text view
         // re-applies `font` to the whole run, but only if `font` is already set —
         // ordering it the other way leaves placeholder text at the system default.
@@ -162,6 +223,7 @@ final class FileViewerPane: NSObject {
         textView.textColor = isPlaceholder
             ? config.effectiveForeground.withAlphaComponent(0.6)
             : config.effectiveForeground
+        textView.insertionPointColor = config.theme?.cursor ?? config.effectiveForeground
 
         let stamp = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         if let date = stamp?.contentModificationDate, let size = stamp?.fileSize {
@@ -189,6 +251,111 @@ final class FileViewerPane: NSObject {
     /// this cannot go through `NSFont(name:size:)`.
     private static func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
         AppConfig.resized(base, to: size)
+    }
+}
+
+// MARK: - Editing
+
+extension FileViewerPane: NSTextViewDelegate {
+    func textDidChange(_ notification: Notification) {
+        setDirty(true)
+    }
+}
+
+extension FileViewerPane {
+    fileprivate func setDirty(_ dirty: Bool) {
+        guard dirty != isDirty else { return }
+        isDirty = dirty
+        delegate?.fileViewerDidChangeEditedState(self)
+    }
+
+    /// Write the buffer back to disk. Returns false if the user cancelled or the
+    /// write failed — callers treat that as "do not close".
+    fileprivate func write() -> Bool {
+        // Nothing to write, and nothing that *should* be written: a placeholder body
+        // is Umber's prose, not the user's file.
+        guard !isPlaceholder else { return true }
+        guard isDirty else { return true }
+
+        if hasExternalChange && !confirmOverwriteOfChangedFile() { return false }
+
+        guard let data = encodedBuffer() else { return false }
+
+        // Capture the mode before writing. `.atomic` writes a temp file and renames
+        // it over the target, which means a NEW inode — so the original's permission
+        // bits do not carry across on their own, and saving a shell script would
+        // quietly drop its +x. Re-applied below.
+        let mode = (try? FileManager.default.attributesOfItem(atPath: url.path))?[
+            .posixPermissions] as? NSNumber
+
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            presentError(
+                "Could not save \(url.lastPathComponent).", detail: error.localizedDescription)
+            return false
+        }
+        if let mode {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: mode], ofItemAtPath: url.path)
+        }
+
+        // Re-stamp from what is now on disk, so the very save we just performed is
+        // not mistaken for someone else's external change on the next window focus.
+        let stamp = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        if let date = stamp?.contentModificationDate, let size = stamp?.fileSize {
+            loadedStamp = (date, size)
+        }
+        hasExternalChange = false
+        setDirty(false)
+        return true
+    }
+
+    /// Encode with the file's original encoding, or get explicit permission to change
+    /// it. Typing an emoji into a Latin-1 file is the usual way to land here.
+    private func encodedBuffer() -> Data? {
+        if let data = textView.string.data(using: savedEncoding) { return data }
+
+        let alert = NSAlert()
+        alert.messageText = "\(url.lastPathComponent) cannot be saved as \(encodingName)."
+        alert.informativeText =
+            "Some characters you typed do not exist in that encoding. Saving as UTF-8 will "
+            + "rewrite the whole file's encoding."
+        alert.addButton(withTitle: "Save as UTF-8")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        savedEncoding = .utf8
+        return textView.string.data(using: .utf8)
+    }
+
+    private var encodingName: String {
+        String.localizedName(of: savedEncoding)
+    }
+
+    private func confirmOverwriteOfChangedFile() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "\(url.lastPathComponent) has changed on disk."
+        alert.informativeText =
+            "Something else — most likely the agent in the terminal — rewrote this file after "
+            + "you started editing. Saving replaces its version with yours."
+        alert.addButton(withTitle: "Overwrite")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Discard Mine and Reload")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return true
+        case .alertThirdButtonReturn:
+            reload(preservingScroll: true)
+            return false
+        default: return false
+        }
+    }
+
+    private func presentError(_ message: String, detail: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
 
@@ -242,16 +409,50 @@ extension FileViewerPane: SpaceDocument {
     /// of its life confidently showing a stale file.
     func documentWindowDidBecomeKey() {
         let current = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        // A vanished file counts as changed — `reload` renders the "could not read"
-        // placeholder rather than leaving stale content up pretending it is still there.
+        // A vanished file counts as changed — a clean viewer re-reads and renders the
+        // "could not read" placeholder rather than leaving stale content up.
         guard let date = current?.contentModificationDate, let size = current?.fileSize,
             let loaded = loadedStamp
         else {
-            reload(preservingScroll: true)
+            refresh(diskChanged: true)
             return
         }
-        if loaded.date != date || loaded.size != size {
-            reload(preservingScroll: true)
+        refresh(diskChanged: loaded.date != date || loaded.size != size)
+    }
+
+    /// Rule 1, in one place: reload a clean buffer, never a dirty one.
+    ///
+    /// Auto-reloading over unsaved edits would destroy work with no gesture from the
+    /// user and no way back — the single worst thing this class could do. So a dirty
+    /// buffer only records that disk moved; the choice gets made later, deliberately,
+    /// at save time (`confirmOverwriteOfChangedFile`).
+    private func refresh(diskChanged: Bool) {
+        guard diskChanged else { return }
+        guard !isDirty else {
+            hasExternalChange = true
+            return
+        }
+        reload(preservingScroll: true)
+    }
+
+    var documentIsEdited: Bool { isDirty }
+
+    func documentShouldClose() -> Bool {
+        guard isDirty else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Save changes to \(url.lastPathComponent)?"
+        alert.informativeText = "Your changes will be lost if you don't save them."
+        // Save / Cancel / Don't Save, in that order — the macOS HIG arrangement, and
+        // the one muscle memory expects when ⌘W is followed by a blind ⏎.
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Don't Save")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return write()
+        case .alertThirdButtonReturn: return true
+        default: return false
         }
     }
+
+    func saveDocument() -> Bool { write() }
 }

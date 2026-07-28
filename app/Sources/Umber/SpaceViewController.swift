@@ -143,6 +143,7 @@ final class SpaceViewController: NSSplitViewController {
         }
 
         let viewer = FileViewerPane(config: config, url: url, frame: documentArea.container.bounds)
+        viewer.delegate = self
         documents.append(viewer)
         selectDocument(at: documents.count - 1)
         return viewer
@@ -169,6 +170,10 @@ final class SpaceViewController: NSSplitViewController {
 
     func closeDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
+        // Every close path in the app — ⌘W, the tab's ×, closing the Space, quitting —
+        // reaches a document through here, which is what makes this the one place a
+        // dirty buffer has to be able to say no.
+        guard documents[index].documentShouldClose() else { return }
         let document = documents.remove(at: index)
         document.documentView.removeFromSuperview()
 
@@ -186,7 +191,9 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.setStripVisible(documents.count > 1)
         documentArea.strip.reload(
             items: documents.map {
-                .init(title: $0.documentTitle, symbolName: $0.documentSymbolName)
+                .init(
+                    title: $0.documentTitle, symbolName: $0.documentSymbolName,
+                    isEdited: $0.documentIsEdited)
             },
             activeIndex: activeIndex)
     }
@@ -206,6 +213,28 @@ final class SpaceViewController: NSSplitViewController {
     func windowDidBecomeKey() {
         fileTree.refresh()
         for document in documents { document.documentWindowDidBecomeKey() }
+        // A document may have picked up an external change; the strip does not show
+        // that today, but the dot state is cheap to keep honest.
+        syncStrip()
+    }
+
+    /// Can this whole Space go away? Asks each document in turn and stops at the
+    /// first refusal, so closing a window with three dirty files prompts three times
+    /// rather than discarding the other two behind one answer.
+    func spaceShouldClose() -> Bool {
+        for document in documents where !document.documentShouldClose() { return false }
+        return true
+    }
+
+    var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
+}
+
+// MARK: - FileViewerPaneDelegate
+
+extension SpaceViewController: FileViewerPaneDelegate {
+    func fileViewerDidChangeEditedState(_ pane: FileViewerPane) {
+        // Repaint the strip so the unsaved dot appears/disappears as you type.
+        syncStrip()
     }
 }
 

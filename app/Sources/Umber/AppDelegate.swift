@@ -20,6 +20,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         newSpaceInWindow(nil)
     }
 
+    /// ⌘S. A no-op on a terminal (`SpaceDocument.saveDocument()` defaults to a
+    /// successful no-op), so this needs no branching on document kind.
+    @objc func saveDocument(_ sender: Any?) {
+        _ = focusedSpace?.activeDocument?.saveDocument()
+    }
+
+    /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
+    /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
+    func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
+        for controller in SpaceWindowController.open
+        where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
         true
     }
@@ -231,6 +247,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Open Folder…", action: #selector(openFolder(_:)), keyEquivalent: "o")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newDocument(_:)), keyEquivalent: "t")
+        fileMenu.addItem(.separator())
+        // Grouped with the document verbs but fenced off from them: Save is the only
+        // item in this menu that writes to the user's files.
+        fileMenu.addItem(
+            withTitle: "Save", action: #selector(saveDocument(_:)), keyEquivalent: "s")
+        fileMenu.addItem(.separator())
         // ⌘W closes the document. Closing the whole Space out from under the other
         // terminals in it is ⌘⇧W, which is the ordering every tabbed app uses.
         fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeDocument(_:)), keyEquivalent: "w")

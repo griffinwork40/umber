@@ -149,6 +149,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         space.windowDidBecomeKey()
     }
 
+    /// Closing a Space closes every document in it, so it has to honour the same
+    /// veto ⌘W does — otherwise ⌘⇧W is a way to discard unsaved work without ever
+    /// being asked.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        space.spaceShouldClose()
+    }
+
     func windowWillClose(_ notification: Notification) {
         Self.open.removeAll { $0 === self }
     }
