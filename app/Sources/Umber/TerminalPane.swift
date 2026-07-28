@@ -12,6 +12,8 @@ protocol TerminalPaneDelegate: AnyObject {
     func paneDidTerminate(_ pane: TerminalPane)
     /// The shell reported a new title (OSC 0/2).
     func pane(_ pane: TerminalPane, didChangeTitle title: String)
+    /// `documentStatus` changed — the tab strip needs to repaint.
+    func paneDidChangeStatus(_ pane: TerminalPane)
 }
 
 /// A single terminal pane.
@@ -30,6 +32,18 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     let view: UmberTerminalView
     private(set) var currentTitle: String = ""
     weak var delegate: TerminalPaneDelegate?
+
+    /// What the tab strip should be saying about this pane.
+    ///
+    /// Only `.idle` and `.attention` are reachable today; see `DocumentStatus` for
+    /// which libghostty delegate fills each of the others in and why building OSC 133
+    /// parsing here now would be work done twice (probe plan §6.2).
+    private(set) var status: DocumentStatus = .idle {
+        didSet {
+            guard status != oldValue else { return }
+            delegate?.paneDidChangeStatus(self)
+        }
+    }
 
     private var config: AppConfig
     private var fontSize: CGFloat
@@ -69,6 +83,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         self.view = UmberTerminalView(frame: frame)
         super.init()
         view.processDelegate = self
+        // Separate from `processDelegate` because the bell is not on
+        // `LocalProcessTerminalViewDelegate` at all — see `UmberTerminalView.bellDelegate`
+        // for the four members it does carry and why reaching the bell needs a subclass
+        // override rather than a delegate slot.
+        view.bellDelegate = self
         view.autoresizingMask = [.width, .height]
         apply(config: config)
     }
@@ -261,6 +280,60 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
+        // Deliberately does NOT set `.failed` on a non-zero exit code. This fires when
+        // the *shell itself* exits, at which point the pane is closing
+        // (`SpaceViewController.paneDidTerminate`) — a status on a tab about to vanish
+        // is a status nobody reads. `.failed` is for a failed *command* inside a live
+        // shell, which needs OSC 133 and arrives with libghostty's
+        // `TerminalSurfaceCommandFinishedDelegate` (probe plan §6.2).
         delegate?.paneDidTerminate(self)
+    }
+}
+
+// MARK: - Attention state
+
+/// Everything the attention marker needs from the pane, kept in one extension at the
+/// end of the file rather than beside the stored `status` above.
+///
+/// That placement is deliberate and not stylistic: `origin/afk/ux-space-root` (PR #3)
+/// rewrites `init` and the whole doc comment on `start()` to thread a working directory
+/// through, so anything added in the span between them collides with it for no reason —
+/// two features that share no logic should not share a merge conflict. Verified with
+/// `git merge-tree --write-tree HEAD origin/afk/ux-space-root`, which reports clean with
+/// these members here and a `TerminalPane.swift` conflict with them above `start()`.
+extension TerminalPane {
+    /// The user is looking at this pane, so whatever it wanted to tell them has landed.
+    ///
+    /// Called from `documentDidBecomeActive()` (the `SpaceDocument` conformance) rather
+    /// than from a window/focus notification: becoming the visible document is exactly
+    /// the moment the signal has been consumed, and it is the same hook that already
+    /// takes first responder.
+    func clearAttention() {
+        status = .idle
+    }
+
+    /// Is this the document currently on screen in its Space?
+    ///
+    /// Derived from the view hierarchy rather than tracked with a flag, because the
+    /// container already maintains exactly this invariant: `present(documentView:)`
+    /// removes every other document's view from the container and adds the new one
+    /// (`SpaceViewController.swift`, `DocumentAreaViewController.present`), so having a
+    /// superview *is* being the presented document. A cached flag would be a second
+    /// copy of that fact with no "did become inactive" callback to keep it honest.
+    fileprivate var isActiveDocument: Bool { view.superview != nil }
+}
+
+// MARK: - UmberTerminalViewDelegate
+
+extension TerminalPane: UmberTerminalViewDelegate {
+    /// BEL is the one attention signal that crosses a pty with no shell integration at
+    /// all, which is why it is the single wired case: an agent REPL blocked on a prompt
+    /// beeps, and this app exists to host one.
+    func terminalViewDidRingBell(_ view: UmberTerminalView) {
+        // Not raised on the pane the user is already reading. The whole point of the
+        // marker is to label a tab you are *not* looking at, and lighting up the front
+        // tab would train the eye to ignore it.
+        guard !isActiveDocument else { return }
+        status = .attention
     }
 }

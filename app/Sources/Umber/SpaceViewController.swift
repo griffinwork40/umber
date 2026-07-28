@@ -217,7 +217,7 @@ final class SpaceViewController: NSSplitViewController {
             items: documents.map {
                 .init(
                     title: $0.documentTitle, symbolName: $0.documentSymbolName,
-                    isEdited: $0.documentIsEdited)
+                    isEdited: $0.documentIsEdited, status: $0.documentStatus)
             },
             activeIndex: activeIndex)
     }
@@ -292,6 +292,13 @@ extension SpaceViewController: TerminalPaneDelegate {
         syncStrip()
         guard documents.indices.contains(activeIndex), documents[activeIndex] === pane else { return }
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: pane.documentTitle)
+    }
+
+    /// A background pane raised or cleared an attention marker. Only the strip cares —
+    /// the window title stays the active document's, because a background tab beeping
+    /// must not relabel the window you are working in.
+    func paneDidChangeStatus(_ pane: TerminalPane) {
+        syncStrip()
     }
 }
 

@@ -28,7 +28,56 @@ import SwiftTerm
 ///    combos here is exactly how a view is supposed to take a ⌘ chord — and
 ///    returning false leaves every other ⌘ key (⌘C, ⌘T, ⌘+, …) to the menu,
 ///    untouched.
+@MainActor
+protocol UmberTerminalViewDelegate: AnyObject {
+    /// The program in this terminal rang the bell (BEL / `\a`).
+    func terminalViewDidRingBell(_ view: UmberTerminalView)
+}
+
 final class UmberTerminalView: LocalProcessTerminalView {
+    /// Separate from `processDelegate` because the bell is *not* on
+    /// `LocalProcessTerminalViewDelegate` — that protocol carries exactly four
+    /// members (`MacLocalTerminalView.swift:14-43`: sizeChanged,
+    /// setTerminalTitle, hostCurrentDirectoryUpdate, processTerminated) and the bell
+    /// is on the lower-level `TerminalViewDelegate` instead
+    /// (`Apple/TerminalViewDelegate.swift:64`). `LocalProcessTerminalView` *is* its own
+    /// `TerminalViewDelegate` and does not forward the bell onward — it simply
+    /// inherits the default that calls `NSSound.beep()`
+    /// (`MacTerminalView.swift:3032-3035`). Reassigning `terminalDelegate` to reach it
+    /// is explicitly warned against upstream ("you might inadvertently break the
+    /// internal working", `MacLocalTerminalView.swift:59-64`), so the safe hook is to
+    /// override the `open` `bell(source: Terminal)` on `TerminalView` itself
+    /// (`MacTerminalView.swift:2869`) — which is what this subclass already exists to
+    /// do for key handling.
+    weak var bellDelegate: UmberTerminalViewDelegate?
+
+    /// `bell(source: Terminal)` rather than `bell(source: TerminalView)`: the former is
+    /// the `TerminalDelegate` method `TerminalView` declares `open`, and it is what
+    /// `EscapeSequenceParser.swift:362` calls on receiving byte 0x07.
+    ///
+    /// `nonisolated` + `assumeIsolated` for the same reason as the accessibility
+    /// overrides in `DocumentTabStrip`: SwiftTerm predates Swift concurrency, so the
+    /// inherited signature is non-isolated. It is safe here because SwiftTerm's own
+    /// pty reads are dispatched to `DispatchQueue.main` by default
+    /// (`LocalProcess.swift:127`), so the parse that raises this is already on the
+    /// main thread — the same runtime-check-over-compile-error trade `TerminalPane`
+    /// documents on its `@preconcurrency` conformance.
+    override nonisolated func bell(source: Terminal) {
+        MainActor.assumeIsolated {
+            // Reproduces SwiftTerm's own default rather than calling `super`: `Terminal`
+            // is not `Sendable`, so `source` cannot cross into an isolated block, and
+            // the default is exactly this one line — `bell(source: Terminal)` forwards
+            // to `terminalDelegate?.bell(source: self)` (`MacTerminalView.swift:2870`),
+            // which for a `LocalProcessTerminalView` is itself, inheriting
+            // `NSSound.beep()` (`MacTerminalView.swift:3032-3035`).
+            //
+            // Kept because it is behaviour we already shipped: the strip's marker says
+            // *which* tab wants you, but the sound is what makes you look at all.
+            NSSound.beep()
+            bellDelegate?.terminalViewDidRingBell(self)
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let bytes = MacLineEditing.controlBytes(
             keyCode: event.keyCode, modifiers: event.modifierFlags)
