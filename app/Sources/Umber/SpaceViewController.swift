@@ -321,6 +321,22 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
             pane.documentDidBecomeActive()
         }
     }
+
+    /// "New Terminal Here" — the other half of rooting terminals properly.
+    ///
+    /// ⌘T uses the Space's root; this uses the directory you clicked, which is what
+    /// you want the moment a project is more than one directory deep. `url` is already
+    /// resolved to a directory by the tree (`FileTreeViewController.menuNewTerminal`),
+    /// so there is deliberately no file/folder branch here.
+    ///
+    /// A new document every time rather than reusing an existing terminal on that
+    /// path, which is the opposite of `openFile(url:)`'s reuse rule — and the
+    /// difference is real, not an inconsistency: two viewers of one file show the same
+    /// bytes twice, while two shells in one directory are two independent sessions
+    /// (one running a server, one running git) and collapsing them would destroy work.
+    func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL) {
+        addTerminalDocument(workingDirectory: url)
+    }
 }
 
 // MARK: - Document area

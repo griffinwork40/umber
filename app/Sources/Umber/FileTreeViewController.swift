@@ -16,6 +16,12 @@ protocol FileTreeViewControllerDelegate: AnyObject {
     /// Space's focused terminal without opening anything — the terminal-first
     /// gesture, which used to be bound to plain double-click and confused everyone.
     func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL)
+
+    /// "New Terminal Here". Opens a new terminal document rooted at `url`, which is
+    /// always a **directory** — the menu resolves a clicked file to its parent before
+    /// calling, so the Space never has to ask what kind of row was hit
+    /// (`SpaceViewController.fileTree(_:didRequestNewTerminalAt:)`).
+    func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL)
 }
 
 /// A lazily-populated directory node.
@@ -228,8 +234,20 @@ final class FileTreeViewController: NSViewController {
             menu.addItem(
                 withTitle: "Insert Path in Terminal", action: #selector(menuInsertPath(_:)),
                 keyEquivalent: "")
-            menu.addItem(.separator())
         }
+        // Offered for files as well as directories — it resolves a file to its parent
+        // (`menuNewTerminal`), which is what "here" means when you right-click a file
+        // you are about to run something against. Finder's own "New Terminal at
+        // Folder" service is directory-only and that is a worse rule in a project
+        // tree, where the row your eye is on is usually the file, not its folder.
+        menu.addItem(
+            withTitle: "New Terminal Here", action: #selector(menuNewTerminal(_:)),
+            keyEquivalent: "")
+        // The separator moved out of the `!isDirectory` block rather than being
+        // duplicated: it was conditional only because a directory row had nothing
+        // above it to separate, and now every row does. The in-app actions stay above
+        // it, the two hand-offs to the rest of macOS stay below.
+        menu.addItem(.separator())
         menu.addItem(
             withTitle: "Reveal in Finder", action: #selector(menuReveal(_:)), keyEquivalent: "")
         menu.addItem(
@@ -253,6 +271,17 @@ final class FileTreeViewController: NSViewController {
     @objc private func menuInsertPath(_ sender: Any?) {
         guard let node = node(from: sender) else { return }
         delegate?.fileTree(self, didRequestPathInsert: node.url)
+    }
+
+    /// Resolve the clicked row to a directory here, in the one place that knows what
+    /// was clicked, rather than passing the raw node and making the Space re-derive
+    /// it: `deletingLastPathComponent()` on a directory URL would climb to its
+    /// *parent*, so a receiver that guessed wrong would open every folder's terminal
+    /// one level too high.
+    @objc private func menuNewTerminal(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        let directory = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+        delegate?.fileTree(self, didRequestNewTerminalAt: directory)
     }
 
     @objc private func menuReveal(_ sender: Any?) {
