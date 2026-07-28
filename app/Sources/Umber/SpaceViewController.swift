@@ -181,7 +181,7 @@ final class SpaceViewController: NSSplitViewController {
         let document = documents[index]
 
         documentArea.present(documentView: document.documentView)
-        syncStrip()
+        syncDocumentChrome()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
         // Re-check staleness on activation, not just on window-level focus
         // (`windowDidBecomeKey()` below): switching tabs within an already-key
@@ -221,11 +221,14 @@ final class SpaceViewController: NSSplitViewController {
 
     func closeActiveDocument() { closeDocument(at: activeIndex) }
 
+    /// Fan document state out to every piece of chrome that displays it: the tab
+    /// strip, and the window's own unsaved marker.
+    ///
     /// Internal rather than `private` because all four delegate conformances in
-    /// `+Delegates` repaint the strip — an edited-state change, a title change, a
+    /// `+Delegates` repaint chrome — an edited-state change, a title change, a
     /// background pane's status marker — and `private` stops at this file's edge.
-    /// Still the only place the strip is rebuilt from the document list.
-    func syncStrip() {
+    /// Still the only place chrome is rebuilt from the document list.
+    func syncDocumentChrome() {
         documentArea.setStripVisible(documents.count > 1)
         documentArea.strip.reload(
             items: documents.map {
@@ -234,6 +237,24 @@ final class SpaceViewController: NSSplitViewController {
                     isEdited: $0.documentIsEdited, status: $0.documentStatus)
             },
             activeIndex: activeIndex)
+
+        // The unsaved dot above lives *in* the strip, and the strip is hidden at a
+        // single document by design (`DocumentAreaViewController.swift:44-47`: with
+        // one terminal open this should still just look like a terminal). The two
+        // decisions composed into a bug: a Space holding exactly one unsaved file
+        // showed no persistent unsaved indicator anywhere at all.
+        //
+        // `isDocumentEdited` is AppKit's own answer and it does not fight that
+        // decision — it draws the standard dot inside the window's close button, and
+        // because Spaces are native window tabs, on the tab as well. Nothing to lay
+        // out, nothing to hide, correct while the strip is absent.
+        //
+        // Reads `hasEditedDocuments` rather than the active document on purpose: the
+        // unsaved file is usually the one you are *not* looking at, which is exactly
+        // when a marker has to be visible. `view.window` is nil until the Space is
+        // installed in a window; `windowDidBecomeKey()` re-syncs, so the early no-op
+        // is harmless rather than a missed update.
+        view.window?.isDocumentEdited = hasEditedDocuments
     }
 
     // MARK: - Config / lifecycle
@@ -253,7 +274,7 @@ final class SpaceViewController: NSSplitViewController {
         for document in documents { document.documentWindowDidBecomeKey() }
         // A document may have picked up an external change; the strip does not show
         // that today, but the dot state is cheap to keep honest.
-        syncStrip()
+        syncDocumentChrome()
     }
 
     /// Can this whole Space go away? Asks each document in turn and stops at the

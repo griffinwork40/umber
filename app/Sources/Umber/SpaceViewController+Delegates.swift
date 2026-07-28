@@ -22,8 +22,10 @@ import AppKit
 
 extension SpaceViewController: FileViewerPaneDelegate {
     func fileViewerDidChangeEditedState(_ pane: FileViewerPane) {
-        // Repaint the strip so the unsaved dot appears/disappears as you type.
-        syncStrip()
+        // Repaint chrome so the unsaved marker appears/disappears as you type — the
+        // strip's dot when there is a strip, and the window's own close-button dot
+        // always, which is the only indicator a lone unsaved document gets.
+        syncDocumentChrome()
     }
 }
 
@@ -54,7 +56,7 @@ extension SpaceViewController: TerminalPaneDelegate {
     }
 
     func pane(_ pane: TerminalPane, didChangeTitle title: String) {
-        syncStrip()
+        syncDocumentChrome()
         guard documents.indices.contains(activeIndex), documents[activeIndex] === pane else { return }
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: pane.documentTitle)
     }
@@ -63,7 +65,7 @@ extension SpaceViewController: TerminalPaneDelegate {
     /// the window title stays the active document's, because a background tab beeping
     /// must not relabel the window you are working in.
     func paneDidChangeStatus(_ pane: TerminalPane) {
-        syncStrip()
+        syncDocumentChrome()
     }
 }
 

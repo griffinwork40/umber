@@ -83,6 +83,30 @@ extension AppDelegate {
         // Edit menu — the standard selectors; TerminalView implements them.
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
+
+        // Undo/Redo. ⌘Z and ⌘⇧Z already worked before these items existed —
+        // `FileViewerPane` sets `allowsUndo = true` (`FileViewerPane.swift:130`) and
+        // AppKit's standard key bindings map the chords straight onto the text view —
+        // so this is purely a discoverability fix: a user who does not already know
+        // the chord had no way to learn the editor could undo at all.
+        //
+        // The class that actually implements `undo:`/`redo:` is **NSWindow**, not
+        // NSTextView (verified with `instancesRespond(to:)`, 2026-07-28); the window
+        // forwards to its `undoManager`, which is the focused text view's. So target
+        // stays nil, AppKit walks the responder chain, and these reach the editor
+        // without this menu — or the container — knowing an editor exists.
+        //
+        // Spelled as strings because no typed Swift selector exists for either:
+        // `#selector(UndoManager.undo)` is the zero-argument `undo`, a different
+        // selector that nothing in the responder chain answers. A typo here fails
+        // *visibly* — the item greys out the first time the menu is opened — which is
+        // what makes a string tolerable in a file that otherwise uses `#selector`.
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
+
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
@@ -104,19 +128,42 @@ extension AppDelegate {
         //   * `performFindPanelAction` early-returns unless the sender IS an
         //     NSMenuItem and reads `menuItem.tag`, so every item below must carry a
         //     tag or it silently does nothing.
-        let findItems: [(String, String, NSEvent.ModifierFlags, NSFindPanelAction)] = [
-            ("Find…", "f", [.command], .showFindPanel),
-            ("Find Next", "g", [.command], .next),
-            ("Find Previous", "g", [.command, .shift], .previous),
-            ("Use Selection for Find", "e", [.command], .setFindString),
+        // The tag type widens from `NSFindPanelAction` to a raw `Int` for one reason:
+        // "show the replace row" is not in that enum. `NSFindPanelAction` stops at 10
+        // and has no such case — the action is `NSTextFinder.Action`
+        // `.showReplaceInterface` (12), which `NSTextView.performFindPanelAction`
+        // forwards as an `NSTextFinder.Action` raw value. Both enums' raw values were
+        // read off the SDK rather than hardcoded (2026-07-28), so a literal `12` never
+        // appears here and the compiler owns the number.
+        //
+        // Replace needs no enablement logic and no terminal guard. SwiftTerm's
+        // `validateUserInterfaceItem` (`Mac/MacTerminalView.swift:2119`) whitelists
+        // only showFindPanel/next/previous/setFindString, so this item greys out
+        // automatically whenever a terminal is the focused document — the right answer,
+        // since scrollback is a transcript and cannot be rewritten. It enables itself
+        // only over a real editor, which today means `FileViewerPane`.
+        //
+        // ⌥⌘F rather than a new chord: it is what TextEdit and Xcode both use, and it
+        // survives `MacLineEditing.controlBytes`, which fires only on `intent ==
+        // [.command]` exactly (`KeyBindings.swift`) — so the ⌥ keeps it off the pty for
+        // the same reason plain ⌘F already reaches this menu untouched.
+        let findItems: [(String, String, NSEvent.ModifierFlags, Int)] = [
+            ("Find…", "f", [.command], Int(NSFindPanelAction.showFindPanel.rawValue)),
+            ("Find Next", "g", [.command], Int(NSFindPanelAction.next.rawValue)),
+            ("Find Previous", "g", [.command, .shift], Int(NSFindPanelAction.previous.rawValue)),
+            ("Use Selection for Find", "e", [.command], Int(NSFindPanelAction.setFindString.rawValue)),
+            (
+                "Find and Replace…", "f", [.command, .option],
+                NSTextFinder.Action.showReplaceInterface.rawValue
+            ),
         ]
-        for (title, key, mask, action) in findItems {
+        for (title, key, mask, tag) in findItems {
             let item = NSMenuItem(
                 title: title,
                 action: #selector(NSTextView.performFindPanelAction(_:)),
                 keyEquivalent: key)
             item.keyEquivalentModifierMask = mask
-            item.tag = Int(action.rawValue)
+            item.tag = tag
             editMenu.addItem(item)
         }
         editItem.submenu = editMenu

@@ -11,7 +11,19 @@ build/
 # Vendored, locally-patched SwiftTerm copy (upstream v1.15.0 + one exclude line).
 # Recreation is documented in app/README.md ("Dependency note").
 vendor/
+# The same name without the slash, which also covers a `vendor` SYMLINK. A fresh
+# git worktree gets none of the gitignored files, so building in one means pointing
+# at the main checkout's copy (`ln -s ../../vendor vendor`) — and the pattern above
+# ends in `/`, so it matches only a real directory and left that symlink showing up
+# untracked in every worktree.
+vendor
 
 # Python bytecode from Scripts/
 __pycache__/
 .afk-worktrees/
+
+# Per-worktree bookkeeping written by afk's worktree manager. Ignored by path
+# rather than covered by `.afk-worktrees/` above, because inside a worktree that
+# directory is not on the path — the file sits at what git there treats as the
+# repo root, so it showed up untracked in every worktree at once.
+.afk-worktree-meta.json
