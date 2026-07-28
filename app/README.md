@@ -32,13 +32,16 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are three scripts and a diagnostic
+of pure logic would have caught. So the checks are five scripts and a diagnostic
 env var, each aimed at something that has really gone wrong:
 
 ```sh
 ./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH its patch?
+./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
+./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
+                                 # needs a GUI session; window is offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
 UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
@@ -63,6 +66,20 @@ disk), including the fail-soft cases whose only other discovery path is a user w
 opens to nothing. It runs against a temp directory and a bundle-less binary's own defaults
 domain, so it cannot disturb your real remembered Spaces — and asserts that isolation as
 its last case instead of trusting it.
+
+`check-find-menu.sh` covers the three Edit-menu items with **no Umber code behind them** —
+Undo, Redo, and Find and Replace are AppKit responder actions reached with `target = nil`,
+so all three are correct only as long as an assumption about the SDK holds. It checks that
+`undo:`/`redo:` are answered by NSWindow (not NSTextView, which does not implement them),
+that the find tags are still the `NSFindPanelAction` raw values the menu reads off the SDK,
+and — behaviourally, against a real offscreen `NSTextView` — that tag 12
+(`NSTextFinder.Action.showReplaceInterface`, which `NSFindPanelAction` has no case for)
+genuinely produces the replace row. That last one is why the script exists: a menu item
+wired to an unanswered selector or an unrecognised tag renders, highlights, clicks, and
+does nothing, and nothing else in this repo would notice. It sends each tag in its own
+process, because sharing one text view let the bar keep the previous action's state and a
+dead tag passed; and it distinguishes "no window server" (exit 2) from "tag 1 worked but
+tag 12 did nothing" (exit 1), so a real dead item cannot hide behind an environment excuse.
 
 ## What works today (v0.1)
 
