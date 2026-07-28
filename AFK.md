@@ -21,9 +21,10 @@ UMBER_DIAG=1 swift run Umber           # + dump resolved font/theme/scrollback t
 ./Scripts/check-keybindings.sh         # headless: compiles shipped KeyBindings.swift, runs a 17-case truth table
 ./Scripts/check-space-restore.sh       # headless: compiles shipped Config.swift, 12-case truth table for OpenSpaceRoots
 ./Scripts/check-keys-e2e.sh            # real NSEvents → real pty bytes; LAUNCHES the app, steals focus
+./Scripts/check-file-size.sh           # headless: enforces the 350-LOC ceiling on Sources/ + Scripts/
 ```
 
-**There is no test target and no CI.** The three `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless. `check-space-restore.sh` is headless too and runs against a temp dir and its own defaults domain, so it never touches your real remembered Spaces — it asserts that isolation as its last case.
+**There is no test target and no CI.** The four `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless. `check-space-restore.sh` is headless too and runs against a temp dir and its own defaults domain, so it never touches your real remembered Spaces — it asserts that isolation as its last case.
 
 There is no `.xcodeproj` by design — the project stays all-text, diffable, and scriptable. Do not add one.
 
@@ -72,6 +73,8 @@ Adding a new document kind (editor, diff, observer panel) means writing a `Space
 
 ## Conventions
 
+- **Hard ceiling: no source file over 350 LOC.** Set 2026-07-28, enforced by `./Scripts/check-file-size.sh` (exit 1 on violation, warning band at 315). This is a maintainability rule, not an aesthetic one: with no test target and no CI, correctness here depends on a reader — human or agent — holding a whole file in context before editing it, and a 550-line AppKit file spends most of an agent's working context establishing what is safe to touch. The failure mode is silent, because the agent then edits from a partial read. When a file approaches the ceiling, find its seam and pull one whole concern out (a delegate conformance, a model type, a drawing routine, a UserDefaults store); do not raise `LIMIT`. Every new file gets a header comment naming what it owns, and the file table above gets updated in the same commit — a stale map costs an agent the same context the split just bought back. Prose is exempt: `.afk/plans/*.md` are single arguments meant to be read end to end.
+- **Prefer one concern per file, and a seam over a flag.** New behaviour that plugs into an existing type should arrive as a new file conforming to an existing protocol (`SpaceDocument` is the model — see `FileViewerPane`, added without the container learning anything about it), not as another branch inside a type that already has a job.
 - **Comments explain *why*, and cite their evidence** — vendor source lines (`Terminal.swift:725`), upstream issue numbers (SwiftTerm #494), cross-repo files, plan sections (`plan §4.1`). Match this density: nearly every non-obvious line carries a rationale. A patch with no *why* comment on a non-obvious line is under-written for this repo.
 - **Config parsing fails soft, per field.** `AppConfig.load()` never throws: a bad value degrades to the default and appends a warning printed to stderr. Six bad fields ⇒ six warnings and a working terminal. Preserve this — do not introduce a throwing config path.
 - **One source of truth for defaults**: `AppConfig.defaults()` and the `defaultFontSize` / `minFontSize` / `maxFontSize` statics in `Config.swift`. Read them; never re-hardcode.
