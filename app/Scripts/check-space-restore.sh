@@ -5,8 +5,13 @@
 # Same technique as check-keybindings.sh, and for the same reason: this app has no
 # test target, and `OpenSpaceRoots` is a near-pure function of (stored strings,
 # what exists on disk) — so instead of standing up XCTest, compile the SHIPPED
-# Sources/Umber/Config.swift together with a throwaway harness and run a truth
+# Sources/Umber/Defaults.swift together with a throwaway harness and run a truth
 # table. Nothing is stubbed or restated: a change to the real store shows up here.
+#
+# The compiled unit was Sources/Umber/Config.swift until 2026-07-28, when the
+# 350-LOC ceiling split the UserDefaults stores out into Defaults.swift. Only the
+# file name moved; `OpenSpaceRoots` itself is unchanged, which is why all 12 cases
+# below are untouched.
 #
 # Why this script exists at all: restore is the one feature whose payoff is only
 # observable ACROSS a quit/relaunch boundary, which no headless check can drive.
@@ -28,13 +33,13 @@ cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# SwiftTerm has to be built first — Config.swift imports it for `CursorStyle` and
-# the `Color` conversion, so the harness needs the module and its object file.
-PRODUCTS=".build/out/Products/Debug"
-if [ ! -f "$PRODUCTS/SwiftTerm.o" ]; then
-  echo "building SwiftTerm first (Config.swift imports it)…"
-  swift build >/dev/null 2>&1 || { echo "swift build failed — fix that first"; exit 1; }
-fi
+# No SwiftTerm prebuild any more. Config.swift imported it for `CursorStyle` and
+# the `Color` conversion, so compiling that file dragged in the whole module and
+# its object file; Defaults.swift imports only AppKit, because a UserDefaults store
+# has no business knowing about the emulator. That is a property worth keeping — it
+# is what lets this check run without building SwiftTerm at all. If a future edit
+# makes this script need `-I .build/out/Products/Debug` again, the store has grown
+# a dependency it should not have.
 
 cat > "$TMP/main.swift" <<'SWIFT'
 import AppKit
@@ -145,8 +150,7 @@ exit(failures == 0 ? 0 : 1)
 SWIFT
 
 swiftc -o "$TMP/harness" \
-  Sources/Umber/Config.swift "$TMP/main.swift" \
-  -I "$PRODUCTS" -L "$PRODUCTS" "$PRODUCTS/SwiftTerm.o" \
+  Sources/Umber/Defaults.swift "$TMP/main.swift" \
   -framework AppKit
 
 "$TMP/harness"

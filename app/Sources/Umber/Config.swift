@@ -1,6 +1,6 @@
 //
 //  Config.swift
-//  User configuration and theming.
+//  The on-disk config shape and the resolved `AppConfig` it loads into.
 //
 //  Config lives at ~/.config/umber/config.json. Every field is optional;
 //  anything absent falls back to a default that is meant to already look good,
@@ -9,116 +9,16 @@
 //  Deliberately plain JSON rather than a bespoke format: it is diffable,
 //  machine-editable, and needs no parser of its own.
 //
+//  This file is the *loader* and the single source of truth for defaults. The
+//  values it resolves into live next door: colour parsing and the presets are in
+//  `Theme.swift`, and the UserDefaults stores (zoom, remembered Space roots) are
+//  in `Defaults.swift` — none of which this file's fail-soft contract depends on.
+//  `ConfigFile` stays `private` here because nothing outside the loader may see
+//  the wire format; every other file reads the resolved `AppConfig` instead.
+//
 
 import AppKit
 import SwiftTerm
-
-// MARK: - Hex colors
-
-extension NSColor {
-    /// Parse `#rrggbb` / `rrggbb` (and the 3-digit shorthand). Returns nil on
-    /// anything unparseable so a typo in config degrades to the default rather
-    /// than crashing the terminal.
-    static func fromHex(_ raw: String) -> NSColor? {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("#") { s.removeFirst() }
-        if s.count == 3 {
-            s = s.map { "\($0)\($0)" }.joined()
-        }
-        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
-        return NSColor(
-            srgbRed: CGFloat((v >> 16) & 0xff) / 255.0,
-            green: CGFloat((v >> 8) & 0xff) / 255.0,
-            blue: CGFloat(v & 0xff) / 255.0,
-            alpha: 1.0
-        )
-    }
-
-    /// WCAG 2.1 relative luminance, 0…1. Used to decide whether the window's
-    /// system chrome (sidebar, titlebar, scrollers) should render dark or light.
-    ///
-    /// Converted to sRGB first for the same reason `asSwiftTermColor` does it: the
-    /// no-theme fallback is `NSColor.black`, which lives in a generic *grey* colour
-    /// space, and asking a grey colour for `.redComponent` traps rather than
-    /// returning 0.
-    var relativeLuminance: CGFloat {
-        let c = usingColorSpace(.sRGB) ?? self
-        // Gamma-expand each channel before weighting — luminance is defined on
-        // linear light, and skipping this misjudges mid-tones badly.
-        func linear(_ channel: CGFloat) -> CGFloat {
-            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * linear(c.redComponent)
-            + 0.7152 * linear(c.greenComponent)
-            + 0.0722 * linear(c.blueComponent)
-    }
-
-    /// SwiftTerm's palette type wants 16-bit components.
-    var asSwiftTermColor: SwiftTerm.Color {
-        let c = usingColorSpace(.sRGB) ?? self
-        return SwiftTerm.Color(
-            red: UInt16(c.redComponent * 65535),
-            green: UInt16(c.greenComponent * 65535),
-            blue: UInt16(c.blueComponent * 65535)
-        )
-    }
-}
-
-// MARK: - Theme
-
-/// A 16-colour ANSI palette plus background/foreground/cursor.
-struct Theme {
-    var background: NSColor
-    var foreground: NSColor
-    var cursor: NSColor
-    /// Exactly 16 entries: 8 normal then 8 bright. SwiftTerm's `installColors`
-    /// silently does nothing if the array is not 16 long, so this is validated
-    /// at construction rather than trusted.
-    var ansi: [NSColor]
-
-    /// AFK Dark — a preset, selected with `"theme": {"preset": "afk-dark"}`.
-    /// It was briefly the default; it is not any more, because SwiftTerm's own
-    /// defaults (see `AppConfig.theme == nil`) measurably render better and were
-    /// what the Step 0 spike showed. Taken verbatim from the `terminal` block of
-    /// `themes/terax/afk-dark.terax-theme` in the agent-afk repo, which is
-    /// itself a 1:1 port of that project's Cursor/VS Code and Ghostty themes:
-    /// a GitHub-Dark skeleton with the AFK warm-orange accent (#E67E4C) — which
-    /// is also the caret here, matching afk's brand tone.
-    static let afkDark = Theme(
-        background: NSColor.fromHex("#0D1117")!,
-        foreground: NSColor.fromHex("#C9D1D9")!,
-        cursor: NSColor.fromHex("#E67E4C")!,
-        ansi: [
-            "#161B22", "#F85149", "#9CB04A", "#E5C07B",
-            "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
-            "#484F58", "#F85149", "#A8E060", "#E67E4C",
-            "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4",
-        ].map { NSColor.fromHex($0)! }
-    )
-
-    /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
-    static let tokyoNight = Theme(
-        background: NSColor.fromHex("#1A1B26")!,
-        foreground: NSColor.fromHex("#C0CAF5")!,
-        cursor: NSColor.fromHex("#C0CAF5")!,
-        ansi: [
-            "#15161E", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#A9B1D6",
-            "#414868", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#C0CAF5",
-        ].map { NSColor.fromHex($0)! }
-    )
-
-    /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
-    /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
-    static func preset(named name: String) -> Theme? {
-        switch name.lowercased() {
-        case "afk-dark", "afkdark": return .afkDark
-        case "tokyo-night", "tokyonight": return .tokyoNight
-        default: return nil
-        }
-    }
-}
 
 // MARK: - Config file shape
 
@@ -143,168 +43,6 @@ private struct ConfigFile: Decodable {
     var scrollback: Int?
     var shell: String?
     var optionAsMeta: Bool?
-}
-
-// MARK: - Font zoom
-
-/// The live ⌘+ / ⌘− zoom level, app-wide and persisted.
-///
-/// Deliberately **not** written back into `config.json`: that file is
-/// hand-edited and carries the user's own comments, so an app that rewrote it
-/// would clobber them. `UserDefaults` is the idiomatic home for transient UI
-/// state of exactly this kind.
-///
-/// `nil` means "no zoom — use the configured size", which is what ⌘0 restores.
-/// It is app-wide rather than per-pane because the alternative is what v0.1
-/// shipped: zooming in one tab left every other tab, every tab opened
-/// afterwards, and every subsequent launch back at the configured size.
-enum FontZoom {
-    private static let key = "Umber.fontSizeOverride"
-
-    static var override: CGFloat? {
-        get {
-            let stored = UserDefaults.standard.double(forKey: key)
-            return stored > 0 ? CGFloat(stored) : nil
-        }
-        set {
-            if let newValue {
-                UserDefaults.standard.set(Double(newValue), forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-    }
-}
-
-/// The project root of the most recently opened Space, remembered across launches.
-///
-/// Same argument as `FontZoom`, and the same storage for the same reason: this is
-/// transient UI state, not configuration, so it belongs in `UserDefaults` rather
-/// than in a `config.json` the user hand-edits and comments.
-///
-/// `$HOME` remains the genuine first-run default — this only remembers where you
-/// went afterwards. It exists because `$HOME` is a bad *steady-state* root even
-/// though it is a reasonable first one: 128 top-level entries on this machine, 74
-/// of them hidden, and the directories-first sort put 53 tool-cache directories
-/// above `Projects/`. Sorting hidden entries last fixed the ordering; this stops
-/// you landing there at all once you have opened a real project with ⌘O.
-///
-/// A raw path is enough because the app is not sandboxed (`make-app-bundle.sh`
-/// ad-hoc signs with no entitlements). Under App Sandbox this would have to be a
-/// security-scoped bookmark instead — the path alone would not carry access.
-enum LastSpaceRoot {
-    private static let key = "Umber.lastSpaceRoot"
-
-    static var url: URL? {
-        get {
-            guard let path = UserDefaults.standard.string(forKey: key) else { return nil }
-            // Checked, not trusted: a remembered project can be deleted, renamed, or
-            // sit on an unmounted volume, and rooting a Space at a path that is gone
-            // gives an empty tree with no explanation of why. Fall back to $HOME.
-            guard FileManager.default.isUsableSpaceRoot(atPath: path) else { return nil }
-            return URL(fileURLWithPath: path)
-        }
-        set {
-            if let newValue {
-                UserDefaults.standard.set(newValue.path, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-    }
-}
-
-extension FileManager {
-    /// Does a remembered path still name a directory we could root a Space at?
-    ///
-    /// Extracted rather than duplicated because `OpenSpaceRoots` below has to make
-    /// the exact same judgement on every element of a list, and two copies of a
-    /// check-don't-trust rule is two places for it to drift — one of which would then
-    /// hand `FileTreeViewController` a root that no longer exists.
-    ///
-    /// `isDirectory` is not incidental: a remembered project directory can be
-    /// replaced by a *file* of the same name, and `fileExists(atPath:)` alone would
-    /// say yes — then the sidebar tree would enumerate a non-directory and show
-    /// nothing, with no hint as to why.
-    func isUsableSpaceRoot(atPath path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-}
-
-/// The project root of every open Space, in tab order, remembered across launches.
-///
-/// `LastSpaceRoot` above answers "where was I working?" with exactly one path, and
-/// one path has the same shape of flaw that its own commit (`37262d5`) named for
-/// `$HOME`: a fine first answer, a poor steady-state one. Four Spaces open at quit
-/// came back as one Space plus three forgotten roots — and unlike a lost window
-/// frame, a forgotten root is work the user has to go find again in an open panel.
-///
-/// Storage, the sandbox caveat, and check-on-read are all deliberately identical to
-/// `LastSpaceRoot`: transient UI state belongs in `UserDefaults` and not in a
-/// `config.json` the user hand-edits and comments; a raw path is sufficient *only*
-/// because the app is not sandboxed (`make-app-bundle.sh` ad-hoc signs with no
-/// entitlements — under App Sandbox every entry here would have to be a
-/// security-scoped bookmark, because the path alone would not carry access); and a
-/// remembered project can be deleted, renamed, or sit on an unmounted volume
-/// between launches, so entries are verified on read rather than trusted.
-///
-/// Nothing here can throw or fail a launch — same fail-soft contract
-/// `AppConfig.load()` keeps for the config file, applied to persistence. A missing
-/// key, a key someone hand-edited to the wrong type (`stringArray(forKey:)` returns
-/// nil rather than trapping), and a list whose every entry has since been deleted
-/// all read as `[]`, which `AppDelegate.restoreSpaces()` treats as "open one
-/// default Space". The failure mode of this file is a normal first launch.
-enum OpenSpaceRoots {
-    private static let key = "Umber.openSpaceRoots"
-
-    /// Restoring is not free: each Space costs a window, a file tree, and a login
-    /// shell (`TerminalPane.startProcess`), so a session that had accumulated 40
-    /// Spaces would fork 40 shells before the app was usable, and the native tab bar
-    /// is unreadable long before that. The cap is applied as `suffix(limit)`, which
-    /// keeps the most recently opened Spaces and preserves their relative order — so
-    /// overflow drops the leftmost tabs instead of scrambling the group.
-    static let limit = 12
-
-    static var urls: [URL] {
-        get {
-            guard let paths = UserDefaults.standard.stringArray(forKey: key) else { return [] }
-            let usable = paths.filter(FileManager.default.isUsableSpaceRoot(atPath:))
-            return normalized(usable.map { URL(fileURLWithPath: $0) })
-        }
-        set {
-            let paths = normalized(newValue).map(\.path)
-            // Remove rather than store `[]`: an absent key and an empty list mean the
-            // same thing to `restoreSpaces()`, and not leaving an empty array behind
-            // keeps `defaults read com.griffinlong.umber` legible while debugging.
-            if paths.isEmpty {
-                UserDefaults.standard.removeObject(forKey: key)
-            } else {
-                UserDefaults.standard.set(paths, forKey: key)
-            }
-        }
-    }
-
-    /// De-duplicate and cap, preserving tab order.
-    ///
-    /// Two Spaces *can* legitimately share a root today — ⌘N twice takes
-    /// `AppDelegate.defaultSpaceRoot` with no dedupe, unlike ⌘O, which explicitly
-    /// refuses because "two Spaces onto one root would give the same project two
-    /// file trees and two titles with no way to tell them apart"
-    /// (`AppDelegate.openFolder`). Restoring that state would rebuild exactly the
-    /// pair of indistinguishable tabs ⌘O declines to create, so the duplicate is
-    /// collapsed here instead. Restore is lossy by design; it is not a session
-    /// snapshot.
-    ///
-    /// Compared on `resolvingSymlinksInPath` for the same reason `openFolder`'s
-    /// dedupe does — `/tmp` and `/private/tmp`, or any symlinked checkout, must not
-    /// read as two roots — while the *stored* string stays the path as chosen, so a
-    /// Space keeps the name the user picked in its tab.
-    private static func normalized(_ roots: [URL]) -> [URL] {
-        var seen: Set<String> = []
-        let unique = roots.filter { seen.insert($0.resolvingSymlinksInPath().path).inserted }
-        return Array(unique.suffix(limit))
-    }
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
