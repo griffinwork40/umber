@@ -114,9 +114,25 @@ final class SpaceViewController: NSSplitViewController {
         (activeDocument as? TerminalPane) ?? terminalPanes.last
     }
 
+    /// Add a terminal document rooted at `workingDirectory`, defaulting to the Space's
+    /// own `root`.
+    ///
+    /// The default is the point. A Space *is* a project root (plan §12.4 item 1) and
+    /// every terminal in it inherited `$HOME` instead, because this function created
+    /// the pane without ever mentioning `root` — so ⌘T in a Space opened on a project
+    /// landed outside that project and the first thing you typed was a `cd`. The root
+    /// was already right here, one property away, which is exactly why it went
+    /// unnoticed.
+    ///
+    /// `workingDirectory` is an override rather than a replacement so the tree's
+    /// "New Terminal Here" can pass a subdirectory
+    /// (`fileTree(_:didRequestNewTerminalAt:)`) without every other caller — first
+    /// launch, ⌘T, the strip's `+` — having to restate the root it already implies.
     @discardableResult
-    func addTerminalDocument(start: Bool = true) -> TerminalPane {
-        let pane = TerminalPane(config: config, frame: documentArea.container.bounds)
+    func addTerminalDocument(start: Bool = true, workingDirectory: URL? = nil) -> TerminalPane {
+        let pane = TerminalPane(
+            config: config, frame: documentArea.container.bounds,
+            workingDirectory: workingDirectory ?? root)
         pane.delegate = self
         documents.append(pane)
         if start { pane.start() }
