@@ -5,6 +5,64 @@
 
 import AppKit
 
+/// What a document wants the user to know, when the user is not looking at it.
+///
+/// Umber exists to host a long-running agent REPL, and the failure mode that matters
+/// is three documents open where one is blocked on input, one finished four minutes
+/// ago and one failed — with the strip rendering all three identically. This is the
+/// model behind fixing that.
+///
+/// **Deliberately larger than what is wired today.** Only `.idle` and `.attention`
+/// can be reached on the current foundation; `.running`, `.succeeded` and `.failed`
+/// are modelled but unreachable, each noted below with the libghostty delegate that
+/// will populate it. That is not speculative design — the replacement of SwiftTerm by
+/// libghostty is already decided (probe plan §6.2, verdict "proceed with D"), and the
+/// telemetry those cases need arrives with it as `TerminalSurfaceCommandFinishedDelegate`
+/// (`exitCode` + `durationNanos`) and `TerminalSurfaceBellDelegate`. Building OSC 133
+/// parsing on SwiftTerm to reach them now would be ~3 days of work written twice, so
+/// the presentation is built and the signals are wired only where they are cheap.
+///
+/// Ordered by how loudly each one deserves to interrupt, so the strip can compare.
+enum DocumentStatus: Int, Comparable {
+    /// Nothing to say. Every document's resting state.
+    case idle = 0
+
+    /// Work in progress. **Not wired** — needs a command-start boundary, i.e. OSC 133
+    /// `A`/`C`, which arrives free as libghostty's
+    /// `TerminalSurfaceCommandFinishedDelegate` (§6.2) rather than being parsed here.
+    case running = 1
+
+    /// Finished cleanly. **Not wired** — same delegate, `exitCode == 0`. Worth having
+    /// separately from `.idle` because "your build is done" is information and
+    /// "nothing is happening" is not.
+    case succeeded = 2
+
+    /// Finished badly. **Not wired** — same delegate, `exitCode != 0`.
+    case failed = 3
+
+    /// The document is asking for you. Wired today, from the terminal bell: an agent
+    /// REPL blocked on a prompt beeps, and `\a` is the one attention signal that
+    /// crosses a pty without shell integration. Ranked highest because it is the only
+    /// state where the program is *waiting* rather than reporting.
+    case attention = 4
+
+    static func < (lhs: DocumentStatus, rhs: DocumentStatus) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    /// Spoken by VoiceOver as part of the tab's label. Nil for `.idle` — appending
+    /// "idle" to every tab is noise, and the absence is the information.
+    var accessibilityDescription: String? {
+        switch self {
+        case .idle: return nil
+        case .running: return "running"
+        case .succeeded: return "finished"
+        case .failed: return "failed"
+        case .attention: return "needs attention"
+        }
+    }
+}
+
 /// One document inside a Space — what a tab in the in-window strip points at.
 ///
 /// This protocol is the entire point of the (C) restructure (plan §12.3). Terax's
@@ -74,6 +132,17 @@ protocol SpaceDocument: AnyObject {
     /// Unsaved changes, drawn as a dot in the tab strip.
     var documentIsEdited: Bool { get }
 
+    /// What this document currently wants the user to know, drawn in the tab strip.
+    ///
+    /// On the protocol rather than on `TerminalPane` because it is not a terminal
+    /// concept: a file viewer whose file was rewritten under it is in exactly the same
+    /// position — something happened in a tab you are not looking at. Engine-agnostic
+    /// for the same reason the zoom members are (see the note above): the foundation
+    /// under `TerminalPane` is already scheduled for replacement by libghostty
+    /// (`.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §6.2), and a
+    /// status enum shaped around SwiftTerm's callbacks would be rewritten with it.
+    var documentStatus: DocumentStatus { get }
+
     /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
     /// Implementors that can hold unsaved work MUST prompt here — every close path
     /// in the app funnels through it, so this is the single choke point between a
@@ -85,7 +154,7 @@ protocol SpaceDocument: AnyObject {
 }
 
 extension SpaceDocument {
-    /// The three defaults below are all *correct* for a live document rather than
+    /// The four defaults below are all *correct* for a live document rather than
     /// merely convenient, which is what separates them from the zoom members above:
     /// a terminal has nothing to re-read, no buffer to lose, and nothing to write.
     /// A conformer that ignores them is right by default, not broken by default.
@@ -93,6 +162,11 @@ extension SpaceDocument {
     var documentIsEdited: Bool { false }
     func documentShouldClose() -> Bool { true }
     func saveDocument() -> Bool { true }
+
+    /// `.idle` is the honest answer for a document that cannot produce a status, which
+    /// is why this one gets a default while the zoom members do not: a conformer that
+    /// never has anything urgent to say is correctly silent, not silently broken.
+    var documentStatus: DocumentStatus { .idle }
 }
 
 extension TerminalPane: SpaceDocument {
@@ -105,10 +179,16 @@ extension TerminalPane: SpaceDocument {
 
     var documentSymbolName: String { "terminal" }
 
+    var documentStatus: DocumentStatus { status }
+
     func documentDidBecomeActive() {
         // The pane's own view, not the container: SwiftTerm reads key events on
         // the terminal view itself, and a container in the responder chain would
         // swallow the first keystroke.
         view.window?.makeFirstResponder(view)
+        // You are now looking at it, so whatever it was trying to tell you has landed.
+        // Here rather than in a focus notification because this is the one call that
+        // means "this document is the visible one" — see `clearAttention()`.
+        clearAttention()
     }
 }

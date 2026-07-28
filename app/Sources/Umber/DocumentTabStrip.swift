@@ -38,6 +38,9 @@ final class DocumentTabStrip: NSView {
         let symbolName: String
         /// Unsaved changes. Drawn as a dot where the × would go — see `draw`.
         var isEdited: Bool = false
+        /// What this document wants the user to know. Drawn in the same box as the
+        /// unsaved dot, with the same hover-reveals-× rule — see `drawStatusDot`.
+        var status: DocumentStatus = .idle
     }
 
     /// Matches the visual weight of a Safari/Ghostty tab rail. Anything taller
@@ -448,7 +451,17 @@ final class DocumentTabStrip: NSView {
         // box rather than adding a second affordance is deliberate: the dot has to
         // be visible on *inactive* tabs (that is the whole point of an unsaved
         // marker) and the close box is the only slot already reserved on those.
-        if item(index).isEdited && hoveredTab != index {
+        //
+        // Status joins the SAME box on the SAME rule rather than getting a slot of its
+        // own. Two dots on one 84pt tab is a row of indicator lights, and there is no
+        // room for a second reserved slot at the compressed width anyway. When a tab is
+        // both edited and asking for attention, status wins the box: unsaved work is
+        // still there in a minute, whereas a prompt waiting for input is blocking.
+        let statusDot = item(index).status.dotColour(
+            fallback: contentForeground, isActive: isActive)
+        if let statusDot, hoveredTab != index {
+            drawStatusDot(in: closeRect(index), colour: statusDot, isActive: isActive)
+        } else if item(index).isEdited && hoveredTab != index {
             drawEditedDot(in: closeRect(index))
         } else if isActive || hoveredTab == index {
             drawCloseGlyph(in: closeRect(index), emphasised: hoveredClose == index)
@@ -460,6 +473,29 @@ final class DocumentTabStrip: NSView {
         let dot = NSRect(
             x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
         contentForeground.withAlphaComponent(0.75).setFill()
+        NSBezierPath(ovalIn: dot).fill()
+    }
+
+    /// The status dot: same geometry as the unsaved dot so the two never disagree about
+    /// where that affordance lives, but coloured, and given a soft halo on inactive tabs.
+    ///
+    /// The halo is on the INACTIVE tab, not the active one. That is the whole design
+    /// argument: you are already looking at the active document, so a marker there is
+    /// telling you something you can see — the signal is worth its ink precisely on the
+    /// tabs you are not reading. Inactive tabs also draw their title at 0.55 alpha, so
+    /// without the halo a coloured dot on a dim tab is the quietest thing in the strip
+    /// rather than the loudest.
+    private func drawStatusDot(in box: NSRect, colour: NSColor, isActive: Bool) {
+        if !isActive {
+            colour.withAlphaComponent(0.22).setFill()
+            NSBezierPath(ovalIn: box.insetBy(dx: 1.5, dy: 1.5)).fill()
+        }
+        let side: CGFloat = 7
+        let dot = NSRect(
+            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
+        // Full opacity on both, unlike the title. A status the eye has to hunt for is a
+        // status that does not work.
+        colour.setFill()
         NSBezierPath(ovalIn: dot).fill()
     }
 
@@ -841,6 +877,41 @@ final class DocumentTabStrip: NSView {
     }
 }
 
+// MARK: - Status presentation
+
+private extension DocumentStatus {
+    /// The dot's colour, or nil for "draw nothing".
+    ///
+    /// System colours, not hex literals: they are the only ones that adapt to Increase
+    /// Contrast and to the window's effective appearance, and this app already derives
+    /// its chrome from the theme rather than hardcoding it (`DocumentTabStrip`'s
+    /// `railBackground`, `SpaceWindowController`'s window colour).
+    ///
+    /// `fallback` is the terminal's own foreground, used for `.succeeded`: green would
+    /// be the obvious choice and is the wrong one — a green dot on a tab is the same
+    /// "there is news" weight as a red one, and a finished command is not a problem.
+    /// The neutral dot says "this changed" and leaves red for the case that earned it.
+    func dotColour(fallback: NSColor, isActive: Bool) -> NSColor? {
+        switch self {
+        case .idle:
+            return nil
+        case .running:
+            // Unreachable today — see the enum. A running command is the *least*
+            // remarkable non-idle state, hence the dimmest treatment.
+            return fallback.withAlphaComponent(isActive ? 0.55 : 0.45)
+        case .succeeded:
+            return fallback.withAlphaComponent(isActive ? 0.9 : 0.8)
+        case .failed:
+            return .systemRed
+        case .attention:
+            // The one wired case. Blue rather than yellow: it is the platform's
+            // "something wants you" colour (unread badges, sidebar dots) and it does not
+            // read as a warning, which a waiting prompt is not.
+            return .controlAccentColor
+        }
+    }
+}
+
 // MARK: - Accessibility elements
 
 /// A weak handle on the strip, handed to every child element.
@@ -875,6 +946,7 @@ private final class TabAccessibilityElement: NSAccessibilityElement {
     private let bridge: TabStripAccessibilityBridge
     private let title: String
     private let isEdited: Bool
+    private let status: DocumentStatus
     private let position: Int
     private let total: Int
     private let isSelected: Bool
@@ -887,6 +959,7 @@ private final class TabAccessibilityElement: NSAccessibilityElement {
         self.index = index
         self.title = item.title
         self.isEdited = item.isEdited
+        self.status = item.status
         self.position = position
         self.total = total
         self.isSelected = isSelected
@@ -901,11 +974,14 @@ private final class TabAccessibilityElement: NSAccessibilityElement {
     override nonisolated func accessibilityRoleDescription() -> String? { "document tab" }
 
     /// Position is spoken because a tab group cannot convey "3 of 7" on its own when
-    /// the children are synthesised, and the edited word is in the label rather than
-    /// the value because the value slot is spoken for by the selection state that the
-    /// radio-button role requires.
+    /// the children are synthesised, and the status/edited words go in the LABEL rather
+    /// than the value because the value slot is spoken for by the selection state the
+    /// radio-button role requires. Which also means the status is not merely a coloured
+    /// dot: VoiceOver says "needs attention" out loud, so the one affordance carries
+    /// both channels — the visual marker and the spoken one.
     override nonisolated func accessibilityLabel() -> String? {
         var parts = ["\(title), tab \(position) of \(total)"]
+        if let spoken = status.accessibilityDescription { parts.append(spoken) }
         if isEdited { parts.append("unsaved changes") }
         return parts.joined(separator: ", ")
     }
