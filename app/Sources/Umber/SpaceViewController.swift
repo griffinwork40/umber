@@ -36,8 +36,18 @@ final class SpaceViewController: NSSplitViewController {
     weak var spaceDelegate: SpaceViewControllerDelegate?
 
     private var config: AppConfig
-    private var documents: [SpaceDocument] = []
-    private var activeIndex = 0
+
+    // Why the two below are `private(set)` and not `private`: the four delegate
+    // conformances live in `+Delegates` and Swift's `private` is file-scoped, so
+    // they cannot see them (`fileprivate` does not cross a file boundary either) —
+    // internal read access is the narrowest level that compiles. The setters stay
+    // private because every write is still in *this* file: `documents` is mutated
+    // only by `addTerminalDocument`/`openFile`/`closeDocument`, `activeIndex` only
+    // by `selectDocument`. So the one-writer discipline that actually matters is
+    // unchanged and the promotion buys read access and nothing more. Not `public`;
+    // the module boundary still holds.
+    private(set) var documents: [SpaceDocument] = []
+    private(set) var activeIndex = 0
 
     private let fileTree: FileTreeViewController
     private let documentArea: DocumentAreaViewController
@@ -211,7 +221,11 @@ final class SpaceViewController: NSSplitViewController {
 
     func closeActiveDocument() { closeDocument(at: activeIndex) }
 
-    private func syncStrip() {
+    /// Internal rather than `private` because all four delegate conformances in
+    /// `+Delegates` repaint the strip — an edited-state change, a title change, a
+    /// background pane's status marker — and `private` stops at this file's edge.
+    /// Still the only place the strip is rebuilt from the document list.
+    func syncStrip() {
         documentArea.setStripVisible(documents.count > 1)
         documentArea.strip.reload(
             items: documents.map {
@@ -251,173 +265,4 @@ final class SpaceViewController: NSSplitViewController {
     }
 
     var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
-}
-
-// MARK: - FileViewerPaneDelegate
-
-extension SpaceViewController: FileViewerPaneDelegate {
-    func fileViewerDidChangeEditedState(_ pane: FileViewerPane) {
-        // Repaint the strip so the unsaved dot appears/disappears as you type.
-        syncStrip()
-    }
-}
-
-// MARK: - DocumentTabStripDelegate
-
-extension SpaceViewController: DocumentTabStripDelegate {
-    func tabStrip(_ strip: DocumentTabStrip, didSelect index: Int) {
-        selectDocument(at: index)
-    }
-
-    func tabStrip(_ strip: DocumentTabStrip, didRequestClose index: Int) {
-        closeDocument(at: index)
-    }
-
-    func tabStripDidRequestNewDocument(_ strip: DocumentTabStrip) {
-        addTerminalDocument()
-    }
-}
-
-// MARK: - TerminalPaneDelegate
-
-extension SpaceViewController: TerminalPaneDelegate {
-    func paneDidTerminate(_ pane: TerminalPane) {
-        // The shell exited — close that document specifically, not the active one:
-        // a background tab's shell can exit while you are looking at another.
-        guard let index = documents.firstIndex(where: { $0 === pane }) else { return }
-        closeDocument(at: index)
-    }
-
-    func pane(_ pane: TerminalPane, didChangeTitle title: String) {
-        syncStrip()
-        guard documents.indices.contains(activeIndex), documents[activeIndex] === pane else { return }
-        spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: pane.documentTitle)
-    }
-
-    /// A background pane raised or cleared an attention marker. Only the strip cares —
-    /// the window title stays the active document's, because a background tab beeping
-    /// must not relabel the window you are working in.
-    func paneDidChangeStatus(_ pane: TerminalPane) {
-        syncStrip()
-    }
-}
-
-// MARK: - FileTreeViewControllerDelegate
-
-extension SpaceViewController: FileTreeViewControllerDelegate {
-    /// Double-click opens the file in a document tab — what every Mac user already
-    /// means by double-clicking a row in a file tree.
-    ///
-    /// This used to type the path into the terminal instead, because there was no
-    /// document kind to open a file *into*. That was an honest placeholder and a
-    /// bad feature: a picker whose only effect is inserting text reads as broken to
-    /// anyone who did not write it. `FileViewerPane` gives the tree somewhere to go.
-    func fileTree(_ controller: FileTreeViewController, didActivate url: URL) {
-        openFile(url: url)
-    }
-
-    /// The old behaviour, kept and given a name.
-    ///
-    /// Inserting a quoted path is genuinely useful — it is what you want while
-    /// composing `nvim <path>` or `git add <path>` — it was just bound to the one
-    /// gesture that means "open". Now it is ⌥-double-click and a context-menu item,
-    /// which also makes it discoverable, which it never was.
-    func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL) {
-        // A Space with zero terminal tabs (every document is a file viewer) has
-        // nowhere for this to land — beep rather than silently doing nothing, so
-        // the gesture doesn't read as broken (PR #2 review, finding 5).
-        guard let pane = focusedTerminalPane else {
-            NSSound.beep()
-            return
-        }
-        // Single-quoted, with any embedded quote closed-escaped-reopened, so spaces,
-        // `$`, and quotes in a filename survive the shell verbatim.
-        let quoted = "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        pane.view.send(txt: quoted + " ")
-        // Bring the terminal forward if a viewer was in front, otherwise the text
-        // lands in a tab the user cannot see.
-        if let index = documents.firstIndex(where: { $0 === pane }), index != activeIndex {
-            selectDocument(at: index)
-        } else {
-            pane.documentDidBecomeActive()
-        }
-    }
-
-    /// "New Terminal Here" — the other half of rooting terminals properly.
-    ///
-    /// ⌘T uses the Space's root; this uses the directory you clicked, which is what
-    /// you want the moment a project is more than one directory deep. `url` is already
-    /// resolved to a directory by the tree (`FileTreeViewController.menuNewTerminal`),
-    /// so there is deliberately no file/folder branch here.
-    ///
-    /// A new document every time rather than reusing an existing terminal on that
-    /// path, which is the opposite of `openFile(url:)`'s reuse rule — and the
-    /// difference is real, not an inconsistency: two viewers of one file show the same
-    /// bytes twice, while two shells in one directory are two independent sessions
-    /// (one running a server, one running git) and collapsing them would destroy work.
-    func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL) {
-        addTerminalDocument(workingDirectory: url)
-    }
-}
-
-// MARK: - Document area
-
-/// The right-hand region: tab strip on top, active document filling the rest.
-///
-/// Laid out manually in `viewDidLayout` rather than with Auto Layout. The document
-/// view is a SwiftTerm view that already ships with `autoresizingMask =
-/// [.width, .height]` (`TerminalPane.swift:49`) and is sized by frame everywhere
-/// else in this app; mixing a constraint-based parent into that is how a terminal
-/// ends up one row short.
-@MainActor
-private final class DocumentAreaViewController: NSViewController {
-    let strip = DocumentTabStrip(frame: .zero)
-    let container = NSView()
-
-    private var isStripVisible = false
-
-    override func loadView() {
-        let root = NSView()
-        root.addSubview(container)
-        view = root
-    }
-
-    /// Hidden at a single document, matching Ghostty and Terminal.app: with one
-    /// terminal open this app should still just look like a terminal, and the strip
-    /// costs 30pt of rows that the primary surface would rather have. ⌘T brings it
-    /// back the moment there is anything to switch between.
-    func setStripVisible(_ visible: Bool) {
-        guard visible != isStripVisible else { return }
-        isStripVisible = visible
-        if visible {
-            view.addSubview(strip)
-        } else {
-            strip.removeFromSuperview()
-        }
-        view.needsLayout = true
-        viewDidLayout()
-    }
-
-    func present(documentView: NSView) {
-        for subview in container.subviews where subview !== documentView {
-            subview.removeFromSuperview()
-        }
-        if documentView.superview !== container {
-            documentView.frame = container.bounds
-            container.addSubview(documentView)
-        }
-        documentView.frame = container.bounds
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        let bounds = view.bounds
-        let stripHeight = isStripVisible ? DocumentTabStrip.height : 0
-        // Non-flipped coordinates: the strip is at the TOP, so it takes the high y.
-        strip.frame = NSRect(
-            x: 0, y: bounds.height - stripHeight, width: bounds.width, height: stripHeight)
-        container.frame = NSRect(
-            x: 0, y: 0, width: bounds.width, height: bounds.height - stripHeight)
-        for subview in container.subviews { subview.frame = container.bounds }
-    }
 }
