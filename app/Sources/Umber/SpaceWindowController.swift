@@ -70,15 +70,22 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
     ///
     /// `open` is append-ordered — *creation* order — and a native tab bar can be
     /// dragged to reorder, so the two diverge the first time anyone rearranges their
-    /// Spaces. `NSWindow.tabGroup?.windows` is the visual order, so prefer it and let
-    /// creation order cover what it cannot: a Space dragged out to its own window is
-    /// in no group with the others, and AppKit reports `tabGroup == nil` for a lone
-    /// untabbed window.
+    /// Spaces. `NSWindow.tabGroup?.windows` is the visual left-to-right order
+    /// (measured: chaining `addTabbedWindow(_:ordered: .above)` down a group yields
+    /// exactly the insertion order back), so prefer it.
     ///
-    /// Only the first group found is consulted. Restore rebuilds exactly one tab
-    /// group (see `AppDelegate.restoreSpaces()`), so a session split across two
-    /// windows is already being flattened; ordering it perfectly would be precision
-    /// the restore itself does not have.
+    /// The `open` fallback is defensive, NOT a documented nil case: a lone window with
+    /// a `tabbingIdentifier` and `tabbingMode = .preferred` still reports a non-nil
+    /// `tabGroup` containing just itself — measured, having first assumed the opposite.
+    /// Since every Space shares one identifier, the usual state is a single group
+    /// holding all of them.
+    ///
+    /// Only the first group found is consulted, and any Space not in it is appended in
+    /// creation order. That is a deliberate approximation for the split-across-windows
+    /// case: restore rebuilds exactly one tab group
+    /// (`AppDelegate.restoreSpaces()`), so such a session is already being flattened,
+    /// and ordering it perfectly would be precision the restore itself does not have.
+    /// What this must never do is *drop* a Space, hence the `ungrouped` append.
     private static var inTabOrder: [SpaceWindowController] {
         guard let group = open.compactMap({ $0.window?.tabGroup }).first else { return open }
         let grouped = group.windows.compactMap { window in open.first { $0.window === window } }
@@ -175,20 +182,27 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // frame change autosaves under the per-root name, and `"UmberWindow"` is left
         // to go stale on its own.
         //
-        // Ordering is the whole trick — `setFrameAutosaveName` applies the frame saved
-        // under the new name when one exists, so a Space that already has per-root
-        // geometry overwrites this seed, and one that does not keeps it.
+        // Ordering is the whole trick, and it was measured rather than assumed
+        // (AppKit's docs do not spell this out): `setFrameAutosaveName` *applies* the
+        // frame stored under the new name when one exists and leaves the current frame
+        // alone when it does not. So a Space that already has per-root geometry
+        // overwrites this seed, and one that does not keeps it — which is exactly the
+        // migration wanted, in that order and no other.
+        //
+        // The Bool is ignored because a miss is the normal case on a fresh install and
+        // a no-op: `setFrameUsingName` returns false and does not touch the frame.
         _ = window.setFrameUsingName(Self.legacyFrameAutosaveName)
         // Restore position/size per *project root*, not per app. This was one
         // hardcoded string, so every Space shared a single saved frame and the last
         // window moved dictated where all of them reopened.
         //
-        // The Bool is discarded on purpose: it returns false when another live window
-        // already owns the name, which happens only when two Spaces share a root
-        // (⌘N twice — ⌘O dedupes, `AppDelegate.openFolder`). The loser then simply
-        // does not autosave, which is the correct outcome; there is one frame to
-        // remember for one project, and the alternative is two windows fighting over
-        // one key.
+        // Two Spaces CAN share a root (⌘N twice; ⌘O dedupes, `AppDelegate.openFolder`)
+        // and therefore this name. Measured, not assumed: a second live window taking
+        // an already-claimed autosave name still returns true, so there is no failure
+        // to handle here — the two simply overwrite each other's saved frame, and the
+        // last one moved wins. That is the old `"UmberWindow"` bug surviving between
+        // duplicate Spaces on one root, which is a far smaller blast radius than
+        // across every Space, and it needs a real answer only once ⌘N dedupes too.
         //
         // Honest limit: while Spaces are *tabbed*, AppKit keeps every window in the
         // group at the group's frame, so the per-root frames converge on it. The
