@@ -160,18 +160,22 @@ final class FileViewerPane: NSObject {
         let size = values?.fileSize ?? 0
 
         if size > Self.maxBytes {
-            let mb = Double(size) / Double(1 << 20)
-            return Contents(
-                text: "\(url.lastPathComponent) is \(String(format: "%.1f", mb)) MB — too large to view.\n"
-                    + "Umber's viewer lays out the whole file at once, so it caps at "
-                    + "\(Self.maxBytes >> 20) MB. Open it in the terminal instead.",
-                isPlaceholder: true, encoding: .utf8)
+            return tooLargePlaceholder(bytes: size)
         }
 
         guard let data = try? Data(contentsOf: url) else {
             return Contents(
                 text: "Could not read \(url.lastPathComponent).", isPlaceholder: true,
                 encoding: .utf8)
+        }
+
+        // Re-check against what actually loaded, not just the pre-read stat above:
+        // the file can grow between that stat and this read completing — this
+        // app's own concurrent-agent-write premise — and trusting a stale "it was
+        // small a moment ago" would defeat the whole point of the guard
+        // (PR #2 review, finding 3).
+        if data.count > Self.maxBytes {
+            return tooLargePlaceholder(bytes: data.count)
         }
 
         if data.prefix(Self.sniffBytes).contains(0) {
@@ -192,6 +196,17 @@ final class FileViewerPane: NSObject {
         }
         return Contents(
             text: "\(url.lastPathComponent) is not text in any encoding Umber recognises.",
+            isPlaceholder: true, encoding: .utf8)
+    }
+
+    /// Shared by both the pre-read stat check and the post-read TOCTOU re-check in
+    /// `read()`, so the message can't drift between the two call sites.
+    private func tooLargePlaceholder(bytes: Int) -> Contents {
+        let mb = Double(bytes) / Double(1 << 20)
+        return Contents(
+            text: "\(url.lastPathComponent) is \(String(format: "%.1f", mb)) MB — too large to view.\n"
+                + "Umber's viewer lays out the whole file at once, so it caps at "
+                + "\(Self.maxBytes >> 20) MB. Open it in the terminal instead.",
             isPlaceholder: true, encoding: .utf8)
     }
 
@@ -296,8 +311,21 @@ extension FileViewerPane {
             return false
         }
         if let mode {
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: mode], ofItemAtPath: url.path)
+            do {
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: mode], ofItemAtPath: url.path)
+            } catch {
+                // The write itself already succeeded above — this is a secondary,
+                // non-blocking failure, so it gets the same stderr treatment as a
+                // bad config field (`AppConfig.load()`), not an alert: don't stop
+                // the user over a permission bit when the content already landed.
+                // Silent before this fix — a saved shell script could lose +x with
+                // no signal anywhere (PR #2 review, finding 6).
+                FileHandle.standardError.write(
+                    "Could not restore permissions on \(url.lastPathComponent): "
+                        .appending(error.localizedDescription).appending("\n")
+                        .data(using: .utf8)!)
+            }
         }
 
         // Re-stamp from what is now on disk, so the very save we just performed is

@@ -19,10 +19,11 @@ swift run Umber                        # fast iteration loop (no Dock icon / Spo
 UMBER_DIAG=1 swift run Umber           # + dump resolved font/theme/scrollback to stderr
 
 ./Scripts/check-keybindings.sh         # headless: compiles shipped KeyBindings.swift, runs a 17-case truth table
+./Scripts/check-space-restore.sh       # headless: compiles shipped Config.swift, 12-case truth table for OpenSpaceRoots
 ./Scripts/check-keys-e2e.sh            # real NSEvents → real pty bytes; LAUNCHES the app, steals focus
 ```
 
-**There is no test target and no CI.** The two `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless.
+**There is no test target and no CI.** The three `check-*.sh` scripts plus `UMBER_DIAG` are the whole verification surface — see `app/README.md` ("Checks") for why. `check-keys-e2e.sh` needs Accessibility permission for the invoking terminal and exits `2` without it, `3` if the app never becomes frontmost. Prefer `check-keybindings.sh` for routine work; it is fast and headless. `check-space-restore.sh` is headless too and runs against a temp dir and its own defaults domain, so it never touches your real remembered Spaces — it asserts that isolation as its last case.
 
 There is no `.xcodeproj` by design — the project stays all-text, diffable, and scriptable. Do not add one.
 
@@ -40,8 +41,8 @@ There is no `.xcodeproj` by design — the project stays all-text, diffable, and
 | Source file | Owns |
 |-------------|------|
 | `main.swift` | Manual `NSApplication` bootstrap — **not** `@main`. Sets `.regular` activation policy, assigns delegate, runs the loop |
-| `AppDelegate.swift` | Lifecycle, the entire `NSMenu` tree (`buildMenu()`), config reload/open actions, app-wide zoom fan-out, the embedded starter-config template |
-| `SpaceWindowController.swift` | One window == one native macOS tab == one **Space** (project root): `tabbingIdentifier`, `addTabbedWindow`, frame autosave, the static open-Space registry, title/subtitle. Owns no PTY and no documents |
+| `AppDelegate.swift` | Lifecycle, the entire `NSMenu` tree (`buildMenu()`), config reload/open actions, app-wide zoom fan-out, Space restore on launch (`restoreSpaces()`), the embedded starter-config template |
+| `SpaceWindowController.swift` | One window == one native macOS tab == one **Space** (project root): `tabbingIdentifier`, `addTabbedWindow`, per-root frame autosave, the static open-Space registry and persisting it for restore, title/subtitle. Owns no PTY and no documents |
 | `SpaceViewController.swift` | The container — `NSSplitViewController` with a sidebar item (file tree) and the document area. Owns the document list, is `TerminalPaneDelegate`, fans config/zoom out. Nested private `DocumentAreaViewController` lays out strip + active document |
 | `SpaceDocument.swift` | The `SpaceDocument` protocol (the seam heterogeneous tabs plug into) + `TerminalPane` conformance |
 | `DocumentTabStrip.swift` | The hand-rolled in-window document tab strip: single-view custom drawing, rect hit-testing, hover, close/new affordances |
@@ -49,7 +50,7 @@ There is no `.xcodeproj` by design — the project stays all-text, diffable, and
 | `TerminalPane.swift` | The shell process + SwiftTerm view binding: `startProcess($SHELL, ["-l"])`, `apply(config:)`, font clamping/zoom, DECSCUSR cursor style, `LocalProcessTerminalViewDelegate` callbacks |
 | `UmberTerminalView.swift` | `LocalProcessTerminalView` subclass whose only job is `performKeyEquivalent(with:)` interception (SwiftTerm declares `keyDown` `public`, not `open`) |
 | `KeyBindings.swift` | Pure, view-free `MacLineEditing.controlBytes(keyCode:modifiers:)` — the single ⌘-chord → control-byte table |
-| `Config.swift` | Hex parsing, `Theme` presets, private `ConfigFile` Decodable, `FontZoom` UserDefaults store, `AppConfig` defaults + fail-soft `load()` |
+| `Config.swift` | Hex parsing, `Theme` presets, private `ConfigFile` Decodable, the `FontZoom` / `LastSpaceRoot` / `OpenSpaceRoots` UserDefaults stores, `AppConfig` defaults + fail-soft `load()` |
 
 **There are two tab levels, on purpose** (plan §12.3, branch (C) — settled 2026-07-27).
 
@@ -65,7 +66,8 @@ Adding a new document kind (editor, diff, observer panel) means writing a `Space
 ## Configuration
 
 - On disk: `~/.config/umber/config.json`. Does not exist until created; **⌘,** writes a commented starter file and opens it, **⌘R** reloads live. The app never rewrites an existing file.
-- UserDefaults: `Umber.fontSizeOverride` (live zoom), AppKit frame autosave `UmberWindow`. Bundle id `com.griffinlong.umber`.
+- UserDefaults: `Umber.fontSizeOverride` (live zoom), `Umber.lastSpaceRoot` (the last root opened with ⌘O), `Umber.openSpaceRoots` (the roots of every open Space, restored on launch — capped at 12, checked on read). AppKit frame autosave is **per project root**, `UmberSpace:<path>`; the old single `UmberWindow` key is still read once as a seed and never written again. Bundle id `com.griffinlong.umber`.
+- **Relaunch reopens every Space that was open at quit, as one native tab group** — not its documents. A shell has no resumable state, so recreating terminals would be theatre; see `AppDelegate.restoreSpaces()`, which argues it in full. Nothing to restore (first launch, or every remembered root since deleted) degrades to one default Space.
 - Full field reference (font, cursor, scrollback, shell, optionAsMeta, theme) is in `app/README.md` — including why **no palette is installed by default** (any theme regenerates ANSI 16–255 by interpolating bg/fg, replacing the standard 256-colour cube). Leave that default alone unless the change is deliberate.
 
 ## Conventions

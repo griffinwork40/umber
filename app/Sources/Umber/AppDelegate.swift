@@ -6,7 +6,7 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var config = AppConfig.load()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -17,7 +17,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
         }
         buildMenu()
-        newSpaceInWindow(nil)
+        restoreSpaces()
+    }
+
+    /// Reopen every Space that was open at quit, as one native tab group.
+    ///
+    /// This used to be an unconditional `newSpaceInWindow(nil)` — exactly one Space,
+    /// always — so N Spaces at quit became 1 Space at relaunch and the other N−1
+    /// project roots were simply forgotten (only `LastSpaceRoot` survived). See
+    /// `OpenSpaceRoots` for why the roots are persisted where they are.
+    ///
+    /// **A restored Space does NOT restore its documents.** Every document kind that
+    /// exists is either a shell (`TerminalPane` — a login `$SHELL` with no resumable
+    /// state; its scrollback, its cwd after you `cd`, and its running process all died
+    /// with the last launch) or a file view (`FileViewerPane`, which cannot be dirty
+    /// at quit because `documentShouldClose` already vetoes a close with unsaved
+    /// changes and `applicationShouldTerminate` honours that veto). So reopening four
+    /// terminals would be theatre: four fresh prompts arranged to *look* like the
+    /// session you left, in a strip whose tab titles would be wrong until each shell
+    /// emitted its first OSC 0/2. The project root is the durable part of a Space, and
+    /// it is the part restored. Documents come back as `present()`/`presentAsTab` make
+    /// them: one fresh terminal each.
+    ///
+    /// Degrades to a single default Space when there is nothing to restore, which
+    /// covers both first-ever launch (no key) and every remembered root having been
+    /// deleted since (`OpenSpaceRoots.urls` filters those out) — never an app with no
+    /// window, which on a `.regular` app is a Dock icon that does nothing.
+    private func restoreSpaces() {
+        let roots = OpenSpaceRoots.urls
+        guard let first = roots.first else { return newSpaceInWindow(nil) }
+
+        // The first Space opens as a plain window; the rest attach as system tabs via
+        // the existing `presentAsTab(relativeTo:)`. Spaces ARE native macOS window
+        // tabs (`SpaceWindowController.tabbingIdentifier` + `addTabbedWindow`), so
+        // getting this wrong does not mean a cosmetic glitch — it means N detached
+        // windows instead of one tab group.
+        //
+        // The host must NOT be `NSApp.keyWindow`, the way ⌘N resolves it: during launch
+        // no window has been made key yet, so it is nil, and nil is exactly the input
+        // that makes `presentAsTab` fall through to its untabbed branch — every Space
+        // its own window.
+        //
+        // Each tab is anchored on the PREVIOUS restored window, not on the first one.
+        // `addTabbedWindow(_:ordered: .above)` inserts immediately after its host, so
+        // anchoring everything on the first window would place tab 3 between tabs 1 and
+        // 2, tab 4 between 1 and 3, and reverse the whole group behind the leftmost tab.
+        // Walking the chain keeps the saved left-to-right order.
+        let host = SpaceWindowController(config: config, root: first)
+        host.present()
+        var previous = host
+        for root in roots.dropFirst() {
+            let controller = SpaceWindowController(config: config, root: root)
+            controller.presentAsTab(relativeTo: previous.window)
+            previous = controller
+        }
+
+        // Focus a chosen Space rather than whichever tab the loop ended on.
+        // `presentAsTab` makes each new tab key, so without this the rightmost restored
+        // tab wins by accident.
+        //
+        // `LastSpaceRoot` is the pick: it is the one piece of "where was I working"
+        // state that already exists, so ⌘O a project → quit → relaunch lands back in
+        // it. It is an honest proxy and not the real answer — it only updates on ⌘O
+        // (`openFolder`), not when you switch tabs — and recording true
+        // frontmost-at-quit would mean new persisted state for a tab selection, which
+        // is not worth it. Falling back to the leftmost tab keeps this deterministic
+        // either way.
+        let preferred = LastSpaceRoot.url?.resolvingSymlinksInPath()
+        let focus = SpaceWindowController.open.first {
+            $0.root.resolvingSymlinksInPath() == preferred
+        } ?? host
+        focus.window?.makeKeyAndOrderFront(nil)
     }
 
     /// ⌘S. A no-op on a terminal (`SpaceDocument.saveDocument()` defaults to a
@@ -26,13 +96,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = focusedSpace?.activeDocument?.saveDocument()
     }
 
+    /// Greys the Save item out unless the active document actually has something
+    /// to save. `documentIsEdited` defaults to `false` for a terminal
+    /// (`SpaceDocument.swift`), so this also disables Save whenever a terminal tab
+    /// is focused — consistent with the action above being a no-op there
+    /// (PR #2 review, finding 4).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(saveDocument(_:)) else { return true }
+        return focusedSpace?.activeDocument?.documentIsEdited == true
+    }
+
     /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
     /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
+    ///
+    /// Known limitation, documented rather than fixed here (PR #2 review, finding
+    /// 2): `spaceShouldClose()` is evaluated per-Space in `SpaceWindowController
+    /// .open`'s order, and it is not a pure predicate — picking "Save" in a dirty
+    /// document's alert writes the file to disk right there, inline. So with 2+
+    /// Spaces holding unsaved documents, Saving an earlier Space then Cancelling a
+    /// later one leaves the earlier Space's write committed even though the
+    /// overall quit is aborted: "Cancel" here means "the app didn't quit," not
+    /// "nothing on disk changed." A correct fix needs the `SpaceDocument` close
+    /// contract split into a decide-then-commit pair so every Space's decision is
+    /// known before any write executes — real enough surface area (a protocol
+    /// change touching every conformer, plus ⌘W's single-document close path,
+    /// which does NOT have this problem and should keep its simpler combined
+    /// behaviour) that it belongs in its own change, not folded into a
+    /// review-feedback pass.
     func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
         for controller in SpaceWindowController.open
         where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
             return .terminateCancel
         }
+        // Record the final order while every window is still open, then stop
+        // persisting. Both halves matter and they must happen in this order:
+        //
+        //   * The write closes a gap nothing else covers — dragging tabs to reorder
+        //     changes no window's open/closed state, so `persistOpenRoots`'s other
+        //     call sites never fire, and a reorder then ⌘Q would restore yesterday's
+        //     order. This is the last moment `tabGroup?.windows` is still accurate.
+        //   * The flag then makes teardown inert: from here a closing window is the
+        //     app exiting, not the user closing that Space, and recording those would
+        //     erase the very list restore needs (`SpaceWindowController.isTerminating`).
+        //
+        // Both sit *after* the veto loop, so a cancelled ⌘Q leaves persistence live.
+        SpaceWindowController.persistOpenRoots()
+        SpaceWindowController.isTerminating = true
         return .terminateNow
     }
 

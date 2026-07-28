@@ -201,10 +201,7 @@ enum LastSpaceRoot {
             // Checked, not trusted: a remembered project can be deleted, renamed, or
             // sit on an unmounted volume, and rooting a Space at a path that is gone
             // gives an empty tree with no explanation of why. Fall back to $HOME.
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-                isDirectory.boolValue
-            else { return nil }
+            guard FileManager.default.isUsableSpaceRoot(atPath: path) else { return nil }
             return URL(fileURLWithPath: path)
         }
         set {
@@ -214,6 +211,99 @@ enum LastSpaceRoot {
                 UserDefaults.standard.removeObject(forKey: key)
             }
         }
+    }
+}
+
+extension FileManager {
+    /// Does a remembered path still name a directory we could root a Space at?
+    ///
+    /// Extracted rather than duplicated because `OpenSpaceRoots` below has to make
+    /// the exact same judgement on every element of a list, and two copies of a
+    /// check-don't-trust rule is two places for it to drift — one of which would then
+    /// hand `FileTreeViewController` a root that no longer exists.
+    ///
+    /// `isDirectory` is not incidental: a remembered project directory can be
+    /// replaced by a *file* of the same name, and `fileExists(atPath:)` alone would
+    /// say yes — then the sidebar tree would enumerate a non-directory and show
+    /// nothing, with no hint as to why.
+    func isUsableSpaceRoot(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+}
+
+/// The project root of every open Space, in tab order, remembered across launches.
+///
+/// `LastSpaceRoot` above answers "where was I working?" with exactly one path, and
+/// one path has the same shape of flaw that its own commit (`37262d5`) named for
+/// `$HOME`: a fine first answer, a poor steady-state one. Four Spaces open at quit
+/// came back as one Space plus three forgotten roots — and unlike a lost window
+/// frame, a forgotten root is work the user has to go find again in an open panel.
+///
+/// Storage, the sandbox caveat, and check-on-read are all deliberately identical to
+/// `LastSpaceRoot`: transient UI state belongs in `UserDefaults` and not in a
+/// `config.json` the user hand-edits and comments; a raw path is sufficient *only*
+/// because the app is not sandboxed (`make-app-bundle.sh` ad-hoc signs with no
+/// entitlements — under App Sandbox every entry here would have to be a
+/// security-scoped bookmark, because the path alone would not carry access); and a
+/// remembered project can be deleted, renamed, or sit on an unmounted volume
+/// between launches, so entries are verified on read rather than trusted.
+///
+/// Nothing here can throw or fail a launch — same fail-soft contract
+/// `AppConfig.load()` keeps for the config file, applied to persistence. A missing
+/// key, a key someone hand-edited to the wrong type (`stringArray(forKey:)` returns
+/// nil rather than trapping), and a list whose every entry has since been deleted
+/// all read as `[]`, which `AppDelegate.restoreSpaces()` treats as "open one
+/// default Space". The failure mode of this file is a normal first launch.
+enum OpenSpaceRoots {
+    private static let key = "Umber.openSpaceRoots"
+
+    /// Restoring is not free: each Space costs a window, a file tree, and a login
+    /// shell (`TerminalPane.startProcess`), so a session that had accumulated 40
+    /// Spaces would fork 40 shells before the app was usable, and the native tab bar
+    /// is unreadable long before that. The cap is applied as `suffix(limit)`, which
+    /// keeps the most recently opened Spaces and preserves their relative order — so
+    /// overflow drops the leftmost tabs instead of scrambling the group.
+    static let limit = 12
+
+    static var urls: [URL] {
+        get {
+            guard let paths = UserDefaults.standard.stringArray(forKey: key) else { return [] }
+            let usable = paths.filter(FileManager.default.isUsableSpaceRoot(atPath:))
+            return normalized(usable.map { URL(fileURLWithPath: $0) })
+        }
+        set {
+            let paths = normalized(newValue).map(\.path)
+            // Remove rather than store `[]`: an absent key and an empty list mean the
+            // same thing to `restoreSpaces()`, and not leaving an empty array behind
+            // keeps `defaults read com.griffinlong.umber` legible while debugging.
+            if paths.isEmpty {
+                UserDefaults.standard.removeObject(forKey: key)
+            } else {
+                UserDefaults.standard.set(paths, forKey: key)
+            }
+        }
+    }
+
+    /// De-duplicate and cap, preserving tab order.
+    ///
+    /// Two Spaces *can* legitimately share a root today — ⌘N twice takes
+    /// `AppDelegate.defaultSpaceRoot` with no dedupe, unlike ⌘O, which explicitly
+    /// refuses because "two Spaces onto one root would give the same project two
+    /// file trees and two titles with no way to tell them apart"
+    /// (`AppDelegate.openFolder`). Restoring that state would rebuild exactly the
+    /// pair of indistinguishable tabs ⌘O declines to create, so the duplicate is
+    /// collapsed here instead. Restore is lossy by design; it is not a session
+    /// snapshot.
+    ///
+    /// Compared on `resolvingSymlinksInPath` for the same reason `openFolder`'s
+    /// dedupe does — `/tmp` and `/private/tmp`, or any symlinked checkout, must not
+    /// read as two roots — while the *stored* string stays the path as chosen, so a
+    /// Space keeps the name the user picked in its tab.
+    private static func normalized(_ roots: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        let unique = roots.filter { seen.insert($0.resolvingSymlinksInPath().path).inserted }
+        return Array(unique.suffix(limit))
     }
 }
 
