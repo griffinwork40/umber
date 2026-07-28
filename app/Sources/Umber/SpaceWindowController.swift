@@ -146,7 +146,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // The agent running in the terminal beside the tree is what mutates these
         // files, so "you came back to this window" is very close to the moment the
         // tree went stale. See `FileTreeViewController.refresh()`.
-        space.refreshFileTree()
+        space.windowDidBecomeKey()
     }
 
     func windowWillClose(_ notification: Notification) {

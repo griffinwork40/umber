@@ -247,6 +247,22 @@ struct AppConfig {
     static let minFontSize: Double = 6
     static let maxFontSize: Double = 48
 
+    /// Resize the configured face. Derived from the resolved font's **descriptor**,
+    /// not re-resolved from its family name: the system monospaced face is
+    /// `.AppleSystemUIFontMonospaced`, a dot-prefixed internal family that is not
+    /// guaranteed to survive `NSFont(name:)`, and the old code's fallback for that
+    /// miss was hardcoded Menlo — the exact silent substitution that made v0.1
+    /// render worse than the spike (see `preferredMonoFont`). The descriptor
+    /// carries the resolved face, so zooming cannot change it.
+    ///
+    /// Lives here rather than on one pane because every document kind zooms
+    /// (`SpaceDocument.setFontSize`), and a second private copy in `FileViewerPane`
+    /// is a second place for this fallback to rot.
+    static func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
+        NSFont(descriptor: base.fontDescriptor, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
     // MARK: - Derived chrome
 
     /// The background the terminal will *actually* paint, theme or no theme.

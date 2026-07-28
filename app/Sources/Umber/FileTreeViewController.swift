@@ -7,10 +7,15 @@ import AppKit
 
 @MainActor
 protocol FileTreeViewControllerDelegate: AnyObject {
-    /// A file (not a directory) was activated. There is no editor yet, so the
-    /// Space answers this by typing the path into the focused terminal — see
-    /// `SpaceViewController.fileTree(_:didActivate:)`.
+    /// A file (not a directory) was activated — double-click, or "Open" from the
+    /// row's context menu. The Space opens it as a document tab
+    /// (`SpaceViewController.fileTree(_:didActivate:)`).
     func fileTree(_ controller: FileTreeViewController, didActivate url: URL)
+
+    /// ⌥-double-click, or "Insert Path in Terminal". Types the quoted path into the
+    /// Space's focused terminal without opening anything — the terminal-first
+    /// gesture, which used to be bound to plain double-click and confused everyone.
+    func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL)
 }
 
 /// A lazily-populated directory node.
@@ -114,6 +119,7 @@ final class FileTreeViewController: NSViewController {
     private let root: FileNode
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
+    private let rowMenu = NSMenu()
 
     init(root url: URL) {
         self.root = FileNode(url: url, isDirectory: true)
@@ -141,6 +147,12 @@ final class FileTreeViewController: NSViewController {
         outlineView.target = self
         outlineView.doubleAction = #selector(handleDoubleClick)
         outlineView.autoresizingMask = [.width, .height]
+
+        // Right-click affordances. This is also where "insert path in terminal"
+        // becomes findable: bound only to a modifier chord it was a feature nobody
+        // could discover, which is most of why the tree felt like it did nothing.
+        rowMenu.delegate = self
+        outlineView.menu = rowMenu
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -189,10 +201,74 @@ final class FileTreeViewController: NSViewController {
             } else {
                 outlineView.expandItem(node)
             }
+        } else if NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+            // ⌥ is the "give me the path, do not open it" modifier — the same key
+            // Finder uses to turn Copy into Copy as Pathname.
+            delegate?.fileTree(self, didRequestPathInsert: node.url)
         } else {
             delegate?.fileTree(self, didActivate: node.url)
         }
     }
+
+    // MARK: - Context menu
+
+    /// Built per right-click rather than once, so the item set can depend on what
+    /// was actually clicked (a directory has nothing to "Open" in a viewer).
+    ///
+    /// Every action carries its `FileNode` in `representedObject` instead of
+    /// re-reading `clickedRow` when it fires: the menu outlives the click, and a
+    /// refresh landing in between would silently retarget the action at whatever
+    /// row moved into that index.
+    @objc private func menuNeedsUpdateImpl(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? FileNode else { return }
+
+        if !node.isDirectory {
+            menu.addItem(withTitle: "Open", action: #selector(menuOpen(_:)), keyEquivalent: "")
+            menu.addItem(
+                withTitle: "Insert Path in Terminal", action: #selector(menuInsertPath(_:)),
+                keyEquivalent: "")
+            menu.addItem(.separator())
+        }
+        menu.addItem(
+            withTitle: "Reveal in Finder", action: #selector(menuReveal(_:)), keyEquivalent: "")
+        menu.addItem(
+            withTitle: "Copy Path", action: #selector(menuCopyPath(_:)), keyEquivalent: "")
+
+        for item in menu.items where item.action != nil {
+            item.target = self
+            item.representedObject = node
+        }
+    }
+
+    private func node(from sender: Any?) -> FileNode? {
+        (sender as? NSMenuItem)?.representedObject as? FileNode
+    }
+
+    @objc private func menuOpen(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        delegate?.fileTree(self, didActivate: node.url)
+    }
+
+    @objc private func menuInsertPath(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        delegate?.fileTree(self, didRequestPathInsert: node.url)
+    }
+
+    @objc private func menuReveal(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([node.url])
+    }
+
+    @objc private func menuCopyPath(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(node.url.path, forType: .string)
+    }
+}
+
+extension FileTreeViewController: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) { menuNeedsUpdateImpl(menu) }
 }
 
 extension FileTreeViewController: NSOutlineViewDataSource {

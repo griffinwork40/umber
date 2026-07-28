@@ -159,36 +159,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusedSpaceWindow?.space
     }
 
-    /// Every terminal in every Space. Zoom and config reload are app-wide, so they
+    /// Every document in every Space. Zoom and config reload are app-wide, so they
     /// need the flattened list rather than one pane per window as before.
-    private var allPanes: [TerminalPane] {
-        SpaceWindowController.open.flatMap { $0.space.terminalPanes }
+    ///
+    /// Typed `[SpaceDocument]`, not `[TerminalPane]`: this used to flatten
+    /// `terminalPanes`, so the moment a second document kind existed ⌘+ would have
+    /// skipped it in silence — the file viewer would simply never zoom, with nothing
+    /// to see in a build log. `SpaceDocument` makes zoom a hard requirement precisely
+    /// so that class of bug cannot be reintroduced by a future conformer.
+    private var allDocuments: [SpaceDocument] {
+        SpaceWindowController.open.flatMap { $0.space.allDocuments }
     }
 
-    private var focusedPane: TerminalPane? {
-        focusedSpace?.activeTerminalPane ?? allPanes.last
+    private var focusedDocument: SpaceDocument? {
+        focusedSpace?.activeDocument ?? allDocuments.last
     }
 
-    /// Zoom every pane, not just the focused one. Per-pane sizing reads as a bug
+    /// Zoom every document, not just the focused one. Per-pane sizing reads as a bug
     /// in a tabbed terminal: you zoom because the text is too small for your eyes
     /// and this screen, which is not a property of one tab — and now, not a
-    /// property of one Space either (plan §12.4 item 7).
-    private func zoomAllPanes(by delta: CGFloat) {
-        guard let anchor = focusedPane else { return }
+    /// property of one Space, or of one document kind, either (plan §12.4 item 7).
+    private func zoomAllDocuments(by delta: CGFloat) {
+        guard let anchor = focusedDocument else { return }
         let target = anchor.currentFontSize + delta
-        anchor.setFontSize(target)
-        // Mirror the anchor's post-clamp size so every pane agrees even at a bound.
+        anchor.setFontSize(target, persist: true)
+        // Mirror the anchor's post-clamp size so every document agrees even at a bound.
         let settled = anchor.currentFontSize
-        for pane in allPanes where pane !== anchor {
-            pane.setFontSize(settled, persist: false)
+        for document in allDocuments where document !== anchor {
+            document.setFontSize(settled, persist: false)
         }
     }
 
-    @objc func biggerFont(_ sender: Any?) { zoomAllPanes(by: 1) }
-    @objc func smallerFont(_ sender: Any?) { zoomAllPanes(by: -1) }
+    @objc func biggerFont(_ sender: Any?) { zoomAllDocuments(by: 1) }
+    @objc func smallerFont(_ sender: Any?) { zoomAllDocuments(by: -1) }
 
     @objc func resetFont(_ sender: Any?) {
-        for pane in allPanes { pane.resetFontSize() }
+        for document in allDocuments { document.resetFontSize() }
     }
 
     // MARK: - Menu
