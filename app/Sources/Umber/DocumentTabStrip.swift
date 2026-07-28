@@ -71,6 +71,9 @@ final class DocumentTabStrip: NSView {
     private var hoveredClose: Int?
     private var isHoveringNewButton = false
     private var isHoveringOverflowButton = false
+    /// Tab index the middle button went down on, held until the matching up so a
+    /// press-then-drag-away does not close anything. See `otherMouseDown`.
+    private var middleClickCandidate: Int?
 
     /// Colours are pushed in from the resolved config rather than read from a
     /// global: a nil theme leaves SwiftTerm on its own defaults (black), and the
@@ -638,6 +641,51 @@ final class DocumentTabStrip: NSView {
         } else {
             delegate?.tabStrip(self, didSelect: index)
         }
+    }
+
+    /// Middle-click closes the tab under the cursor — the convention in every tabbed
+    /// browser and in Ghostty/iTerm2, and nearly free here because `tabIndex(at:)`
+    /// already resolves a point to an index for the left button.
+    ///
+    /// The index is captured on *down* and the close is issued on *up*, matching how
+    /// a button behaves: pressing the middle button over a tab and releasing it
+    /// elsewhere must not close anything, and `documentShouldClose()` in
+    /// `SpaceViewController.closeDocument` may put up an unsaved-changes sheet — a
+    /// sheet raised from a mouse-down while the button is still held is how you get a
+    /// modal that swallows the matching mouse-up.
+    ///
+    /// Deliberately ignores `closeRect`: the whole tab is the target, so there is no
+    /// select-versus-close ambiguity for this button and no reason to make the user
+    /// aim at a 15pt box. Also ignores the "+" and the chevron, which have no
+    /// middle-click meaning.
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            // Anything past the middle button (thumb buttons, gesture-mapped extras)
+            // is left to the responder chain rather than silently closing documents.
+            super.otherMouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        middleClickCandidate = tabIndex(at: point, layout)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        let candidate = middleClickCandidate
+        // Cleared unconditionally, including on the miss paths below: a stale
+        // candidate surviving to the next middle-click would close a tab the user
+        // never pressed on.
+        middleClickCandidate = nil
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = candidate, tabIndex(at: point, layout) == index else { return }
+        // Re-checked against `items` because the strip can be reloaded between the
+        // down and the up (a shell can exit on its own and `SpaceViewController`
+        // removes the document), and `didRequestClose` is index-based.
+        guard items.indices.contains(index) else { return }
+        delegate?.tabStrip(self, didRequestClose: index)
     }
 }
 
