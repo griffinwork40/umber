@@ -27,9 +27,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     /// The root a Space gets when the user did not name one (⌘N, ⌘⇧N, first launch).
-    /// `$HOME` because a login shell starts there anyway. Naming a real project root
-    /// is now ⌘O — `openFolder(_:)` — which is what the sidebar file tree is for.
-    private var defaultSpaceRoot: URL { FileManager.default.homeDirectoryForCurrentUser }
+    ///
+    /// The last root opened with ⌘O, falling back to `$HOME` — which is still the
+    /// right *first* answer, because a login shell starts there anyway, but a poor
+    /// steady-state one: you almost always want the project you were last in, not a
+    /// home directory whose first screen is tool caches. See `LastSpaceRoot`.
+    private var defaultSpaceRoot: URL {
+        LastSpaceRoot.url ?? FileManager.default.homeDirectoryForCurrentUser
+    }
 
     /// ⌘N — a new Space, joining the existing tab group. A system tab *is* a Space
     /// under this design, and `tabbingMode = .preferred` already says macOS wants
@@ -67,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.directoryURL = focusedSpaceWindow?.root ?? defaultSpaceRoot
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        // Recorded before the dedupe, not after: re-opening a folder that already
+        // has a Space is still you saying "this is where I am working", and the
+        // next ⌘N should land there even though this call goes on to just focus
+        // the existing window.
+        LastSpaceRoot.url = url
 
         // resolvingSymlinksInPath so /tmp and /private/tmp — or any symlinked
         // checkout — do not read as two different roots and defeat the dedupe.

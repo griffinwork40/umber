@@ -176,6 +176,47 @@ enum FontZoom {
     }
 }
 
+/// The project root of the most recently opened Space, remembered across launches.
+///
+/// Same argument as `FontZoom`, and the same storage for the same reason: this is
+/// transient UI state, not configuration, so it belongs in `UserDefaults` rather
+/// than in a `config.json` the user hand-edits and comments.
+///
+/// `$HOME` remains the genuine first-run default — this only remembers where you
+/// went afterwards. It exists because `$HOME` is a bad *steady-state* root even
+/// though it is a reasonable first one: 128 top-level entries on this machine, 74
+/// of them hidden, and the directories-first sort put 53 tool-cache directories
+/// above `Projects/`. Sorting hidden entries last fixed the ordering; this stops
+/// you landing there at all once you have opened a real project with ⌘O.
+///
+/// A raw path is enough because the app is not sandboxed (`make-app-bundle.sh`
+/// ad-hoc signs with no entitlements). Under App Sandbox this would have to be a
+/// security-scoped bookmark instead — the path alone would not carry access.
+enum LastSpaceRoot {
+    private static let key = "Umber.lastSpaceRoot"
+
+    static var url: URL? {
+        get {
+            guard let path = UserDefaults.standard.string(forKey: key) else { return nil }
+            // Checked, not trusted: a remembered project can be deleted, renamed, or
+            // sit on an unmounted volume, and rooting a Space at a path that is gone
+            // gives an empty tree with no explanation of why. Fall back to $HOME.
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else { return nil }
+            return URL(fileURLWithPath: path)
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue.path, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+}
+
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
 /// partially-invalid config file yields defaults for whatever could not be read,
 /// and the reasons are surfaced in `warnings` rather than thrown.
