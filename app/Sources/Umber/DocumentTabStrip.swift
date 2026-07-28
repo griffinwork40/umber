@@ -97,6 +97,7 @@ final class DocumentTabStrip: NSView {
         self.activeIndex = activeIndex
         clampScrollOffset()
         scrollToActive()
+        rebuildAccessibilityChildren()
         needsDisplay = true
     }
 
@@ -105,6 +106,9 @@ final class DocumentTabStrip: NSView {
         // Widening the window can make the whole strip fit again, at which point a
         // stale non-zero offset would leave a permanent gap where tab 0 belongs.
         clampScrollOffset()
+        // Every element's frame is derived from `tabRect`, so a resize invalidates
+        // all of them — VoiceOver's cursor would otherwise draw over stale geometry.
+        rebuildAccessibilityChildren()
         needsDisplay = true
     }
 
@@ -440,6 +444,116 @@ final class DocumentTabStrip: NSView {
 
     private func item(_ index: Int) -> Item { items[index] }
 
+    // MARK: - Accessibility
+    //
+    // This is the bill for hand-rolling this tab level, and it comes due here
+    // (plan §12.2). The Spaces level gets accessibility free because those are real
+    // `NSWindow` tabs; documents are one `NSView` of hand-drawn rects, so before
+    // this there was literally nothing here — VoiceOver saw a single unlabelled
+    // group and the *only* `accessibility` mentions in the whole app were
+    // `NSImage(systemSymbolName:accessibilityDescription: nil)`. A user on VoiceOver
+    // could not discover that a second document existed, let alone switch to one.
+    //
+    // `NSAccessibilityElement` children rather than real subviews, which is exactly
+    // the case Apple documents them for: "if a single NSView subclass draws 4
+    // buttons, it would vend 4 NSAccessibilityElements as accessibilityChildren"
+    // (`NSAccessibilityElement.h`). Real subviews would reintroduce the per-tab
+    // teardown churn this strip was drawn by hand to avoid (see the file header) —
+    // the shell repaints titles constantly via OSC 0/2. The elements are cheap
+    // value-carrying shells rebuilt on `reload`, so a title change costs three small
+    // objects, not three views entering and leaving a hierarchy.
+    //
+    // Also vended: the two chrome buttons, so "new document" and the overflow list
+    // are reachable rather than being invisible hot rectangles.
+
+    private var accessibilityElements: [NSAccessibilityElement] = []
+
+    /// Held so tab elements can call back without retaining the strip. `weak var
+    /// strip` inside each element would work equally well; one shared box means one
+    /// reference to nil out and no per-element weak slot.
+    private lazy var accessibilityBridge = TabStripAccessibilityBridge(strip: self)
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        // `.tabGroup`, matching what an `NSTabView` reports — these behave as tabs
+        // even though they are not built from one, and VoiceOver's tab-specific
+        // announcements ("tab 3 of 7, selected") depend on this role.
+        .tabGroup
+    }
+
+    override func accessibilityLabel() -> String? { "Documents" }
+
+    override func accessibilityChildren() -> [Any]? { accessibilityElements }
+
+    /// Without this, VoiceOver's "interact with the tab group" gesture has no notion
+    /// of which tab is current and starts from the left every time.
+    override func accessibilitySelectedChildren() -> [Any]? {
+        guard items.indices.contains(activeIndex),
+              let element = accessibilityElements.first(where: {
+                  ($0 as? TabAccessibilityElement)?.index == activeIndex
+              })
+        else { return nil }
+        return [element]
+    }
+
+    private func rebuildAccessibilityChildren() {
+        var elements: [NSAccessibilityElement] = []
+        // Only the visible range: an element whose frame is off-screen is one
+        // VoiceOver will happily route the cursor to and then draw its highlight
+        // somewhere the user cannot see. The overflow menu — a real NSMenu — is the
+        // accessible path to a scrolled-out tab, which is one of the reasons the
+        // menu lists every document rather than only the hidden ones.
+        for index in visibleRange {
+            let element = TabAccessibilityElement(
+                bridge: accessibilityBridge, index: index, item: item(index),
+                position: index + 1, total: items.count,
+                isSelected: index == activeIndex)
+            element.setAccessibilityParent(self)
+            element.setAccessibilityFrameInParentSpace(tabRect(index))
+            elements.append(element)
+        }
+        if isOverflowing {
+            elements.append(
+                ChromeAccessibilityElement(
+                    bridge: accessibilityBridge, parent: self, frame: overflowButtonRect,
+                    kind: .overflow, label: "All Documents",
+                    // Says what the button *does*, since a chevron has no text to read.
+                    help: "Show a list of all \(items.count) open documents"))
+        }
+        elements.append(
+            ChromeAccessibilityElement(
+                bridge: accessibilityBridge, parent: self, frame: newButtonRect,
+                kind: .newDocument, label: "New Terminal",
+                help: "Open a new terminal document (Command-T)"))
+        accessibilityElements = elements
+    }
+
+    /// Called by the tab elements. Kept here rather than exposing `delegate` so the
+    /// accessibility path goes through the same two calls the mouse path does.
+    fileprivate func accessibilitySelect(index: Int) -> Bool {
+        guard items.indices.contains(index) else { return false }
+        delegate?.tabStrip(self, didSelect: index)
+        return true
+    }
+
+    fileprivate func accessibilityClose(index: Int) -> Bool {
+        guard items.indices.contains(index) else { return false }
+        delegate?.tabStrip(self, didRequestClose: index)
+        return true
+    }
+
+    fileprivate func accessibilityPerformChrome(_ kind: ChromeAccessibilityElement.Kind) -> Bool {
+        switch kind {
+        case .newDocument:
+            delegate?.tabStripDidRequestNewDocument(self)
+            return true
+        case .overflow:
+            // Opening a real NSMenu is what makes a scrolled-out tab reachable
+            // without a pointer — NSMenu carries its own accessibility.
+            presentOverflowMenu()
+            return true
+        }
+    }
+
     // MARK: - Mouse
 
     override func updateTrackingAreas() {
@@ -559,6 +673,149 @@ final class DocumentTabStrip: NSView {
     @objc private func overflowMenuDidPick(_ sender: NSMenuItem) {
         guard items.indices.contains(sender.tag) else { return }
         delegate?.tabStrip(self, didSelect: sender.tag)
+    }
+}
+
+// MARK: - Accessibility elements
+
+/// A weak handle on the strip, handed to every child element.
+///
+/// The strip owns its elements and the elements must call back into it, so one side
+/// has to be weak. Doing it in one box rather than a `weak var` per element keeps
+/// the ownership story in one place.
+@MainActor
+private final class TabStripAccessibilityBridge {
+    weak var strip: DocumentTabStrip?
+    init(strip: DocumentTabStrip) { self.strip = strip }
+}
+
+/// One tab, as VoiceOver sees it.
+///
+/// The overrides are `nonisolated` because AppKit's accessibility protocol is not
+/// `@MainActor`-annotated in the SDK (`NSAccessibilityProtocols.h` carries no
+/// `NS_SWIFT_UI_ACTOR`), so under Swift 6 a `@MainActor` override does not typecheck
+/// against the inherited signature. `MainActor.assumeIsolated` re-establishes the
+/// isolation for the body: the accessibility API is only ever driven from the main
+/// thread, so this is the same trade `TerminalPane` makes with `@preconcurrency` on
+/// its SwiftTerm conformance — a runtime check in place of a compile error, which is
+/// the sanctioned path for an un-annotated dependency.
+///
+/// The item's values are copied in rather than read back through the bridge. An
+/// element is rebuilt on every `reload`, so a copy cannot go stale, and reading
+/// `items[index]` later is exactly how an element outlives the tab it describes and
+/// starts index-crashing on a closed document.
+@MainActor
+private final class TabAccessibilityElement: NSAccessibilityElement {
+    let index: Int
+    private let bridge: TabStripAccessibilityBridge
+    private let title: String
+    private let isEdited: Bool
+    private let position: Int
+    private let total: Int
+    private let isSelected: Bool
+
+    init(
+        bridge: TabStripAccessibilityBridge, index: Int, item: DocumentTabStrip.Item,
+        position: Int, total: Int, isSelected: Bool
+    ) {
+        self.bridge = bridge
+        self.index = index
+        self.title = item.title
+        self.isEdited = item.isEdited
+        self.position = position
+        self.total = total
+        self.isSelected = isSelected
+        super.init()
+    }
+
+    /// `.radioButton`, not `.button`: it is the role `NSTabViewItem` reports, and it
+    /// is the one whose contract includes a selected/not-selected value, which is
+    /// the whole point of vending these (`NSAccessibilityProtocols.h:54-61`).
+    override nonisolated func accessibilityRole() -> NSAccessibility.Role? { .radioButton }
+
+    override nonisolated func accessibilityRoleDescription() -> String? { "document tab" }
+
+    /// Position is spoken because a tab group cannot convey "3 of 7" on its own when
+    /// the children are synthesised, and the edited word is in the label rather than
+    /// the value because the value slot is spoken for by the selection state that the
+    /// radio-button role requires.
+    override nonisolated func accessibilityLabel() -> String? {
+        var parts = ["\(title), tab \(position) of \(total)"]
+        if isEdited { parts.append("unsaved changes") }
+        return parts.joined(separator: ", ")
+    }
+
+    override nonisolated func accessibilityValue() -> Any? { NSNumber(value: isSelected) }
+
+    override nonisolated func isAccessibilitySelected() -> Bool { isSelected }
+
+    override nonisolated func accessibilityPerformPress() -> Bool {
+        let bridge = bridge
+        let index = index
+        return MainActor.assumeIsolated { bridge.strip?.accessibilitySelect(index: index) ?? false }
+    }
+
+    /// Closing is a custom action rather than `accessibilityPerformDelete` on purpose:
+    /// VoiceOver surfaces custom actions by name in its actions menu (VO-Command-Space),
+    /// so the user hears "Close Tab" instead of having to know that Delete is wired.
+    override nonisolated func accessibilityCustomActions() -> [NSAccessibilityCustomAction] {
+        [NSAccessibilityCustomAction(name: "Close Tab", target: self, selector: #selector(performClose))]
+    }
+
+    /// Kept as well, because VoiceOver's plain delete gesture is what some users
+    /// reach for first and it costs one line to honour both.
+    override nonisolated func accessibilityPerformDelete() -> Bool { performClose() }
+
+    @objc private nonisolated func performClose() -> Bool {
+        let bridge = bridge
+        let index = index
+        return MainActor.assumeIsolated { bridge.strip?.accessibilityClose(index: index) ?? false }
+    }
+}
+
+/// The new-document and overflow buttons. Hand-drawn glyphs with no text, so
+/// without this they are unlabelled rectangles that VoiceOver cannot even find.
+///
+/// Carries a `Kind` rather than a closure. A stored `() -> Bool` cannot be read from
+/// the `nonisolated` override above — a function type is not `Sendable`, so the
+/// compiler rejects reading it across the isolation boundary, while a `let` of a
+/// `@MainActor` class (the bridge) is implicitly `Sendable` and can be. An enum plus
+/// the same bridge also keeps both element kinds on one mechanism.
+@MainActor
+private final class ChromeAccessibilityElement: NSAccessibilityElement {
+    enum Kind {
+        case newDocument
+        case overflow
+    }
+
+    private let bridge: TabStripAccessibilityBridge
+    private let kind: Kind
+    private let label: String
+    private let help: String
+
+    init(
+        bridge: TabStripAccessibilityBridge, parent: NSView, frame: NSRect,
+        kind: Kind, label: String, help: String
+    ) {
+        self.bridge = bridge
+        self.kind = kind
+        self.label = label
+        self.help = help
+        super.init()
+        setAccessibilityParent(parent)
+        setAccessibilityFrameInParentSpace(frame)
+    }
+
+    override nonisolated func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override nonisolated func accessibilityLabel() -> String? { label }
+    override nonisolated func accessibilityHelp() -> String? { help }
+    override nonisolated func accessibilityPerformPress() -> Bool {
+        let bridge = bridge
+        let kind = kind
+        return MainActor.assumeIsolated {
+            guard let strip = bridge.strip else { return false }
+            return strip.accessibilityPerformChrome(kind)
+        }
     }
 }
 
