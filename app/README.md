@@ -32,12 +32,13 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are two scripts and a diagnostic
+of pure logic would have caught. So the checks are three scripts and a diagnostic
 env var, each aimed at something that has really gone wrong:
 
 ```sh
 ./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH its patch?
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
+./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
 UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
@@ -53,6 +54,16 @@ against a different dependency than the tested one. Nothing in git recorded othe
 ignored, and `Package.swift`'s path dependency is unpinned. Exit codes: `2` = present but
 unpatched, `3` = unknown revision, `1` = missing vendor or missing pin.
 
+`check-space-restore.sh` follows `check-keybindings.sh`'s pattern — compile the shipped
+source, run a truth table — and is the exception that proves the rule above rather than a
+contradiction of it. Restoring Spaces only *pays off* across a quit/relaunch boundary, and
+that half (real window tab grouping) is genuinely not verifiable headlessly. But the half
+that decides **what** comes back is ordinary logic over (stored strings, what exists on
+disk), including the fail-soft cases whose only other discovery path is a user whose app
+opens to nothing. It runs against a temp directory and a bundle-less binary's own defaults
+domain, so it cannot disturb your real remembered Spaces — and asserts that isolation as
+its last case instead of trusting it.
+
 ## What works today (v0.1)
 
 - Real `.app` bundle, ad-hoc signed
@@ -64,6 +75,11 @@ unpatched, `3` = unknown revision, `1` = missing vendor or missing pin.
   ⌘⌥←/⌘⌥→, ⌘1–⌘9), because a system window tab *is* an `NSWindow` and could
   therefore never share one sidebar across a mixed terminal/editor strip. The strip
   hides itself at a single document. See plan §12.3.
+- **Every open Space reopens on relaunch**, as one native tab group, each rooted where
+  it was — *not* its documents, because a shell has no resumable state and four fresh
+  prompts dressed up as your last session would be theatre. Window geometry is
+  remembered per project root. First launch, or every remembered root having been
+  deleted, gives you one Space at `$HOME`.
 - **Sidebar file tree** (⌘B) — lazy `NSOutlineView` rooted at the Space, Finder
   icons, dotfiles shown (`.git`/`.DS_Store` excluded), refreshed when the window
   becomes key. Double-clicking a file types its quoted path into the focused
