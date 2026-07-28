@@ -6,7 +6,7 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var config = AppConfig.load()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,8 +26,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = focusedSpace?.activeDocument?.saveDocument()
     }
 
+    /// Greys the Save item out unless the active document actually has something
+    /// to save. `documentIsEdited` defaults to `false` for a terminal
+    /// (`SpaceDocument.swift`), so this also disables Save whenever a terminal tab
+    /// is focused — consistent with the action above being a no-op there
+    /// (PR #2 review, finding 4).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(saveDocument(_:)) else { return true }
+        return focusedSpace?.activeDocument?.documentIsEdited == true
+    }
+
     /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
     /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
+    ///
+    /// Known limitation, documented rather than fixed here (PR #2 review, finding
+    /// 2): `spaceShouldClose()` is evaluated per-Space in `SpaceWindowController
+    /// .open`'s order, and it is not a pure predicate — picking "Save" in a dirty
+    /// document's alert writes the file to disk right there, inline. So with 2+
+    /// Spaces holding unsaved documents, Saving an earlier Space then Cancelling a
+    /// later one leaves the earlier Space's write committed even though the
+    /// overall quit is aborted: "Cancel" here means "the app didn't quit," not
+    /// "nothing on disk changed." A correct fix needs the `SpaceDocument` close
+    /// contract split into a decide-then-commit pair so every Space's decision is
+    /// known before any write executes — real enough surface area (a protocol
+    /// change touching every conformer, plus ⌘W's single-document close path,
+    /// which does NOT have this problem and should keep its simpler combined
+    /// behaviour) that it belongs in its own change, not folded into a
+    /// review-feedback pass.
     func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
         for controller in SpaceWindowController.open
         where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {

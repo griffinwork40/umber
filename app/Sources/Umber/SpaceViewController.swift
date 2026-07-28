@@ -157,6 +157,14 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.present(documentView: document.documentView)
         syncStrip()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
+        // Re-check staleness on activation, not just on window-level focus
+        // (`windowDidBecomeKey()` below): switching tabs within an already-key
+        // window — e.g. terminal to file viewer, the app's own core scenario —
+        // used to skip this check entirely, so a dirty viewer's ⌘S could silently
+        // clobber a file the agent in the adjacent tab had just rewritten. A no-op
+        // for `TerminalPane` (`SpaceDocument`'s default), so this only matters for
+        // viewers (PR #2 review, finding 1).
+        document.documentWindowDidBecomeKey()
         document.documentDidBecomeActive()
     }
 
@@ -292,7 +300,13 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
     /// gesture that means "open". Now it is ⌥-double-click and a context-menu item,
     /// which also makes it discoverable, which it never was.
     func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL) {
-        guard let pane = focusedTerminalPane else { return }
+        // A Space with zero terminal tabs (every document is a file viewer) has
+        // nowhere for this to land — beep rather than silently doing nothing, so
+        // the gesture doesn't read as broken (PR #2 review, finding 5).
+        guard let pane = focusedTerminalPane else {
+            NSSound.beep()
+            return
+        }
         // Single-quoted, with any embedded quote closed-escaped-reopened, so spaces,
         // `$`, and quotes in a filename survive the shell verbatim.
         let quoted = "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
