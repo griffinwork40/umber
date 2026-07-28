@@ -57,34 +57,58 @@ final class DocumentTabStrip: NSView {
     /// `textRight > textLeft` guard). Below that a tab is not a tab, so anything that
     /// does not fit at 56 moves into the overflow menu instead of being squeezed
     /// into an unclickable sliver.
-    private static let minTabWidth: CGFloat = 56
-    private static let maxTabWidth: CGFloat = 210
-    private static let newButtonWidth: CGFloat = 30
+    // why these six are internal, not `private`: they are the strip's geometry metrics
+    // and this file is their ONE definition. Drawing measures the close box and the text
+    // inset from them, so they have to cross the file edge — the alternative is a second
+    // copy of `closeBoxSide` in the drawing file, which is exactly the silent divergence
+    // AFK.md's "one source of truth for defaults" convention exists to prevent.
+    static let minTabWidth: CGFloat = 56
+    static let maxTabWidth: CGFloat = 210
+    static let newButtonWidth: CGFloat = 30
     /// The chevron that opens the full document list. Narrower than the "+" because
     /// it is a fallback affordance, not one you reach for every few minutes.
-    private static let overflowButtonWidth: CGFloat = 24
-    private static let closeBoxSide: CGFloat = 15
-    private static let horizontalPadding: CGFloat = 8
+    static let overflowButtonWidth: CGFloat = 24
+    static let closeBoxSide: CGFloat = 15
+    static let horizontalPadding: CGFloat = 8
 
     weak var delegate: DocumentTabStripDelegate?
 
-    private var items: [Item] = []
-    private var activeIndex: Int = 0
-    private var hoveredTab: Int?
-    private var hoveredClose: Int?
-    private var isHoveringNewButton = false
-    private var isHoveringOverflowButton = false
+    // Everything below was `private` when the strip was one file. Drawing and the
+    // accessibility tree now live in sibling files and Swift's `private` stops at the
+    // file edge, so each property is promoted to the narrowest level that still
+    // compiles — never `public`, and `private(set)` wherever the writer stayed here.
+    //
+    // why `private(set)`: `reload` below is the only writer of these two, and the two
+    // reading files (drawing, accessibility) must never mutate them. `private(set)`
+    // makes that *mechanical* rather than a convention — the drawn strip, the spoken
+    // strip and the hit-tested strip cannot drift apart because only one path assigns.
+    private(set) var items: [Item] = []
+    private(set) var activeIndex: Int = 0
+    // why plain internal and not `private(set)`: hover is written by `mouseMoved` /
+    // `mouseExited`, which moved to `DocumentTabStrip+Mouse.swift`. A `private(set)`
+    // here would not compile for that file, and routing four flags through a setter
+    // would mean rewriting the tracking code rather than moving it. Drawing reads all
+    // four; the mouse file is still their only writer.
+    var hoveredTab: Int?
+    var hoveredClose: Int?
+    var isHoveringNewButton = false
+    var isHoveringOverflowButton = false
     /// Tab index the middle button went down on, held until the matching up so a
     /// press-then-drag-away does not close anything. See `otherMouseDown`.
-    private var middleClickCandidate: Int?
+    // why internal: `otherMouseDown` / `otherMouseUp` in `DocumentTabStrip+Mouse.swift`
+    // are its only reader and writer, and they need write access from that file.
+    var middleClickCandidate: Int?
 
     /// Colours are pushed in from the resolved config rather than read from a
     /// global: a nil theme leaves SwiftTerm on its own defaults (black), and the
     /// strip has to agree with whatever the terminal actually rendered or the two
     /// halves of the window visibly disagree — the same reasoning as
     /// `SpaceWindowController`'s window `backgroundColor`.
-    private var contentBackground: NSColor = .black
-    private var contentForeground: NSColor = .white
+    // why `private(set)`: drawing reads both on every paint; `apply(background:foreground:)`
+    // below is the only writer, which is the invariant that keeps the strip agreeing
+    // with the terminal.
+    private(set) var contentBackground: NSColor = .black
+    private(set) var contentForeground: NSColor = .white
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -142,7 +166,9 @@ final class DocumentTabStrip: NSView {
 
     /// A resolved layout for the current `bounds`, `items` and `activeIndex`.
     /// Purely derived — no stored scroll state to fall out of sync.
-    private struct Layout {
+    // why internal: drawing and the accessibility tree both take a resolved `Layout`
+    // as a parameter so they cannot re-derive the visible window a second way.
+    struct Layout {
         let tabWidth: CGFloat
         /// Absolute item indices drawn, left to right. Always contains `activeIndex`
         /// when `items` is non-empty.
@@ -152,7 +178,13 @@ final class DocumentTabStrip: NSView {
         let isOverflowing: Bool
     }
 
-    private var layout: Layout {
+    // why internal: drawing, hit-testing and the accessibility tree all resolve the
+    // layout through this one property. It must out-rank `NSView.layout()`, which it
+    // does once it is internal — while it was `private` the sibling files silently fell
+    // through to the inherited method ("value of type '@MainActor @Sendable () -> Void'
+    // has no member 'visible'"), so the promotion is what makes the single-source-of-
+    // truth claim above hold across the split rather than only within this file.
+    var layout: Layout {
         guard !items.isEmpty else {
             return Layout(tabWidth: 0, visible: 0..<0, isOverflowing: false)
         }
@@ -189,13 +221,13 @@ final class DocumentTabStrip: NSView {
     /// Rect for an absolute item index, or `nil` when the windowed strip is not
     /// showing that index. Returning `nil` rather than an off-screen rect is what
     /// keeps drawing and hit-testing honest about which tabs exist on screen.
-    private func tabRect(_ index: Int, _ layout: Layout) -> NSRect? {
+    func tabRect(_ index: Int, _ layout: Layout) -> NSRect? {
         guard layout.visible.contains(index) else { return nil }
         let slot = CGFloat(index - layout.visible.lowerBound)
         return NSRect(x: slot * layout.tabWidth, y: 0, width: layout.tabWidth, height: bounds.height)
     }
 
-    private func closeRect(_ tab: NSRect) -> NSRect {
+    func closeRect(_ tab: NSRect) -> NSRect {
         NSRect(
             x: tab.maxX - Self.horizontalPadding - Self.closeBoxSide,
             y: (tab.height - Self.closeBoxSide) / 2,
@@ -206,7 +238,7 @@ final class DocumentTabStrip: NSView {
 
     /// Pinned to the right edge, immediately left of the "+". Both buttons are
     /// measured back from `bounds.maxX` so neither can be pushed off by tab count.
-    private func overflowButtonRect(_ layout: Layout) -> NSRect? {
+    func overflowButtonRect(_ layout: Layout) -> NSRect? {
         guard layout.isOverflowing else { return nil }
         return NSRect(
             x: bounds.maxX - Self.newButtonWidth - Self.overflowButtonWidth, y: 0,
@@ -214,7 +246,7 @@ final class DocumentTabStrip: NSView {
         )
     }
 
-    private func newButtonRect(_ layout: Layout) -> NSRect {
+    func newButtonRect(_ layout: Layout) -> NSRect {
         // When overflowing, the tabs plus the chevron consume exactly the width up
         // to `bounds.maxX - newButtonWidth`, so both branches agree; the explicit
         // right-edge anchor is the guarantee, not the coincidence.
@@ -227,7 +259,7 @@ final class DocumentTabStrip: NSView {
         return NSRect(x: x, y: 0, width: Self.newButtonWidth, height: bounds.height)
     }
 
-    private func tabIndex(at point: NSPoint, _ layout: Layout) -> Int? {
+    func tabIndex(at point: NSPoint, _ layout: Layout) -> Int? {
         guard layout.tabWidth > 0, point.x >= 0 else { return nil }
         let slot = Int(point.x / layout.tabWidth)
         guard slot >= 0, slot < layout.visible.count else { return nil }
@@ -235,637 +267,10 @@ final class DocumentTabStrip: NSView {
         return items.indices.contains(index) ? index : nil
     }
 
-    // MARK: - Drawing
-
-    /// Perceptual darkness of the terminal background, used to decide which way to
-    /// push the rail and the inactive text. Falls back to "dark" because a nil
-    /// theme means SwiftTerm's defaults, whose background is black
-    /// (`Colors.swift:37` defaultBackground).
-    private var contentIsDark: Bool {
-        guard let rgb = contentBackground.usingColorSpace(.deviceRGB) else { return true }
-        return rgb.brightnessComponent < 0.5
-    }
-
-    private var railBackground: NSColor {
-        let toward: NSColor = contentIsDark ? .white : .black
-        // Small fraction on purpose: the rail should read as a shade of the
-        // terminal, not as a separate piece of system chrome bolted on top.
-        return contentBackground.blended(withFraction: 0.07, of: toward) ?? contentBackground
-    }
-
-    private var hoverBackground: NSColor {
-        let toward: NSColor = contentIsDark ? .white : .black
-        return contentBackground.blended(withFraction: 0.13, of: toward) ?? contentBackground
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        railBackground.setFill()
-        bounds.fill()
-
-        // Resolve once per paint and pass it down: recomputing `layout` per tab would
-        // be correct but would re-derive the window N times for no reason, and it is
-        // the same value that hit-testing will use.
-        let layout = self.layout
-        for index in layout.visible {
-            drawTab(index, layout)
-        }
-        if let overflow = overflowButtonRect(layout) {
-            drawOverflowButton(in: overflow)
-        }
-        drawNewButton(layout)
-
-        // Hairline under the *inactive* stretch only. Running it under the active
-        // tab too would draw a line between the tab and its own content, which is
-        // precisely the seam this design removes.
-        contentForeground.withAlphaComponent(0.12).setFill()
-        let hairline = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
-        // `?? .zero` covers the active tab having been windowed out; `slices` treats
-        // an empty exclusion as "no exclusion", so the hairline simply runs the full
-        // width — correct, because in that state no tab on screen owns the content.
-        let active = tabRect(activeIndex, layout) ?? .zero
-        for slice in hairline.slices(excluding: active) {
-            slice.fill()
-        }
-    }
-
-    private func drawTab(_ index: Int, _ layout: Layout) {
-        guard let rect = tabRect(index, layout) else { return }
-        let isActive = index == activeIndex
-
-        if isActive {
-            contentBackground.setFill()
-            rect.fill()
-        } else if hoveredTab == index {
-            hoverBackground.setFill()
-            rect.fill()
-        }
-
-        // Separator between adjacent inactive tabs. Skipped next to the active tab
-        // because the active tab's own fill already provides the edge.
-        if !isActive && index != activeIndex + 1 && index > 0 {
-            contentForeground.withAlphaComponent(0.10).setFill()
-            NSRect(x: rect.minX, y: 6, width: 1, height: rect.height - 12).fill()
-        }
-
-        let textAlpha: CGFloat = isActive ? 0.95 : 0.55
-        var textLeft = rect.minX + Self.horizontalPadding
-
-        if let symbol = NSImage(systemSymbolName: item(index).symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .regular)) {
-            symbol.isTemplate = true
-            let side: CGFloat = 12
-            let symbolRect = NSRect(
-                x: textLeft, y: (rect.height - side) / 2, width: side, height: side)
-            // Template images render black when drawn directly; tint by filling
-            // source-atop over the just-drawn glyph.
-            NSGraphicsContext.saveGraphicsState()
-            symbol.draw(in: symbolRect)
-            contentForeground.withAlphaComponent(textAlpha).set()
-            symbolRect.fill(using: .sourceAtop)
-            NSGraphicsContext.restoreGraphicsState()
-            textLeft = symbolRect.maxX + 5
-        }
-
-        // Reserve the close box so a long title never draws underneath the ×.
-        let textRight = closeRect(rect).minX - 4
-        if textRight > textLeft {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.lineBreakMode = .byTruncatingTail
-            let attributed = NSAttributedString(
-                string: item(index).title,
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 11, weight: isActive ? .medium : .regular),
-                    .foregroundColor: contentForeground.withAlphaComponent(textAlpha),
-                    .paragraphStyle: paragraph,
-                ]
-            )
-            let textHeight = attributed.size().height
-            attributed.draw(
-                in: NSRect(
-                    x: textLeft, y: (rect.height - textHeight) / 2,
-                    width: textRight - textLeft, height: textHeight))
-        }
-
-        // The × is drawn only for the active tab or the hovered one. Showing it on
-        // every tab turns a quiet rail into a row of buttons.
-        //
-        // An edited tab shows a dot in that same box until you hover it, at which
-        // point the × takes over — Safari's and VS Code's arrangement. Sharing the
-        // box rather than adding a second affordance is deliberate: the dot has to
-        // be visible on *inactive* tabs (that is the whole point of an unsaved
-        // marker) and the close box is the only slot already reserved on those.
-        //
-        // Status joins the SAME box on the SAME rule rather than getting a slot of its
-        // own. Two dots on one tab is a row of indicator lights, and at the 56pt floor
-        // there is no room for a second reserved slot at all: `minTabWidth`'s own
-        // derivation above accounts for exactly one 15pt close box inside 48pt of fixed
-        // furniture, so a second box would push the floor to ~71pt and undo the
-        // compression PR #5 added. When a tab is both edited and asking for attention,
-        // status wins the box: unsaved work is still there in a minute, whereas a
-        // prompt waiting for input is blocking.
-        let statusDot = item(index).status.dotColour(
-            fallback: contentForeground, isActive: isActive)
-        if let statusDot, hoveredTab != index {
-            drawStatusDot(in: closeRect(rect), colour: statusDot, isActive: isActive)
-        } else if item(index).isEdited && hoveredTab != index {
-            drawEditedDot(in: closeRect(rect))
-        } else if isActive || hoveredTab == index {
-            drawCloseGlyph(in: closeRect(rect), emphasised: hoveredClose == index)
-        }
-    }
-
-    private func drawEditedDot(in box: NSRect) {
-        let side: CGFloat = 7
-        let dot = NSRect(
-            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
-        contentForeground.withAlphaComponent(0.75).setFill()
-        NSBezierPath(ovalIn: dot).fill()
-    }
-
-    /// The status dot: same geometry as the unsaved dot so the two never disagree about
-    /// where that affordance lives, but coloured, and given a soft halo on inactive tabs.
-    ///
-    /// The halo is on the INACTIVE tab, not the active one. That is the whole design
-    /// argument: you are already looking at the active document, so a marker there is
-    /// telling you something you can see — the signal is worth its ink precisely on the
-    /// tabs you are not reading. Inactive tabs also draw their title at 0.55 alpha, so
-    /// without the halo a coloured dot on a dim tab is the quietest thing in the strip
-    /// rather than the loudest.
-    ///
-    /// Survives PR #5's compression unchanged, and that is a property of `box`, not
-    /// luck: both the dot and the halo are measured from `closeRect`, whose 15pt side
-    /// is fixed furniture that `minTabWidth`'s derivation reserves in full at the 56pt
-    /// floor — the title is what gets elided there, never this box. So the 7pt dot
-    /// inside a 12pt halo reads identically on a 56pt tab and a 210pt one; the tab
-    /// around it is narrower, which if anything raises the marker's share of the ink.
-    private func drawStatusDot(in box: NSRect, colour: NSColor, isActive: Bool) {
-        if !isActive {
-            colour.withAlphaComponent(0.22).setFill()
-            NSBezierPath(ovalIn: box.insetBy(dx: 1.5, dy: 1.5)).fill()
-        }
-        let side: CGFloat = 7
-        let dot = NSRect(
-            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
-        // Full opacity on both, unlike the title. A status the eye has to hunt for is a
-        // status that does not work.
-        colour.setFill()
-        NSBezierPath(ovalIn: dot).fill()
-    }
-
-    private func drawCloseGlyph(in box: NSRect, emphasised: Bool) {
-        if emphasised {
-            contentForeground.withAlphaComponent(0.16).setFill()
-            NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3).fill()
-        }
-        let inset = box.insetBy(dx: 4.5, dy: 4.5)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: inset.minX, y: inset.minY))
-        path.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
-        path.move(to: NSPoint(x: inset.minX, y: inset.maxY))
-        path.line(to: NSPoint(x: inset.maxX, y: inset.minY))
-        path.lineWidth = 1.2
-        path.lineCapStyle = .round
-        contentForeground.withAlphaComponent(emphasised ? 0.95 : 0.6).setStroke()
-        path.stroke()
-    }
-
-    private func drawNewButton(_ layout: Layout) {
-        let rect = newButtonRect(layout)
-        if isHoveringNewButton {
-            hoverBackground.setFill()
-            rect.fill()
-        }
-        let arm: CGFloat = 4.5
-        let centre = NSPoint(x: rect.midX, y: rect.midY)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: centre.x - arm, y: centre.y))
-        path.line(to: NSPoint(x: centre.x + arm, y: centre.y))
-        path.move(to: NSPoint(x: centre.x, y: centre.y - arm))
-        path.line(to: NSPoint(x: centre.x, y: centre.y + arm))
-        path.lineWidth = 1.3
-        path.lineCapStyle = .round
-        contentForeground.withAlphaComponent(isHoveringNewButton ? 0.95 : 0.55).setStroke()
-        path.stroke()
-    }
-
-    /// A downward chevron, matching the disclosure shape AppKit uses for
-    /// "there is more here than fits" (NSPopUpButton's pull-down arrow). Drawn as a
-    /// path rather than an SF Symbol for the same reason the × is: the symbol would
-    /// need the tint-by-sourceAtop dance in `drawTab` for two strokes.
-    private func drawOverflowButton(in rect: NSRect) {
-        if isHoveringOverflowButton {
-            hoverBackground.setFill()
-            rect.fill()
-        }
-        let halfWidth: CGFloat = 4
-        let halfHeight: CGFloat = 2.5
-        let centre = NSPoint(x: rect.midX, y: rect.midY)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: centre.x - halfWidth, y: centre.y + halfHeight))
-        path.line(to: NSPoint(x: centre.x, y: centre.y - halfHeight))
-        path.line(to: NSPoint(x: centre.x + halfWidth, y: centre.y + halfHeight))
-        path.lineWidth = 1.3
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        contentForeground.withAlphaComponent(isHoveringOverflowButton ? 0.95 : 0.55).setStroke()
-        path.stroke()
-    }
-
-    /// Every document, hidden ones included, as a menu. This is the affordance that
-    /// makes the overflow strategy safe: whatever the window is showing, one click
-    /// reaches any document. Built fresh on each click because `items` is replaced
-    /// wholesale by `reload` and a cached menu would go stale silently.
-    private func showOverflowMenu(from rect: NSRect) {
-        let menu = NSMenu()
-        for index in items.indices {
-            let entry = NSMenuItem(
-                title: item(index).title, action: #selector(overflowMenuDidPick(_:)),
-                keyEquivalent: "")
-            entry.target = self
-            entry.tag = index
-            // `.on` rather than a custom glyph so VoiceOver and the menu's own
-            // drawing both report the selection without extra work.
-            entry.state = index == activeIndex ? .on : .off
-            entry.image = NSImage(
-                systemSymbolName: item(index).symbolName, accessibilityDescription: nil)
-            menu.addItem(entry)
-        }
-        // Anchored under the chevron so the menu visually belongs to the button that
-        // opened it; `nil` event means AppKit synthesises the tracking for us.
-        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY), in: self)
-    }
-
-    @objc private func overflowMenuDidPick(_ sender: NSMenuItem) {
-        guard items.indices.contains(sender.tag) else { return }
-        delegate?.tabStrip(self, didSelect: sender.tag)
-    }
-
-    private func item(_ index: Int) -> Item { items[index] }
-
-    // MARK: - Accessibility
-    //
-    // This is the bill for hand-rolling the document tab level (see the file header:
-    // native window tabs were spent on Spaces, so they were not available here).
-    // Native NSTabView / NSWindow tabs ship their accessibility tree for free; a
-    // single NSView with `draw(_:)` and rect hit-testing ships *nothing* — before
-    // this, VoiceOver saw one unlabelled group with no tabs, no titles, no selection
-    // and no close buttons, and there was no way to reach a document without a mouse
-    // or the ⌘1–9 chords in `KeyBindings.swift`.
-    //
-    // Modelled as a tab group whose children are radio-button-role tabs, which is the
-    // shape AppKit's own NSTabView reports and therefore the one VoiceOver already
-    // knows how to narrate ("tab 2 of 5, selected"). The children are proxy elements
-    // (`NSAccessibilityElement`) rather than real subviews on purpose: adding per-tab
-    // subviews is exactly the teardown churn the file header rejects, since the shell
-    // rewrites titles constantly via OSC 0/2.
-    //
-    // Only the *visible* window of tabs gets a child element, matching what the
-    // overflow layout actually presents; the documents the window is not showing are
-    // reachable through the overflow chevron's own menu, which AppKit makes
-    // accessible for free (NSMenu is a real menu, and the picked item carries
-    // `.on` state).
-
-    override func isAccessibilityElement() -> Bool { true }
-
-    override func accessibilityRole() -> NSAccessibility.Role? { .tabGroup }
-
-    override func accessibilityLabel() -> String? { "Document tabs" }
-
-    /// The active document's title, so a VoiceOver user who lands on the group hears
-    /// what is selected without having to walk into the children.
-    override func accessibilityValue() -> Any? {
-        guard items.indices.contains(activeIndex) else { return nil }
-        return item(activeIndex).title
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        let layout = self.layout
-        var children: [Any] = layout.visible.compactMap { tabElement($0, layout) }
-        if let overflow = overflowButtonRect(layout) {
-            children.append(
-                buttonElement(
-                    rect: overflow, label: "All documents",
-                    help: "Shows every open document, including tabs that do not fit.",
-                    action: #selector(accessibilityShowOverflowMenu)))
-        }
-        children.append(
-            buttonElement(
-                rect: newButtonRect(layout), label: "New document",
-                help: "Opens a new terminal in this Space.",
-                action: #selector(accessibilityRequestNewDocument)))
-        return children
-    }
-
-    /// Rebuilt on demand rather than cached: `reload` swaps `items` wholesale and the
-    /// layout window follows `activeIndex`, so a cached tree would go stale on every
-    /// selection change and every title repaint. Cheap — the strip holds a handful of
-    /// tabs, and AppKit only asks while an assistive client is actually attached.
-    private func tabElement(_ index: Int, _ layout: Layout) -> NSAccessibilityElement? {
-        guard let rect = tabRect(index, layout) else { return nil }
-        let element = TabProxy()
-        element.strip = self
-        element.index = index
-        element.setAccessibilityRole(.radioButton)
-        // `.radioButton` inside a `.tabGroup` is the NSTabView shape: subrole
-        // `.tabButtonSubrole` is what makes VoiceOver say "tab" and announce the
-        // "n of m" position instead of reading it as a lone radio button.
-        element.setAccessibilitySubrole(.tabButtonSubrole)
-        // Status rides in the LABEL, not the help or the value. The value slot is
-        // spoken for by the selection state the radio-button role requires (below), and
-        // help is announced late and can be suppressed — a tab that is blocked on input
-        // has to be heard on the same breath as its title. Which is the point: the
-        // coloured dot in `drawTab` is the visual channel and this is the spoken one,
-        // so the single shared affordance is never colour-only information.
-        //
-        // Appended to the existing label rather than vended as a new child element:
-        // the tree this joins is already the NSTabView shape VoiceOver knows how to
-        // narrate, and a parallel status element would be a second thing to walk past.
-        if let spoken = item(index).status.accessibilityDescription {
-            element.setAccessibilityLabel("\(item(index).title), \(spoken)")
-        } else {
-            element.setAccessibilityLabel(item(index).title)
-        }
-        // Value carries selection because that is where AXRadioButton publishes it;
-        // `setAccessibilitySelected` alone is not narrated on this role.
-        element.setAccessibilityValue(index == activeIndex ? 1 : 0)
-        element.setAccessibilitySelected(index == activeIndex)
-        if item(index).isEdited {
-            // The unsaved dot in `drawTab` is purely visual, so it is invisible to
-            // VoiceOver unless it is said out loud somewhere. Help rather than the
-            // label because, unlike a status, unsaved work is not time-sensitive —
-            // the same ranking `drawTab` applies when the two contend for the box.
-            element.setAccessibilityHelp("Has unsaved changes.")
-        }
-        element.setAccessibilityParent(self)
-        element.setAccessibilityFrameInParentSpace(rect)
-        return element
-    }
-
-    private func buttonElement(
-        rect: NSRect, label: String, help: String, action: Selector
-    ) -> NSAccessibilityElement {
-        let element = ActionProxy()
-        element.strip = self
-        element.pressAction = action
-        element.setAccessibilityRole(.button)
-        element.setAccessibilityLabel(label)
-        element.setAccessibilityHelp(help)
-        element.setAccessibilityParent(self)
-        element.setAccessibilityFrameInParentSpace(rect)
-        return element
-    }
-
-    // Targets for the proxy elements' actions. They live on the strip rather than on
-    // the proxies so the proxies stay dumb rects and there is one place that talks to
-    // the delegate — the same reasoning as `mouseDown` being the only mouse path.
-
-    fileprivate func accessibilitySelectTab(_ index: Int) {
-        guard items.indices.contains(index) else { return }
-        delegate?.tabStrip(self, didSelect: index)
-    }
-
-    fileprivate func accessibilityCloseTab(_ index: Int) {
-        guard items.indices.contains(index) else { return }
-        delegate?.tabStrip(self, didRequestClose: index)
-    }
-
-    @objc fileprivate func accessibilityRequestNewDocument() {
-        delegate?.tabStripDidRequestNewDocument(self)
-    }
-
-    @objc fileprivate func accessibilityShowOverflowMenu() {
-        guard let rect = overflowButtonRect(layout) else { return }
-        showOverflowMenu(from: rect)
-    }
-
-    // MARK: - Mouse
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow],
-                owner: self))
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let layout = self.layout
-        let tab = tabIndex(at: point, layout)
-        let close = tab.flatMap { index -> Int? in
-            guard let rect = tabRect(index, layout) else { return nil }
-            return closeRect(rect).contains(point) ? index : nil
-        }
-        let newButton = newButtonRect(layout).contains(point)
-        let overflow = overflowButtonRect(layout)?.contains(point) ?? false
-        // Only repaint on an actual state change: mouseMoved fires continuously,
-        // and the terminal underneath deserves the frames more than this rail does.
-        guard tab != hoveredTab || close != hoveredClose || newButton != isHoveringNewButton
-            || overflow != isHoveringOverflowButton
-        else { return }
-        hoveredTab = tab
-        hoveredClose = close
-        isHoveringNewButton = newButton
-        isHoveringOverflowButton = overflow
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hoveredTab = nil
-        hoveredClose = nil
-        isHoveringNewButton = false
-        isHoveringOverflowButton = false
-        needsDisplay = true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let layout = self.layout
-        if newButtonRect(layout).contains(point) {
-            delegate?.tabStripDidRequestNewDocument(self)
-            return
-        }
-        // Tested before tabs: the chevron is pinned to the right edge and the last
-        // visible tab ends exactly where it starts, so a hit here is unambiguous.
-        if let overflow = overflowButtonRect(layout), overflow.contains(point) {
-            showOverflowMenu(from: overflow)
-            return
-        }
-        guard let index = tabIndex(at: point, layout), let rect = tabRect(index, layout) else {
-            return
-        }
-        // Close wins over select: the × sits inside the tab's own rect, so testing
-        // it second would select the tab and never close it.
-        if (index == activeIndex || hoveredTab == index), closeRect(rect).contains(point) {
-            delegate?.tabStrip(self, didRequestClose: index)
-        } else {
-            delegate?.tabStrip(self, didSelect: index)
-        }
-    }
-
-    /// Middle-click closes the tab under the cursor — the convention in every tabbed
-    /// browser and in Ghostty/iTerm2, and nearly free here because `tabIndex(at:)`
-    /// already resolves a point to an index for the left button.
-    ///
-    /// The index is captured on *down* and the close is issued on *up*, matching how
-    /// a button behaves: pressing the middle button over a tab and releasing it
-    /// elsewhere must not close anything, and `documentShouldClose()` in
-    /// `SpaceViewController.closeDocument` may put up an unsaved-changes sheet — a
-    /// sheet raised from a mouse-down while the button is still held is how you get a
-    /// modal that swallows the matching mouse-up.
-    ///
-    /// Deliberately ignores `closeRect`: the whole tab is the target, so there is no
-    /// select-versus-close ambiguity for this button and no reason to make the user
-    /// aim at a 15pt box. Also ignores the "+" and the chevron, which have no
-    /// middle-click meaning.
-    override func otherMouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 2 else {
-            // Anything past the middle button (thumb buttons, gesture-mapped extras)
-            // is left to the responder chain rather than silently closing documents.
-            super.otherMouseDown(with: event)
-            return
-        }
-        let point = convert(event.locationInWindow, from: nil)
-        middleClickCandidate = tabIndex(at: point, layout)
-    }
-
-    override func otherMouseUp(with event: NSEvent) {
-        guard event.buttonNumber == 2 else {
-            super.otherMouseUp(with: event)
-            return
-        }
-        let candidate = middleClickCandidate
-        // Cleared unconditionally, including on the miss paths below: a stale
-        // candidate surviving to the next middle-click would close a tab the user
-        // never pressed on.
-        middleClickCandidate = nil
-        let point = convert(event.locationInWindow, from: nil)
-        guard let index = candidate, tabIndex(at: point, layout) == index else { return }
-        // Re-checked against `items` because the strip can be reloaded between the
-        // down and the up (a shell can exit on its own and `SpaceViewController`
-        // removes the document), and `didRequestClose` is index-based.
-        guard items.indices.contains(index) else { return }
-        delegate?.tabStrip(self, didRequestClose: index)
-    }
-}
-
-// MARK: - Status presentation
-
-private extension DocumentStatus {
-    /// The dot's colour, or nil for "draw nothing".
-    ///
-    /// System colours, not hex literals: they are the only ones that adapt to Increase
-    /// Contrast and to the window's effective appearance, and this app already derives
-    /// its chrome from the theme rather than hardcoding it (`DocumentTabStrip`'s
-    /// `railBackground`, `SpaceWindowController`'s window colour).
-    ///
-    /// `fallback` is the terminal's own foreground, used for `.succeeded`: green would
-    /// be the obvious choice and is the wrong one — a green dot on a tab is the same
-    /// "there is news" weight as a red one, and a finished command is not a problem.
-    /// The neutral dot says "this changed" and leaves red for the case that earned it.
-    func dotColour(fallback: NSColor, isActive: Bool) -> NSColor? {
-        switch self {
-        case .idle:
-            return nil
-        case .running:
-            // Unreachable today — see the enum. A running command is the *least*
-            // remarkable non-idle state, hence the dimmest treatment.
-            return fallback.withAlphaComponent(isActive ? 0.55 : 0.45)
-        case .succeeded:
-            return fallback.withAlphaComponent(isActive ? 0.9 : 0.8)
-        case .failed:
-            return .systemRed
-        case .attention:
-            // The one wired case. Blue rather than yellow: it is the platform's
-            // "something wants you" colour (unread badges, sidebar dots) and it does not
-            // read as a warning, which a waiting prompt is not.
-            return .controlAccentColor
-        }
-    }
-}
-
-// MARK: - Accessibility elements
-
-/// One tab, as far as an assistive client is concerned. Holds only an index and a
-/// weak strip reference; every question about geometry or state is answered by the
-/// strip, so there is no second copy of the layout to disagree with `draw`.
-@MainActor
-private final class TabProxy: NSAccessibilityElement {
-    weak var strip: DocumentTabStrip?
-    var index: Int = 0
-
-    /// `accessibilityPerformPress` is what VoiceOver's ⌃⌥space and Full Keyboard
-    /// Access both route to, so select has to be press — not a custom action.
-    ///
-    /// `NSAccessibilityElement`'s action methods are not `@MainActor` in the SDK, so
-    /// under Swift 6 the override is nonisolated and cannot touch this type's stored
-    /// properties directly. `assumeIsolated` rather than a hop: AppKit dispatches
-    /// accessibility actions on the main thread, and hopping would make the return
-    /// value a lie — the client reads `Bool` synchronously to decide whether to
-    /// announce the action as performed.
-    override nonisolated func accessibilityPerformPress() -> Bool {
-        // `nonisolated(unsafe) let` on the self copy is what lets a non-Sendable
-        // element cross into the closure: without it Swift 6 region isolation reports
-        // "sending 'self' risks causing data races". Safe here for the reason above —
-        // the only caller is AppKit's accessibility dispatch, which is main-thread.
-        nonisolated(unsafe) let element = self
-        return MainActor.assumeIsolated {
-            guard let strip = element.strip else { return false }
-            strip.accessibilitySelectTab(element.index)
-            return true
-        }
-    }
-
-    /// Close is exposed as the standard "delete" action rather than a bespoke one:
-    /// VoiceOver offers it in the actions menu (⌃⌥⌘space) with wording the user has
-    /// already learned elsewhere, and Safari's tabs use the same mapping.
-    override nonisolated func accessibilityPerformDelete() -> Bool {
-        nonisolated(unsafe) let element = self
-        return MainActor.assumeIsolated {
-            guard let strip = element.strip else { return false }
-            strip.accessibilityCloseTab(element.index)
-            return true
-        }
-    }
-}
-
-/// The "+" and the overflow chevron. Same proxy trick as `TabProxy`, but the press
-/// target is a selector on the strip because these two do not carry an index.
-@MainActor
-private final class ActionProxy: NSAccessibilityElement {
-    weak var strip: DocumentTabStrip?
-    var pressAction: Selector?
-
-    /// Nonisolated + `assumeIsolated` for the same reason as `TabProxy`'s overrides.
-    override nonisolated func accessibilityPerformPress() -> Bool {
-        nonisolated(unsafe) let element = self
-        return MainActor.assumeIsolated {
-            guard let strip = element.strip, let action = element.pressAction else {
-                return false
-            }
-            // `perform(_:)` rather than a stored closure: a closure capturing the
-            // strip would need `@Sendable` reasoning, and AFK.md's conventions rule
-            // out adding `Sendable` annotations to this codebase.
-            strip.perform(action)
-            return true
-        }
-    }
-}
-
-private extension NSRect {
-    /// The parts of `self` left over once `excluded` is removed horizontally.
-    /// Used to draw the strip's baseline everywhere except under the active tab.
-    func slices(excluding excluded: NSRect) -> [NSRect] {
-        guard !excluded.isEmpty, excluded.maxX > minX, excluded.minX < maxX else { return [self] }
-        var result: [NSRect] = []
-        if excluded.minX > minX {
-            result.append(NSRect(x: minX, y: minY, width: excluded.minX - minX, height: height))
-        }
-        if excluded.maxX < maxX {
-            result.append(NSRect(x: excluded.maxX, y: minY, width: maxX - excluded.maxX, height: height))
-        }
-        return result
-    }
+    /// The one read accessor for `items`, shared by drawing and the accessibility
+    /// tree. Internal rather than `private` because both of those now live in sibling
+    /// files and Swift's `private` stops at the file edge; keeping a single accessor
+    /// is what stops three files from each writing their own `items[index]` and
+    /// disagreeing about what an out-of-range index means.
+    func item(_ index: Int) -> Item { items[index] }
 }

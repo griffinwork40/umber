@@ -132,7 +132,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     ///
     /// The predicate itself is `FileManager.isUsableSpaceRoot(atPath:)` rather than an
     /// inlined `fileExists(atPath:isDirectory:)` — a third caller of the rule that
-    /// `Config.swift:221` already warns about duplicating ("two copies of a
+    /// `Defaults.swift:96` already warns about duplicating ("two copies of a
     /// check-don't-trust rule is two places for it to drift"). Same question, one
     /// answer: a remembered root can be replaced by a *file* of the same name, and
     /// that has to read as unusable here exactly as it does for Space restore.
@@ -317,7 +317,7 @@ extension TerminalPane {
     /// Derived from the view hierarchy rather than tracked with a flag, because the
     /// container already maintains exactly this invariant: `present(documentView:)`
     /// removes every other document's view from the container and adds the new one
-    /// (`SpaceViewController.swift`, `DocumentAreaViewController.present`), so having a
+    /// (`DocumentAreaViewController.swift`, `DocumentAreaViewController.present`), so having a
     /// superview *is* being the presented document. A cached flag would be a second
     /// copy of that fact with no "did become inactive" callback to keep it honest.
     fileprivate var isActiveDocument: Bool { view.superview != nil }

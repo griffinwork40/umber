@@ -1,13 +1,23 @@
 //
 //  AppDelegate.swift
-//  App lifecycle and menus.
+//  App lifecycle, and the actions the menu bar points at.
+//
+//  Three concerns live in extensions of their own, each in its own file: the menu
+//  tree and its validation in `AppMenu.swift`, launch-time Space restore in
+//  `SpaceRestore.swift`, and the first-run config template in
+//  `StarterConfig.swift`. What stays here is the lifecycle (launch, terminate)
+//  and the `@objc` actions those menu items send.
 //
 
 import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
-    private var config = AppConfig.load()
+    /// `private(set)`, not `private`: `restoreSpaces()` moved to
+    /// `SpaceRestore.swift` and builds each Space with this config, and Swift's
+    /// `private` is *file*-scoped. Only the read is widened — the setter stays
+    /// file-private, so `reloadConfig` remains the one place this is reassigned.
+    private(set) var config = AppConfig.load()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Surface config problems where the user will actually see them, instead
@@ -18,76 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         buildMenu()
         restoreSpaces()
-    }
-
-    /// Reopen every Space that was open at quit, as one native tab group.
-    ///
-    /// This used to be an unconditional `newSpaceInWindow(nil)` — exactly one Space,
-    /// always — so N Spaces at quit became 1 Space at relaunch and the other N−1
-    /// project roots were simply forgotten (only `LastSpaceRoot` survived). See
-    /// `OpenSpaceRoots` for why the roots are persisted where they are.
-    ///
-    /// **A restored Space does NOT restore its documents.** Every document kind that
-    /// exists is either a shell (`TerminalPane` — a login `$SHELL` with no resumable
-    /// state; its scrollback, its cwd after you `cd`, and its running process all died
-    /// with the last launch) or a file view (`FileViewerPane`, which cannot be dirty
-    /// at quit because `documentShouldClose` already vetoes a close with unsaved
-    /// changes and `applicationShouldTerminate` honours that veto). So reopening four
-    /// terminals would be theatre: four fresh prompts arranged to *look* like the
-    /// session you left, in a strip whose tab titles would be wrong until each shell
-    /// emitted its first OSC 0/2. The project root is the durable part of a Space, and
-    /// it is the part restored. Documents come back as `present()`/`presentAsTab` make
-    /// them: one fresh terminal each.
-    ///
-    /// Degrades to a single default Space when there is nothing to restore, which
-    /// covers both first-ever launch (no key) and every remembered root having been
-    /// deleted since (`OpenSpaceRoots.urls` filters those out) — never an app with no
-    /// window, which on a `.regular` app is a Dock icon that does nothing.
-    private func restoreSpaces() {
-        let roots = OpenSpaceRoots.urls
-        guard let first = roots.first else { return newSpaceInWindow(nil) }
-
-        // The first Space opens as a plain window; the rest attach as system tabs via
-        // the existing `presentAsTab(relativeTo:)`. Spaces ARE native macOS window
-        // tabs (`SpaceWindowController.tabbingIdentifier` + `addTabbedWindow`), so
-        // getting this wrong does not mean a cosmetic glitch — it means N detached
-        // windows instead of one tab group.
-        //
-        // The host must NOT be `NSApp.keyWindow`, the way ⌘N resolves it: during launch
-        // no window has been made key yet, so it is nil, and nil is exactly the input
-        // that makes `presentAsTab` fall through to its untabbed branch — every Space
-        // its own window.
-        //
-        // Each tab is anchored on the PREVIOUS restored window, not on the first one.
-        // `addTabbedWindow(_:ordered: .above)` inserts immediately after its host, so
-        // anchoring everything on the first window would place tab 3 between tabs 1 and
-        // 2, tab 4 between 1 and 3, and reverse the whole group behind the leftmost tab.
-        // Walking the chain keeps the saved left-to-right order.
-        let host = SpaceWindowController(config: config, root: first)
-        host.present()
-        var previous = host
-        for root in roots.dropFirst() {
-            let controller = SpaceWindowController(config: config, root: root)
-            controller.presentAsTab(relativeTo: previous.window)
-            previous = controller
-        }
-
-        // Focus a chosen Space rather than whichever tab the loop ended on.
-        // `presentAsTab` makes each new tab key, so without this the rightmost restored
-        // tab wins by accident.
-        //
-        // `LastSpaceRoot` is the pick: it is the one piece of "where was I working"
-        // state that already exists, so ⌘O a project → quit → relaunch lands back in
-        // it. It is an honest proxy and not the real answer — it only updates on ⌘O
-        // (`openFolder`), not when you switch tabs — and recording true
-        // frontmost-at-quit would mean new persisted state for a tab selection, which
-        // is not worth it. Falling back to the leftmost tab keeps this deterministic
-        // either way.
-        let preferred = LastSpaceRoot.url?.resolvingSymlinksInPath()
-        let focus = SpaceWindowController.open.first {
-            $0.root.resolvingSymlinksInPath() == preferred
-        } ?? host
-        focus.window?.makeKeyAndOrderFront(nil)
     }
 
     /// ⌘S. A no-op on a terminal (`SpaceDocument.saveDocument()` defaults to a
@@ -266,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // config you can see is far easier to edit than one you must invent.
             try? FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? Self.starterConfig.write(to: url, atomically: true, encoding: .utf8)
+            try? StarterConfig.text.write(to: url, atomically: true, encoding: .utf8)
         }
         NSWorkspace.shared.open(url)
     }
@@ -321,214 +261,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func resetFont(_ sender: Any?) {
         for document in allDocuments { document.resetFontSize() }
     }
-
-    // MARK: - Menu
-
-    private func buildMenu() {
-        let appName = "Umber"
-        let mainMenu = NSMenu()
-
-        // App menu
-        let appItem = NSMenuItem()
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Settings…", action: #selector(openConfigFile(_:)), keyEquivalent: ",")
-        appMenu.addItem(withTitle: "Reload Config", action: #selector(reloadConfig(_:)), keyEquivalent: "r")
-        appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        mainMenu.addItem(appItem)
-
-        // File menu — was "Shell". Renamed because its nouns are now Spaces and
-        // documents, and a document is not necessarily a shell any more.
-        let fileItem = NSMenuItem()
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "New Space", action: #selector(newSpace(_:)), keyEquivalent: "n")
-        let newWindowItem = NSMenuItem(
-            title: "New Space in New Window", action: #selector(newSpaceInWindow(_:)),
-            keyEquivalent: "n")
-        newWindowItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(newWindowItem)
-        fileMenu.addItem(.separator())
-        fileMenu.addItem(
-            withTitle: "Open Folder…", action: #selector(openFolder(_:)), keyEquivalent: "o")
-        fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "New Tab", action: #selector(newDocument(_:)), keyEquivalent: "t")
-        fileMenu.addItem(.separator())
-        // Grouped with the document verbs but fenced off from them: Save is the only
-        // item in this menu that writes to the user's files.
-        fileMenu.addItem(
-            withTitle: "Save", action: #selector(saveDocument(_:)), keyEquivalent: "s")
-        fileMenu.addItem(.separator())
-        // ⌘W closes the document. Closing the whole Space out from under the other
-        // terminals in it is ⌘⇧W, which is the ordering every tabbed app uses.
-        fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeDocument(_:)), keyEquivalent: "w")
-        let closeSpaceItem = NSMenuItem(
-            title: "Close Space", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        closeSpaceItem.keyEquivalentModifierMask = [.command, .shift]
-        fileMenu.addItem(closeSpaceItem)
-        fileItem.submenu = fileMenu
-        mainMenu.addItem(fileItem)
-
-        // Edit menu — the standard selectors; TerminalView implements them.
-        let editItem = NSMenuItem()
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        editMenu.addItem(.separator())
-
-        // Scrollback search. Nothing here implements searching — SwiftTerm already
-        // ships the engine, the find bar, and the validation:
-        // `performFindPanelAction` is `@objc open`
-        // (`Mac/MacTerminalView.swift:2169`), it dispatches on `NSFindPanelAction`
-        // raw values to `showFindBar` / `performFind(next:)`, and
-        // `validateUserInterfaceItem` (`:2119`) already returns true for
-        // showFindPanel/next/previous and gates setFindString on an active
-        // selection. `UmberTerminalView` inherits all of it, so this menu is the
-        // only missing piece.
-        //
-        // Two details that are load-bearing:
-        //   * target stays nil so AppKit walks the responder chain to the focused
-        //     terminal view. A hardcoded target would break the moment splits exist.
-        //   * `performFindPanelAction` early-returns unless the sender IS an
-        //     NSMenuItem and reads `menuItem.tag`, so every item below must carry a
-        //     tag or it silently does nothing.
-        let findItems: [(String, String, NSEvent.ModifierFlags, NSFindPanelAction)] = [
-            ("Find…", "f", [.command], .showFindPanel),
-            ("Find Next", "g", [.command], .next),
-            ("Find Previous", "g", [.command, .shift], .previous),
-            ("Use Selection for Find", "e", [.command], .setFindString),
-        ]
-        for (title, key, mask, action) in findItems {
-            let item = NSMenuItem(
-                title: title,
-                action: #selector(NSTextView.performFindPanelAction(_:)),
-                keyEquivalent: key)
-            item.keyEquivalentModifierMask = mask
-            item.tag = Int(action.rawValue)
-            editMenu.addItem(item)
-        }
-        editItem.submenu = editMenu
-        mainMenu.addItem(editItem)
-
-        // View menu
-        let viewItem = NSMenuItem()
-        let viewMenu = NSMenu(title: "View")
-        // Shown as ⌘+ because that is what people read, but a key equivalent of
-        // "+" only matches the literal plus glyph — i.e. ⌘⇧=. Pressing ⌘= (what
-        // everyone actually does, and what every other app honours) matched
-        // nothing in v0.1, so zoom appeared not to work at all. Verified with a
-        // performKeyEquivalent harness: a HIDDEN item still matches its key
-        // equivalent, which is the standard way to register the ⌘= alias without
-        // showing a duplicate row in the menu.
-        viewMenu.addItem(withTitle: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "+")
-        let plusAlias = NSMenuItem(
-            title: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "=")
-        plusAlias.isHidden = true
-        viewMenu.addItem(plusAlias)
-        viewMenu.addItem(withTitle: "Smaller Font", action: #selector(smallerFont(_:)), keyEquivalent: "-")
-        viewMenu.addItem(withTitle: "Actual Size", action: #selector(resetFont(_:)), keyEquivalent: "0")
-        viewMenu.addItem(.separator())
-        // ⌃⌘F, not ⌘F. ⌘F belonged to full screen until scrollback search existed,
-        // and ⌘F is search's key everywhere on this platform — so full screen moves
-        // rather than search taking a non-standard chord. ⌃⌘F is also what macOS
-        // itself uses (System Settings › Keyboard › Shortcuts), so this is a
-        // correction to the platform default, not a compromise.
-        let fullScreenItem = NSMenuItem(
-            title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
-            keyEquivalent: "f")
-        fullScreenItem.keyEquivalentModifierMask = [.control, .command]
-        viewMenu.addItem(fullScreenItem)
-        viewMenu.addItem(.separator())
-        // No custom action and no target: the responder chain reaches
-        // SpaceViewController, which is the window's contentViewController and
-        // inherits toggleSidebar(_:) from NSSplitViewController. Using the system
-        // selector also gets the correct menu-item state and the collapse animation.
-        viewMenu.addItem(
-            withTitle: "Toggle Sidebar",
-            action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
-        viewItem.submenu = viewMenu
-        mainMenu.addItem(viewItem)
-
-        // Navigate menu — document-level movement, deliberately NOT folded into the
-        // Window menu. That menu carries the standard role, and its native tab
-        // commands (Show All Tabs, Move Tab to New Window) act on *Spaces*; putting
-        // document navigation beside them would present two different tab levels as
-        // one list.
-        let navigateItem = NSMenuItem()
-        let navigateMenu = NSMenu(title: "Navigate")
-        let nextTabItem = NSMenuItem(
-            title: "Next Tab", action: #selector(nextDocument(_:)),
-            keyEquivalent: Self.functionKeyEquivalent(NSRightArrowFunctionKey))
-        nextTabItem.keyEquivalentModifierMask = [.command, .option]
-        navigateMenu.addItem(nextTabItem)
-        let previousTabItem = NSMenuItem(
-            title: "Previous Tab", action: #selector(previousDocument(_:)),
-            keyEquivalent: Self.functionKeyEquivalent(NSLeftArrowFunctionKey))
-        previousTabItem.keyEquivalentModifierMask = [.command, .option]
-        navigateMenu.addItem(previousTabItem)
-        navigateMenu.addItem(.separator())
-        // ⌘1…⌘9 only — ⌘0 is Actual Size and predates this menu.
-        for index in 1...9 {
-            let item = NSMenuItem(
-                title: "Tab \(index)", action: #selector(selectDocumentByIndex(_:)),
-                keyEquivalent: String(index))
-            item.tag = index
-            navigateMenu.addItem(item)
-        }
-        navigateItem.submenu = navigateMenu
-        mainMenu.addItem(navigateItem)
-
-        // Window menu — giving it the standard role is what makes the native tab
-        // commands (Show All Tabs, Move Tab to New Window, …) appear.
-        let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowItem.submenu = windowMenu
-        mainMenu.addItem(windowItem)
-
-        NSApp.mainMenu = mainMenu
-        NSApp.windowsMenu = windowMenu
-    }
-
-    /// Arrow keys as a menu key equivalent: AppKit expresses them as function-key
-    /// code points, not ASCII, so `"→"` or `"\u{2192}"` would silently never match.
-    ///
-    /// ⌘⌥← / ⌘⌥→ are verified safe against `KeyBindings.swift`: its guard is
-    /// `intent == [.command]`, *exact* equality on the masked modifier set, so
-    /// adding Option cannot collide with the ⌘←/⌘→ line-editing bytes (^A/^E) —
-    /// the event falls through instead (plan §12.4 item 4).
-    private static func functionKeyEquivalent(_ functionKey: Int) -> String {
-        String(utf16CodeUnits: [unichar(functionKey)], count: 1)
-    }
-
-    private static let starterConfig = """
-    {
-      "// font": "any installed monospaced family; omit family for SF Mono (the system monospaced face, and the default)",
-      "// font.size": "points, 6-48. Default 14. Cmd+ / Cmd- zoom live on top of this and persist; Cmd0 clears the zoom and hands control back to this value.",
-      "font": { "family": "SF Mono", "size": 14 },
-
-      "// cursor": "block | steady-block | bar | steady-bar | underline | steady-underline",
-      "cursor": "block",
-
-      "// scrollback": "lines to retain; 0 disables scrollback entirely",
-      "// scrollback-note": "past ~3500 the scrollbar thumb hits its 1% floor and stops tracking position, and every window resize walks the whole buffer",
-      "scrollback": 1000,
-
-      "// shell": "defaults to $SHELL; launched with -l so your PATH loads",
-      "// optionAsMeta": "true lets Option act as Meta instead of typing accents",
-      "optionAsMeta": true,
-
-      "// theme": "OMITTED ON PURPOSE. With no theme, SwiftTerm's own colours stand and ANSI 16-255 keep the standard xterm values. Setting a background or foreground makes SwiftTerm regenerate indices 16-255 by interpolating them out of your bg/fg, so 256-colour programs render against synthesised approximations. Uncomment below only if you want that trade.",
-      "// theme-example": {
-        "preset": "afk-dark",
-        "// preset-values": "afk-dark | tokyo-night | classic",
-        "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
-        "cursor": "#E67E4C"
-      }
-    }
-
-    """
 }
