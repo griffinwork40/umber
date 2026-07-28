@@ -91,10 +91,27 @@ final class SpaceViewController: NSSplitViewController {
 
     // MARK: - Documents
 
+    /// Every document, kind-agnostic. Anything app-wide — config reload, font zoom —
+    /// must fan out over *this*, not `terminalPanes`: fanning over the concrete kind
+    /// is how a second document kind ends up installed, rendered, and silently inert
+    /// (see `SpaceDocument.swift`'s note on why the zoom members are hard requirements).
+    var allDocuments: [SpaceDocument] { documents }
+
+    var activeDocument: SpaceDocument? {
+        documents.indices.contains(activeIndex) ? documents[activeIndex] : nil
+    }
+
     var terminalPanes: [TerminalPane] { documents.compactMap { $0 as? TerminalPane } }
 
-    var activeTerminalPane: TerminalPane? {
-        documents.indices.contains(activeIndex) ? documents[activeIndex] as? TerminalPane : nil
+    /// The terminal a shell-directed action should land in.
+    ///
+    /// Falls back to the most recent terminal in this Space rather than returning
+    /// nil when the active document is *not* a terminal. Without the fallback,
+    /// "insert this path into the shell" would do nothing whenever a file viewer
+    /// happened to be the front tab — the failure would be invisible, and the
+    /// feature would look broken exactly when the file tree is most in use.
+    var focusedTerminalPane: TerminalPane? {
+        (activeDocument as? TerminalPane) ?? terminalPanes.last
     }
 
     @discardableResult
@@ -107,6 +124,31 @@ final class SpaceViewController: NSSplitViewController {
         return pane
     }
 
+    /// Open `url` as a read-only document, or surface the tab that already has it.
+    ///
+    /// Reuse is not an optimisation — it is the behaviour. A file tree where every
+    /// double-click appends a tab turns eight glances at `Config.swift` into eight
+    /// identical tabs, which is how every editor that skipped this feels broken.
+    @discardableResult
+    func openFile(url: URL) -> FileViewerPane {
+        let target = url.resolvingSymlinksInPath()
+        if let index = documents.firstIndex(where: {
+            ($0 as? FileViewerPane)?.url.resolvingSymlinksInPath() == target
+        }), let existing = documents[index] as? FileViewerPane {
+            selectDocument(at: index)
+            // Re-stat on re-activation: you clicked the file again, which usually
+            // means you want to see what it says *now*.
+            existing.documentWindowDidBecomeKey()
+            return existing
+        }
+
+        let viewer = FileViewerPane(config: config, url: url, frame: documentArea.container.bounds)
+        viewer.delegate = self
+        documents.append(viewer)
+        selectDocument(at: documents.count - 1)
+        return viewer
+    }
+
     func selectDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
         activeIndex = index
@@ -115,6 +157,14 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.present(documentView: document.documentView)
         syncStrip()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
+        // Re-check staleness on activation, not just on window-level focus
+        // (`windowDidBecomeKey()` below): switching tabs within an already-key
+        // window — e.g. terminal to file viewer, the app's own core scenario —
+        // used to skip this check entirely, so a dirty viewer's ⌘S could silently
+        // clobber a file the agent in the adjacent tab had just rewritten. A no-op
+        // for `TerminalPane` (`SpaceDocument`'s default), so this only matters for
+        // viewers (PR #2 review, finding 1).
+        document.documentWindowDidBecomeKey()
         document.documentDidBecomeActive()
     }
 
@@ -128,6 +178,10 @@ final class SpaceViewController: NSSplitViewController {
 
     func closeDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
+        // Every close path in the app — ⌘W, the tab's ×, closing the Space, quitting —
+        // reaches a document through here, which is what makes this the one place a
+        // dirty buffer has to be able to say no.
+        guard documents[index].documentShouldClose() else { return }
         let document = documents.remove(at: index)
         document.documentView.removeFromSuperview()
 
@@ -145,7 +199,9 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.setStripVisible(documents.count > 1)
         documentArea.strip.reload(
             items: documents.map {
-                .init(title: $0.documentTitle, symbolName: $0.documentSymbolName)
+                .init(
+                    title: $0.documentTitle, symbolName: $0.documentSymbolName,
+                    isEdited: $0.documentIsEdited)
             },
             activeIndex: activeIndex)
     }
@@ -154,14 +210,40 @@ final class SpaceViewController: NSSplitViewController {
 
     func apply(config: AppConfig) {
         self.config = config
-        for pane in terminalPanes { pane.apply(config: config) }
+        for document in documents { document.apply(config: config) }
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
     }
 
     /// Called when the Space's window becomes key — see `FileTreeViewController.refresh()`
-    /// for why that is the chosen trigger rather than FSEvents.
-    func refreshFileTree() { fileTree.refresh() }
+    /// for why that is the chosen trigger rather than FSEvents. The documents get the
+    /// same signal for the same reason: an open file viewer is as stale as the tree is.
+    func windowDidBecomeKey() {
+        fileTree.refresh()
+        for document in documents { document.documentWindowDidBecomeKey() }
+        // A document may have picked up an external change; the strip does not show
+        // that today, but the dot state is cheap to keep honest.
+        syncStrip()
+    }
+
+    /// Can this whole Space go away? Asks each document in turn and stops at the
+    /// first refusal, so closing a window with three dirty files prompts three times
+    /// rather than discarding the other two behind one answer.
+    func spaceShouldClose() -> Bool {
+        for document in documents where !document.documentShouldClose() { return false }
+        return true
+    }
+
+    var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
+}
+
+// MARK: - FileViewerPaneDelegate
+
+extension SpaceViewController: FileViewerPaneDelegate {
+    func fileViewerDidChangeEditedState(_ pane: FileViewerPane) {
+        // Repaint the strip so the unsaved dot appears/disappears as you type.
+        syncStrip()
+    }
 }
 
 // MARK: - DocumentTabStripDelegate
@@ -200,16 +282,42 @@ extension SpaceViewController: TerminalPaneDelegate {
 // MARK: - FileTreeViewControllerDelegate
 
 extension SpaceViewController: FileTreeViewControllerDelegate {
-    /// There is no editor yet (CodeEditSourceEditor still ships a "not ready for
-    /// production use" banner — plan §4.3), so activating a file does the most
-    /// useful terminal-first thing available: types its path into the focused
-    /// terminal, single-quoted so spaces and `$` survive. When an editor document
-    /// kind exists this becomes "open it in a tab" instead.
+    /// Double-click opens the file in a document tab — what every Mac user already
+    /// means by double-clicking a row in a file tree.
+    ///
+    /// This used to type the path into the terminal instead, because there was no
+    /// document kind to open a file *into*. That was an honest placeholder and a
+    /// bad feature: a picker whose only effect is inserting text reads as broken to
+    /// anyone who did not write it. `FileViewerPane` gives the tree somewhere to go.
     func fileTree(_ controller: FileTreeViewController, didActivate url: URL) {
-        guard let pane = activeTerminalPane else { return }
+        openFile(url: url)
+    }
+
+    /// The old behaviour, kept and given a name.
+    ///
+    /// Inserting a quoted path is genuinely useful — it is what you want while
+    /// composing `nvim <path>` or `git add <path>` — it was just bound to the one
+    /// gesture that means "open". Now it is ⌥-double-click and a context-menu item,
+    /// which also makes it discoverable, which it never was.
+    func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL) {
+        // A Space with zero terminal tabs (every document is a file viewer) has
+        // nowhere for this to land — beep rather than silently doing nothing, so
+        // the gesture doesn't read as broken (PR #2 review, finding 5).
+        guard let pane = focusedTerminalPane else {
+            NSSound.beep()
+            return
+        }
+        // Single-quoted, with any embedded quote closed-escaped-reopened, so spaces,
+        // `$`, and quotes in a filename survive the shell verbatim.
         let quoted = "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         pane.view.send(txt: quoted + " ")
-        pane.documentDidBecomeActive()
+        // Bring the terminal forward if a viewer was in front, otherwise the text
+        // lands in a tab the user cannot see.
+        if let index = documents.firstIndex(where: { $0 === pane }), index != activeIndex {
+            selectDocument(at: index)
+        } else {
+            pane.documentDidBecomeActive()
+        }
     }
 }
 

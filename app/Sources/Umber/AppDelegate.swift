@@ -6,7 +6,7 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var config = AppConfig.load()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -18,6 +18,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         buildMenu()
         newSpaceInWindow(nil)
+    }
+
+    /// ⌘S. A no-op on a terminal (`SpaceDocument.saveDocument()` defaults to a
+    /// successful no-op), so this needs no branching on document kind.
+    @objc func saveDocument(_ sender: Any?) {
+        _ = focusedSpace?.activeDocument?.saveDocument()
+    }
+
+    /// Greys the Save item out unless the active document actually has something
+    /// to save. `documentIsEdited` defaults to `false` for a terminal
+    /// (`SpaceDocument.swift`), so this also disables Save whenever a terminal tab
+    /// is focused — consistent with the action above being a no-op there
+    /// (PR #2 review, finding 4).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(saveDocument(_:)) else { return true }
+        return focusedSpace?.activeDocument?.documentIsEdited == true
+    }
+
+    /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
+    /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
+    ///
+    /// Known limitation, documented rather than fixed here (PR #2 review, finding
+    /// 2): `spaceShouldClose()` is evaluated per-Space in `SpaceWindowController
+    /// .open`'s order, and it is not a pure predicate — picking "Save" in a dirty
+    /// document's alert writes the file to disk right there, inline. So with 2+
+    /// Spaces holding unsaved documents, Saving an earlier Space then Cancelling a
+    /// later one leaves the earlier Space's write committed even though the
+    /// overall quit is aborted: "Cancel" here means "the app didn't quit," not
+    /// "nothing on disk changed." A correct fix needs the `SpaceDocument` close
+    /// contract split into a decide-then-commit pair so every Space's decision is
+    /// known before any write executes — real enough surface area (a protocol
+    /// change touching every conformer, plus ⌘W's single-document close path,
+    /// which does NOT have this problem and should keep its simpler combined
+    /// behaviour) that it belongs in its own change, not folded into a
+    /// review-feedback pass.
+    func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
+        for controller in SpaceWindowController.open
+        where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
+            return .terminateCancel
+        }
+        return .terminateNow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
@@ -159,36 +200,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusedSpaceWindow?.space
     }
 
-    /// Every terminal in every Space. Zoom and config reload are app-wide, so they
+    /// Every document in every Space. Zoom and config reload are app-wide, so they
     /// need the flattened list rather than one pane per window as before.
-    private var allPanes: [TerminalPane] {
-        SpaceWindowController.open.flatMap { $0.space.terminalPanes }
+    ///
+    /// Typed `[SpaceDocument]`, not `[TerminalPane]`: this used to flatten
+    /// `terminalPanes`, so the moment a second document kind existed ⌘+ would have
+    /// skipped it in silence — the file viewer would simply never zoom, with nothing
+    /// to see in a build log. `SpaceDocument` makes zoom a hard requirement precisely
+    /// so that class of bug cannot be reintroduced by a future conformer.
+    private var allDocuments: [SpaceDocument] {
+        SpaceWindowController.open.flatMap { $0.space.allDocuments }
     }
 
-    private var focusedPane: TerminalPane? {
-        focusedSpace?.activeTerminalPane ?? allPanes.last
+    private var focusedDocument: SpaceDocument? {
+        focusedSpace?.activeDocument ?? allDocuments.last
     }
 
-    /// Zoom every pane, not just the focused one. Per-pane sizing reads as a bug
+    /// Zoom every document, not just the focused one. Per-pane sizing reads as a bug
     /// in a tabbed terminal: you zoom because the text is too small for your eyes
     /// and this screen, which is not a property of one tab — and now, not a
-    /// property of one Space either (plan §12.4 item 7).
-    private func zoomAllPanes(by delta: CGFloat) {
-        guard let anchor = focusedPane else { return }
+    /// property of one Space, or of one document kind, either (plan §12.4 item 7).
+    private func zoomAllDocuments(by delta: CGFloat) {
+        guard let anchor = focusedDocument else { return }
         let target = anchor.currentFontSize + delta
-        anchor.setFontSize(target)
-        // Mirror the anchor's post-clamp size so every pane agrees even at a bound.
+        anchor.setFontSize(target, persist: true)
+        // Mirror the anchor's post-clamp size so every document agrees even at a bound.
         let settled = anchor.currentFontSize
-        for pane in allPanes where pane !== anchor {
-            pane.setFontSize(settled, persist: false)
+        for document in allDocuments where document !== anchor {
+            document.setFontSize(settled, persist: false)
         }
     }
 
-    @objc func biggerFont(_ sender: Any?) { zoomAllPanes(by: 1) }
-    @objc func smallerFont(_ sender: Any?) { zoomAllPanes(by: -1) }
+    @objc func biggerFont(_ sender: Any?) { zoomAllDocuments(by: 1) }
+    @objc func smallerFont(_ sender: Any?) { zoomAllDocuments(by: -1) }
 
     @objc func resetFont(_ sender: Any?) {
-        for pane in allPanes { pane.resetFontSize() }
+        for document in allDocuments { document.resetFontSize() }
     }
 
     // MARK: - Menu
@@ -225,6 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Open Folder…", action: #selector(openFolder(_:)), keyEquivalent: "o")
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newDocument(_:)), keyEquivalent: "t")
+        fileMenu.addItem(.separator())
+        // Grouped with the document verbs but fenced off from them: Save is the only
+        // item in this menu that writes to the user's files.
+        fileMenu.addItem(
+            withTitle: "Save", action: #selector(saveDocument(_:)), keyEquivalent: "s")
+        fileMenu.addItem(.separator())
         // ⌘W closes the document. Closing the whole Space out from under the other
         // terminals in it is ⌘⇧W, which is the ordering every tabbed app uses.
         fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeDocument(_:)), keyEquivalent: "w")

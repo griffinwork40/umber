@@ -146,7 +146,14 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // The agent running in the terminal beside the tree is what mutates these
         // files, so "you came back to this window" is very close to the moment the
         // tree went stale. See `FileTreeViewController.refresh()`.
-        space.refreshFileTree()
+        space.windowDidBecomeKey()
+    }
+
+    /// Closing a Space closes every document in it, so it has to honour the same
+    /// veto ⌘W does — otherwise ⌘⇧W is a way to discard unsaved work without ever
+    /// being asked.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        space.spaceShouldClose()
     }
 
     func windowWillClose(_ notification: Notification) {

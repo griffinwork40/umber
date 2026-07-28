@@ -135,16 +135,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     private static let minFontSize = CGFloat(AppConfig.minFontSize)
     private static let maxFontSize = CGFloat(AppConfig.maxFontSize)
 
-    /// Resize the configured face. Derived from the resolved font's **descriptor**,
-    /// not re-resolved from its family name: the system monospaced face is
-    /// `.AppleSystemUIFontMonospaced`, a dot-prefixed internal family that is not
-    /// guaranteed to survive `NSFont(name:)`, and the old code's fallback for that
-    /// miss was hardcoded Menlo — the exact silent substitution that made v0.1
-    /// render worse than the spike (see `Config.preferredMonoFont`). The
-    /// descriptor carries the resolved face, so zooming cannot change it.
+    /// Moved to `AppConfig.resized(_:to:)` when `FileViewerPane` needed the same
+    /// descriptor-preserving resize — see there for why `NSFont(name:size:)` is
+    /// wrong. Kept as a shim so the call sites below stay readable.
     private func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
-        NSFont(descriptor: base.fontDescriptor, size: size)
-            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        AppConfig.resized(base, to: size)
     }
 
     /// `persist: false` is for applying someone else's already-stored zoom (a
