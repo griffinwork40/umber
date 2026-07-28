@@ -114,9 +114,25 @@ final class SpaceViewController: NSSplitViewController {
         (activeDocument as? TerminalPane) ?? terminalPanes.last
     }
 
+    /// Add a terminal document rooted at `workingDirectory`, defaulting to the Space's
+    /// own `root`.
+    ///
+    /// The default is the point. A Space *is* a project root (plan §12.4 item 1) and
+    /// every terminal in it inherited `$HOME` instead, because this function created
+    /// the pane without ever mentioning `root` — so ⌘T in a Space opened on a project
+    /// landed outside that project and the first thing you typed was a `cd`. The root
+    /// was already right here, one property away, which is exactly why it went
+    /// unnoticed.
+    ///
+    /// `workingDirectory` is an override rather than a replacement so the tree's
+    /// "New Terminal Here" can pass a subdirectory
+    /// (`fileTree(_:didRequestNewTerminalAt:)`) without every other caller — first
+    /// launch, ⌘T, the strip's `+` — having to restate the root it already implies.
     @discardableResult
-    func addTerminalDocument(start: Bool = true) -> TerminalPane {
-        let pane = TerminalPane(config: config, frame: documentArea.container.bounds)
+    func addTerminalDocument(start: Bool = true, workingDirectory: URL? = nil) -> TerminalPane {
+        let pane = TerminalPane(
+            config: config, frame: documentArea.container.bounds,
+            workingDirectory: workingDirectory ?? root)
         pane.delegate = self
         documents.append(pane)
         if start { pane.start() }
@@ -318,6 +334,22 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
         } else {
             pane.documentDidBecomeActive()
         }
+    }
+
+    /// "New Terminal Here" — the other half of rooting terminals properly.
+    ///
+    /// ⌘T uses the Space's root; this uses the directory you clicked, which is what
+    /// you want the moment a project is more than one directory deep. `url` is already
+    /// resolved to a directory by the tree (`FileTreeViewController.menuNewTerminal`),
+    /// so there is deliberately no file/folder branch here.
+    ///
+    /// A new document every time rather than reusing an existing terminal on that
+    /// path, which is the opposite of `openFile(url:)`'s reuse rule — and the
+    /// difference is real, not an inconsistency: two viewers of one file show the same
+    /// bytes twice, while two shells in one directory are two independent sessions
+    /// (one running a server, one running git) and collapsing them would destroy work.
+    func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL) {
+        addTerminalDocument(workingDirectory: url)
     }
 }
 
