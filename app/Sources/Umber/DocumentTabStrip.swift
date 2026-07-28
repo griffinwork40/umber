@@ -40,9 +40,26 @@ final class DocumentTabStrip: NSView {
     /// starts stealing rows from the terminal, which is the primary surface.
     static let height: CGFloat = 30
 
-    private static let minTabWidth: CGFloat = 96
+    /// Hard floor on a tab's width, and the reason the strip can be laid out at all
+    /// at high document counts. It was 96 — a *comfort* number that read well but
+    /// was applied as a floor with no escape hatch, so past ~8 documents on a normal
+    /// window `tabRect` handed out x positions beyond `bounds.width`: those tabs (and
+    /// the "+" at `count * tabWidth`) were drawn and hit-tested off the right edge and
+    /// were unreachable by mouse, ⌘1–9 being the only way to select them.
+    ///
+    /// 56 is derived from `drawTab`, not picked: padding 8 + symbol 12 + gap 5 +
+    /// close box 15 + padding 8 = 48pt of fixed furniture, so 56 keeps the icon and
+    /// the close/edited box intact and merely elides the title (`drawTab` already
+    /// declines to draw text when the reserved span collapses — see the
+    /// `textRight > textLeft` guard). Below that a tab is not a tab, so anything that
+    /// does not fit at 56 moves into the overflow menu instead of being squeezed
+    /// into an unclickable sliver.
+    private static let minTabWidth: CGFloat = 56
     private static let maxTabWidth: CGFloat = 210
     private static let newButtonWidth: CGFloat = 30
+    /// The chevron that opens the full document list. Narrower than the "+" because
+    /// it is a fallback affordance, not one you reach for every few minutes.
+    private static let overflowButtonWidth: CGFloat = 24
     private static let closeBoxSide: CGFloat = 15
     private static let horizontalPadding: CGFloat = 8
 
@@ -53,6 +70,7 @@ final class DocumentTabStrip: NSView {
     private var hoveredTab: Int?
     private var hoveredClose: Int?
     private var isHoveringNewButton = false
+    private var isHoveringOverflowButton = false
 
     /// Colours are pushed in from the resolved config rather than read from a
     /// global: a nil theme leaves SwiftTerm on its own defaults (black), and the
@@ -90,21 +108,89 @@ final class DocumentTabStrip: NSView {
     // One source of truth for the layout, consumed by both drawing and hit
     // testing. Two independent copies of this arithmetic is how a strip ends up
     // closing the tab next to the one you clicked.
+    //
+    // That invariant is now *structural*: everything geometric derives from a single
+    // `Layout` value, so the visible window cannot be computed one way for `draw`
+    // and another way for `mouseDown`.
+    //
+    // Strategy for more documents than fit: compress to a 56pt floor, then window
+    // the strip and put the whole document list behind an overflow chevron.
+    //   - Compress first because it is free and covers the common case: a
+    //     1200pt window fits 20 tabs at the floor, so most people never see the
+    //     chevron at all.
+    //   - Window (rather than pan/scroll) because the window is *derived from
+    //     `activeIndex`* and needs no stored scroll offset — one less piece of state
+    //     to get stale against `reload`, and it makes ⌘1–9 / ⌘⇧[ ] scroll the strip
+    //     for free: selecting a document always brings it into view.
+    //   - Overflow *menu* rather than trackpad scrolling as the escape hatch,
+    //     because a menu is the affordance that is guaranteed reachable — it is
+    //     pinned to the right edge, keyboard- and VoiceOver-navigable, and lists
+    //     every document including the ones the window is not showing. Trackpad
+    //     scrolling would leave a mouse-only user with no visible way to reach a
+    //     tab, which is the exact bug being fixed.
+    //
+    // Layout is strictly left-to-right and always ends at `bounds.maxX`:
+    // [visible tabs][overflow chevron, if overflowing][+]. Nothing is ever placed
+    // past the right edge, which is what the pre-fix `CGFloat(index) * tabWidth`
+    // and `CGFloat(items.count) * tabWidth` both did once `tabWidth` hit its floor.
 
-    private var tabWidth: CGFloat {
-        guard !items.isEmpty else { return 0 }
-        let available = max(bounds.width - Self.newButtonWidth, 0)
-        let even = available / CGFloat(items.count)
-        return min(max(even, Self.minTabWidth), Self.maxTabWidth)
+    /// A resolved layout for the current `bounds`, `items` and `activeIndex`.
+    /// Purely derived — no stored scroll state to fall out of sync.
+    private struct Layout {
+        let tabWidth: CGFloat
+        /// Absolute item indices drawn, left to right. Always contains `activeIndex`
+        /// when `items` is non-empty.
+        let visible: Range<Int>
+        /// True when `visible` is a strict subset of `items.indices`, i.e. the
+        /// chevron is present and consuming width.
+        let isOverflowing: Bool
     }
 
-    private func tabRect(_ index: Int) -> NSRect {
-        NSRect(x: CGFloat(index) * tabWidth, y: 0, width: tabWidth, height: bounds.height)
+    private var layout: Layout {
+        guard !items.isEmpty else {
+            return Layout(tabWidth: 0, visible: 0..<0, isOverflowing: false)
+        }
+
+        // The "+" is never sacrificed: it is the only way to open a document with
+        // the mouse, so its width comes off the top before tabs get any.
+        let withoutNewButton = max(bounds.width - Self.newButtonWidth, 0)
+        let fitsAtFloor = Int(withoutNewButton / Self.minTabWidth)
+
+        if items.count <= fitsAtFloor {
+            // Everything fits: divide evenly, clamped as before. `maxTabWidth` is
+            // what leaves the "+" adjacent to the last tab instead of stranded at
+            // the far edge of a wide window.
+            let even = withoutNewButton / CGFloat(items.count)
+            let width = min(max(even, Self.minTabWidth), Self.maxTabWidth)
+            return Layout(tabWidth: width, visible: items.indices, isOverflowing: false)
+        }
+
+        let forTabs = max(bounds.width - Self.newButtonWidth - Self.overflowButtonWidth, 0)
+        // `max(_, 1)` so a window too narrow for even one floor-width tab still
+        // draws one (degenerate, sub-floor) tab rather than dividing by zero. The
+        // chevron stays reachable in that state, so no document is lost.
+        let count = max(Int(forTabs / Self.minTabWidth), 1)
+        let width = min(forTabs / CGFloat(count), Self.maxTabWidth)
+
+        // Slide the window just far enough to contain the active tab. Anchoring on
+        // the selection is why no scroll offset has to be stored or invalidated.
+        var first = min(max(activeIndex - count + 1, 0), max(items.count - count, 0))
+        if activeIndex < first { first = activeIndex }
+        let upper = min(first + count, items.count)
+        return Layout(tabWidth: width, visible: first..<upper, isOverflowing: true)
     }
 
-    private func closeRect(_ index: Int) -> NSRect {
-        let tab = tabRect(index)
-        return NSRect(
+    /// Rect for an absolute item index, or `nil` when the windowed strip is not
+    /// showing that index. Returning `nil` rather than an off-screen rect is what
+    /// keeps drawing and hit-testing honest about which tabs exist on screen.
+    private func tabRect(_ index: Int, _ layout: Layout) -> NSRect? {
+        guard layout.visible.contains(index) else { return nil }
+        let slot = CGFloat(index - layout.visible.lowerBound)
+        return NSRect(x: slot * layout.tabWidth, y: 0, width: layout.tabWidth, height: bounds.height)
+    }
+
+    private func closeRect(_ tab: NSRect) -> NSRect {
+        NSRect(
             x: tab.maxX - Self.horizontalPadding - Self.closeBoxSide,
             y: (tab.height - Self.closeBoxSide) / 2,
             width: Self.closeBoxSide,
@@ -112,16 +198,34 @@ final class DocumentTabStrip: NSView {
         )
     }
 
-    private var newButtonRect: NSRect {
-        NSRect(
-            x: CGFloat(items.count) * tabWidth, y: 0,
-            width: Self.newButtonWidth, height: bounds.height
+    /// Pinned to the right edge, immediately left of the "+". Both buttons are
+    /// measured back from `bounds.maxX` so neither can be pushed off by tab count.
+    private func overflowButtonRect(_ layout: Layout) -> NSRect? {
+        guard layout.isOverflowing else { return nil }
+        return NSRect(
+            x: bounds.maxX - Self.newButtonWidth - Self.overflowButtonWidth, y: 0,
+            width: Self.overflowButtonWidth, height: bounds.height
         )
     }
 
-    private func tabIndex(at point: NSPoint) -> Int? {
-        guard tabWidth > 0 else { return nil }
-        let index = Int(point.x / tabWidth)
+    private func newButtonRect(_ layout: Layout) -> NSRect {
+        // When overflowing, the tabs plus the chevron consume exactly the width up
+        // to `bounds.maxX - newButtonWidth`, so both branches agree; the explicit
+        // right-edge anchor is the guarantee, not the coincidence.
+        let x =
+            layout.isOverflowing
+            ? bounds.maxX - Self.newButtonWidth
+            : min(
+                CGFloat(layout.visible.count) * layout.tabWidth,
+                max(bounds.maxX - Self.newButtonWidth, 0))
+        return NSRect(x: x, y: 0, width: Self.newButtonWidth, height: bounds.height)
+    }
+
+    private func tabIndex(at point: NSPoint, _ layout: Layout) -> Int? {
+        guard layout.tabWidth > 0, point.x >= 0 else { return nil }
+        let slot = Int(point.x / layout.tabWidth)
+        guard slot >= 0, slot < layout.visible.count else { return nil }
+        let index = layout.visible.lowerBound + slot
         return items.indices.contains(index) ? index : nil
     }
 
@@ -152,24 +256,34 @@ final class DocumentTabStrip: NSView {
         railBackground.setFill()
         bounds.fill()
 
-        for index in items.indices {
-            drawTab(index)
+        // Resolve once per paint and pass it down: recomputing `layout` per tab would
+        // be correct but would re-derive the window N times for no reason, and it is
+        // the same value that hit-testing will use.
+        let layout = self.layout
+        for index in layout.visible {
+            drawTab(index, layout)
         }
-        drawNewButton()
+        if let overflow = overflowButtonRect(layout) {
+            drawOverflowButton(in: overflow)
+        }
+        drawNewButton(layout)
 
         // Hairline under the *inactive* stretch only. Running it under the active
         // tab too would draw a line between the tab and its own content, which is
         // precisely the seam this design removes.
         contentForeground.withAlphaComponent(0.12).setFill()
         let hairline = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
-        let active = tabRect(activeIndex)
-        for slice in hairline.slices(excluding: items.indices.contains(activeIndex) ? active : .zero) {
+        // `?? .zero` covers the active tab having been windowed out; `slices` treats
+        // an empty exclusion as "no exclusion", so the hairline simply runs the full
+        // width — correct, because in that state no tab on screen owns the content.
+        let active = tabRect(activeIndex, layout) ?? .zero
+        for slice in hairline.slices(excluding: active) {
             slice.fill()
         }
     }
 
-    private func drawTab(_ index: Int) {
-        let rect = tabRect(index)
+    private func drawTab(_ index: Int, _ layout: Layout) {
+        guard let rect = tabRect(index, layout) else { return }
         let isActive = index == activeIndex
 
         if isActive {
@@ -207,7 +321,7 @@ final class DocumentTabStrip: NSView {
         }
 
         // Reserve the close box so a long title never draws underneath the ×.
-        let textRight = closeRect(index).minX - 4
+        let textRight = closeRect(rect).minX - 4
         if textRight > textLeft {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingTail
@@ -235,9 +349,9 @@ final class DocumentTabStrip: NSView {
         // be visible on *inactive* tabs (that is the whole point of an unsaved
         // marker) and the close box is the only slot already reserved on those.
         if item(index).isEdited && hoveredTab != index {
-            drawEditedDot(in: closeRect(index))
+            drawEditedDot(in: closeRect(rect))
         } else if isActive || hoveredTab == index {
-            drawCloseGlyph(in: closeRect(index), emphasised: hoveredClose == index)
+            drawCloseGlyph(in: closeRect(rect), emphasised: hoveredClose == index)
         }
     }
 
@@ -266,8 +380,8 @@ final class DocumentTabStrip: NSView {
         path.stroke()
     }
 
-    private func drawNewButton() {
-        let rect = newButtonRect
+    private func drawNewButton(_ layout: Layout) {
+        let rect = newButtonRect(layout)
         if isHoveringNewButton {
             hoverBackground.setFill()
             rect.fill()
@@ -283,6 +397,58 @@ final class DocumentTabStrip: NSView {
         path.lineCapStyle = .round
         contentForeground.withAlphaComponent(isHoveringNewButton ? 0.95 : 0.55).setStroke()
         path.stroke()
+    }
+
+    /// A downward chevron, matching the disclosure shape AppKit uses for
+    /// "there is more here than fits" (NSPopUpButton's pull-down arrow). Drawn as a
+    /// path rather than an SF Symbol for the same reason the × is: the symbol would
+    /// need the tint-by-sourceAtop dance in `drawTab` for two strokes.
+    private func drawOverflowButton(in rect: NSRect) {
+        if isHoveringOverflowButton {
+            hoverBackground.setFill()
+            rect.fill()
+        }
+        let halfWidth: CGFloat = 4
+        let halfHeight: CGFloat = 2.5
+        let centre = NSPoint(x: rect.midX, y: rect.midY)
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: centre.x - halfWidth, y: centre.y + halfHeight))
+        path.line(to: NSPoint(x: centre.x, y: centre.y - halfHeight))
+        path.line(to: NSPoint(x: centre.x + halfWidth, y: centre.y + halfHeight))
+        path.lineWidth = 1.3
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        contentForeground.withAlphaComponent(isHoveringOverflowButton ? 0.95 : 0.55).setStroke()
+        path.stroke()
+    }
+
+    /// Every document, hidden ones included, as a menu. This is the affordance that
+    /// makes the overflow strategy safe: whatever the window is showing, one click
+    /// reaches any document. Built fresh on each click because `items` is replaced
+    /// wholesale by `reload` and a cached menu would go stale silently.
+    private func showOverflowMenu(from rect: NSRect) {
+        let menu = NSMenu()
+        for index in items.indices {
+            let entry = NSMenuItem(
+                title: item(index).title, action: #selector(overflowMenuDidPick(_:)),
+                keyEquivalent: "")
+            entry.target = self
+            entry.tag = index
+            // `.on` rather than a custom glyph so VoiceOver and the menu's own
+            // drawing both report the selection without extra work.
+            entry.state = index == activeIndex ? .on : .off
+            entry.image = NSImage(
+                systemSymbolName: item(index).symbolName, accessibilityDescription: nil)
+            menu.addItem(entry)
+        }
+        // Anchored under the chevron so the menu visually belongs to the button that
+        // opened it; `nil` event means AppKit synthesises the tracking for us.
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY), in: self)
+    }
+
+    @objc private func overflowMenuDidPick(_ sender: NSMenuItem) {
+        guard items.indices.contains(sender.tag) else { return }
+        delegate?.tabStrip(self, didSelect: sender.tag)
     }
 
     private func item(_ index: Int) -> Item { items[index] }
@@ -301,16 +467,23 @@ final class DocumentTabStrip: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let tab = tabIndex(at: point)
-        let close = tab.flatMap { closeRect($0).contains(point) ? $0 : nil }
-        let newButton = newButtonRect.contains(point)
+        let layout = self.layout
+        let tab = tabIndex(at: point, layout)
+        let close = tab.flatMap { index -> Int? in
+            guard let rect = tabRect(index, layout) else { return nil }
+            return closeRect(rect).contains(point) ? index : nil
+        }
+        let newButton = newButtonRect(layout).contains(point)
+        let overflow = overflowButtonRect(layout)?.contains(point) ?? false
         // Only repaint on an actual state change: mouseMoved fires continuously,
         // and the terminal underneath deserves the frames more than this rail does.
         guard tab != hoveredTab || close != hoveredClose || newButton != isHoveringNewButton
+            || overflow != isHoveringOverflowButton
         else { return }
         hoveredTab = tab
         hoveredClose = close
         isHoveringNewButton = newButton
+        isHoveringOverflowButton = overflow
         needsDisplay = true
     }
 
@@ -318,19 +491,29 @@ final class DocumentTabStrip: NSView {
         hoveredTab = nil
         hoveredClose = nil
         isHoveringNewButton = false
+        isHoveringOverflowButton = false
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if newButtonRect.contains(point) {
+        let layout = self.layout
+        if newButtonRect(layout).contains(point) {
             delegate?.tabStripDidRequestNewDocument(self)
             return
         }
-        guard let index = tabIndex(at: point) else { return }
+        // Tested before tabs: the chevron is pinned to the right edge and the last
+        // visible tab ends exactly where it starts, so a hit here is unambiguous.
+        if let overflow = overflowButtonRect(layout), overflow.contains(point) {
+            showOverflowMenu(from: overflow)
+            return
+        }
+        guard let index = tabIndex(at: point, layout), let rect = tabRect(index, layout) else {
+            return
+        }
         // Close wins over select: the × sits inside the tab's own rect, so testing
         // it second would select the tab and never close it.
-        if (index == activeIndex || hoveredTab == index), closeRect(index).contains(point) {
+        if (index == activeIndex || hoveredTab == index), closeRect(rect).contains(point) {
             delegate?.tabStrip(self, didRequestClose: index)
         } else {
             delegate?.tabStrip(self, didSelect: index)
