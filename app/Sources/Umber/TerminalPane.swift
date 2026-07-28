@@ -69,28 +69,6 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         apply(config: config)
     }
 
-    // MARK: - Attention state
-
-    /// The user is looking at this pane, so whatever it wanted to tell them has landed.
-    ///
-    /// Called from `documentDidBecomeActive()` (the `SpaceDocument` conformance) rather
-    /// than from a window/focus notification: becoming the visible document is exactly
-    /// the moment the signal has been consumed, and it is the same hook that already
-    /// takes first responder.
-    func clearAttention() {
-        status = .idle
-    }
-
-    /// Is this the document currently on screen in its Space?
-    ///
-    /// Derived from the view hierarchy rather than tracked with a flag, because the
-    /// container already maintains exactly this invariant: `present(documentView:)`
-    /// removes every other document's view from the container and adds the new one
-    /// (`SpaceViewController.swift`, `DocumentAreaViewController.present`), so having a
-    /// superview *is* being the presented document. A cached flag would be a second
-    /// copy of that fact with no "did become inactive" callback to keep it honest.
-    private var isActiveDocument: Bool { view.superview != nil }
-
     /// Start the user's login shell. `-l` so their real PATH and rc files load —
     /// without it, tools installed via Homebrew or a node version manager are
     /// missing and the terminal is useless for actual work.
@@ -236,6 +214,39 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // `TerminalSurfaceCommandFinishedDelegate` (probe plan §6.2).
         delegate?.paneDidTerminate(self)
     }
+}
+
+// MARK: - Attention state
+
+/// Everything the attention marker needs from the pane, kept in one extension at the
+/// end of the file rather than beside the stored `status` above.
+///
+/// That placement is deliberate and not stylistic: `origin/afk/ux-space-root` (PR #3)
+/// rewrites `init` and the whole doc comment on `start()` to thread a working directory
+/// through, so anything added in the span between them collides with it for no reason —
+/// two features that share no logic should not share a merge conflict. Verified with
+/// `git merge-tree --write-tree HEAD origin/afk/ux-space-root`, which reports clean with
+/// these members here and a `TerminalPane.swift` conflict with them above `start()`.
+extension TerminalPane {
+    /// The user is looking at this pane, so whatever it wanted to tell them has landed.
+    ///
+    /// Called from `documentDidBecomeActive()` (the `SpaceDocument` conformance) rather
+    /// than from a window/focus notification: becoming the visible document is exactly
+    /// the moment the signal has been consumed, and it is the same hook that already
+    /// takes first responder.
+    func clearAttention() {
+        status = .idle
+    }
+
+    /// Is this the document currently on screen in its Space?
+    ///
+    /// Derived from the view hierarchy rather than tracked with a flag, because the
+    /// container already maintains exactly this invariant: `present(documentView:)`
+    /// removes every other document's view from the container and adds the new one
+    /// (`SpaceViewController.swift`, `DocumentAreaViewController.present`), so having a
+    /// superview *is* being the presented document. A cached flag would be a second
+    /// copy of that fact with no "did become inactive" callback to keep it honest.
+    fileprivate var isActiveDocument: Bool { view.superview != nil }
 }
 
 // MARK: - UmberTerminalViewDelegate
