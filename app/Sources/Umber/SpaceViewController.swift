@@ -252,6 +252,26 @@ extension SpaceViewController: DocumentTabStripDelegate {
     func tabStripDidRequestNewDocument(_ strip: DocumentTabStrip) {
         addTerminalDocument()
     }
+
+    /// Apply a reorder to the real document array.
+    ///
+    /// `documents` is the source of truth and the strip's items are a projection of
+    /// it, so without this the next `syncStrip()` would snap the tabs back — and every
+    /// index the app holds (⌘1–9, `activeIndex`, `closeDocument(at:)`) is an index into
+    /// *this* array, which is why the move has to land here rather than staying a
+    /// display-order trick inside the strip.
+    func tabStrip(_ strip: DocumentTabStrip, didMove index: Int, to destination: Int) {
+        guard documents.indices.contains(index), documents.indices.contains(destination),
+              index != destination
+        else { return }
+        let document = documents.remove(at: index)
+        documents.insert(document, at: destination)
+        // Follow the selection through the move rather than re-deriving it: the
+        // dragged tab is the active one in the common case, but ⌘1–9 can select one
+        // tab and the pointer drag another.
+        activeIndex = DocumentTabStrip.indexAfterMove(activeIndex, from: index, to: destination)
+        syncStrip()
+    }
 }
 
 // MARK: - TerminalPaneDelegate

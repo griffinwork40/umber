@@ -25,6 +25,10 @@ protocol DocumentTabStripDelegate: AnyObject {
     func tabStrip(_ strip: DocumentTabStrip, didSelect index: Int)
     func tabStrip(_ strip: DocumentTabStrip, didRequestClose index: Int)
     func tabStripDidRequestNewDocument(_ strip: DocumentTabStrip)
+    /// A tab was dragged to a new slot. The owner must apply the same move to its
+    /// own document array — the strip's `items` are a projection of that array, so
+    /// the next `reload` overwrites whatever the strip did locally.
+    func tabStrip(_ strip: DocumentTabStrip, didMove index: Int, to destination: Int)
 }
 
 @MainActor
@@ -59,6 +63,23 @@ final class DocumentTabStrip: NSView {
     private var hoveredClose: Int?
     private var isHoveringNewButton = false
     private var isHoveringOverflow = false
+
+    /// An in-progress reorder. Nil the overwhelming majority of the time.
+    private struct Drag {
+        /// Where the tab started, so `mouseUp` can tell the owner what moved where.
+        let origin: Int
+        /// Where it currently sits. The strip reorders its own `items` live, so this
+        /// is also the tab's present index.
+        var current: Int
+        /// Pointer x minus the tab's minX at mouse-down, so the tab does not jump to
+        /// centre itself under the cursor the instant the drag begins.
+        let grabOffset: CGFloat
+        /// Cleared until the pointer passes the threshold — a click is a drag of zero
+        /// distance, and treating it as a reorder would fight the select gesture.
+        var isActive = false
+    }
+
+    private var drag: Drag?
 
     /// Index of the leftmost drawn tab once the strip is scrolling. Zero whenever
     /// every tab fits, which is the overwhelmingly common case.
@@ -202,9 +223,28 @@ final class DocumentTabStrip: NSView {
             width: tabWidth, height: bounds.height)
     }
 
-    private func closeRect(_ index: Int) -> NSRect {
-        let tab = tabRect(index)
-        return NSRect(
+    /// Where a tab is actually painted. Identical to its slot except for the one tab
+    /// being dragged, which follows the pointer while its slot stays empty-looking
+    /// underneath — the neighbours have already shuffled into their new order, so the
+    /// strip previews the result rather than announcing it only on release.
+    private func drawnTabRect(_ index: Int) -> NSRect {
+        guard let drag, drag.isActive, drag.current == index else { return tabRect(index) }
+        var rect = tabRect(index)
+        // Clamped to the track: a tab that can be flung off the left edge or under the
+        // chevron looks broken, and the drop target is clamped identically anyway.
+        rect.origin.x = min(max(dragFloatingMinX, 0), max(tabTrackWidth - tabWidth, 0))
+        return rect
+    }
+
+    /// The pointer's x minus where it grabbed the tab, so the tab keeps the grip point
+    /// it was picked up by.
+    private var dragFloatingMinX: CGFloat = 0
+
+    private func closeRect(_ index: Int) -> NSRect { closeRect(in: drawnTabRect(index)) }
+
+    /// Derived from a rect rather than an index so a dragged tab's × travels with it.
+    private func closeRect(in tab: NSRect) -> NSRect {
+        NSRect(
             x: tab.maxX - Self.horizontalPadding - Self.closeBoxSide,
             y: (tab.height - Self.closeBoxSide) / 2,
             width: Self.closeBoxSide,
@@ -276,9 +316,13 @@ final class DocumentTabStrip: NSView {
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: NSRect(x: 0, y: 0, width: tabTrackWidth, height: bounds.height))
             .setClip()
-        for index in visibleRange {
+        // The dragged tab is drawn last so it floats over its neighbours instead of
+        // being half-covered by whichever one happens to come after it.
+        let floating = (drag?.isActive == true) ? drag?.current : nil
+        for index in visibleRange where index != floating {
             drawTab(index)
         }
+        if let floating, visibleRange.contains(floating) { drawTab(floating) }
         NSGraphicsContext.restoreGraphicsState()
 
         if isOverflowing { drawOverflowChevron() }
@@ -324,10 +368,14 @@ final class DocumentTabStrip: NSView {
     }
 
     private func drawTab(_ index: Int) {
-        let rect = tabRect(index)
+        let rect = drawnTabRect(index)
         let isActive = index == activeIndex
+        let isDragging = drag?.isActive == true && drag?.current == index
 
-        if isActive {
+        if isActive || isDragging {
+            // A dragged inactive tab gets the active fill too: it has been lifted out
+            // of the rail, and a floating tab in rail colours reads as a hole rather
+            // than as a thing being carried.
             contentBackground.setFill()
             rect.fill()
         } else if hoveredTab == index {
@@ -335,11 +383,20 @@ final class DocumentTabStrip: NSView {
             rect.fill()
         }
 
+        if isDragging {
+            // A border, not a shadow: the strip is 30pt of flat colour and a drop
+            // shadow at this scale reads as blur. The outline is what says "detached".
+            contentForeground.withAlphaComponent(0.28).setStroke()
+            let outline = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
+            outline.lineWidth = 1
+            outline.stroke()
+        }
+
         // Separator between adjacent inactive tabs. Skipped next to the active tab
         // because the active tab's own fill already provides the edge, and on the
         // leftmost *drawn* tab (not just tab 0) because at x = 0 it is a hairline
         // along the window edge rather than a divider between two things.
-        if !isActive && index != activeIndex + 1 && index > visibleRange.lowerBound {
+        if !isActive && !isDragging && index != activeIndex + 1 && index > visibleRange.lowerBound {
             contentForeground.withAlphaComponent(0.10).setFill()
             NSRect(x: rect.minX, y: 6, width: 1, height: rect.height - 12).fill()
         }
@@ -638,9 +695,117 @@ final class DocumentTabStrip: NSView {
         // it second would select the tab and never close it.
         if (index == activeIndex || hoveredTab == index), closeRect(index).contains(point) {
             delegate?.tabStrip(self, didRequestClose: index)
-        } else {
-            delegate?.tabStrip(self, didSelect: index)
+            return
         }
+        // Select on mouse-DOWN, before the drag begins, matching Safari and Chrome:
+        // you drag the tab you are looking at, and deferring selection to mouse-up
+        // would show you the wrong document for the whole duration of the drag.
+        delegate?.tabStrip(self, didSelect: index)
+        drag = Drag(origin: index, current: index, grabOffset: point.x - tabRect(index).minX)
+    }
+
+    /// Middle-click closes, which is what every browser and Ghostty do and therefore
+    /// what a user tries without being told. `otherMouseDown` rather than a button
+    /// check in `mouseDown`: AppKit routes buttons past the second to the "other"
+    /// family entirely, so it would never arrive there.
+    override func otherMouseDown(with event: NSEvent) {
+        // Guard the button number — `otherMouseDown` also fires for buttons 3, 4, 5
+        // (thumb buttons), and closing a document on a stray thumb press would be a
+        // data-loss gesture nobody asked for.
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = tabIndex(at: point) else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        // Goes through the same delegate call the × does, so `documentShouldClose()`
+        // still gets to veto — a middle-click must not be a way around the unsaved
+        // prompt (`SpaceViewController.closeDocument(at:)`).
+        delegate?.tabStrip(self, didRequestClose: index)
+    }
+
+    // MARK: - Drag to reorder
+    //
+    // Hand-rolled from mouseDragged rather than NSDraggingSource. There are no drag
+    // APIs anywhere else in `app/Sources`, and the dragging-session machinery buys
+    // things this gesture does not want: a pasteboard type, a drag image, and
+    // cross-window/cross-app drops. Documents are not transferable objects — a tab is
+    // a live `SpaceDocument` holding a pty or an editable buffer, so "drop it in
+    // another window" is not a reorder but a document *migration*, which would need
+    // the view to move between Spaces and is well outside this strip. Reordering
+    // within the strip is a slot-index swap, and mouseDragged gives it directly.
+    //
+    // Moving to NSDraggingSource is the right call the day drag-out-to-another-Space
+    // is on the table — the Spaces level already gets that free from real NSWindow
+    // tabs (plan §12.3), so it may never be.
+
+    /// Pointer travel before a press becomes a drag. 4pt is roughly AppKit's own
+    /// threshold for the same distinction and comfortably above hand tremor.
+    private static let dragThreshold: CGFloat = 4
+
+    override func mouseDragged(with event: NSEvent) {
+        guard var drag else { return }
+        let point = convert(event.locationInWindow, from: nil)
+
+        if !drag.isActive {
+            guard abs(point.x - (tabRect(drag.current).minX + drag.grabOffset))
+                >= Self.dragThreshold
+            else { return }
+            drag.isActive = true
+        }
+
+        dragFloatingMinX = point.x - drag.grabOffset
+        // Which slot the tab's *centre* is over. Centre rather than leading edge so
+        // the swap happens when the tab has visibly passed its neighbour, instead of
+        // flickering the moment its left edge crosses a boundary.
+        let centre = min(max(dragFloatingMinX, 0), max(tabTrackWidth - tabWidth, 0)) + tabWidth / 2
+        let target = min(max(Int(centre / tabWidth) + scrollOffset, 0), items.count - 1)
+
+        if target != drag.current {
+            // Reorder the strip's own copy immediately so neighbours slide out of the
+            // way live. The owner is told once, on mouse-up: telling it per-step would
+            // fire a document reorder (and a `reload`) on every pixel of travel.
+            let moved = items.remove(at: drag.current)
+            items.insert(moved, at: target)
+            // The selection is an index into the same array, so it has to travel too
+            // or a reorder silently changes which document is showing.
+            activeIndex = Self.indexAfterMove(
+                activeIndex, from: drag.current, to: target)
+            drag.current = target
+            rebuildAccessibilityChildren()
+        }
+        self.drag = drag
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            drag = nil
+            dragFloatingMinX = 0
+        }
+        guard let drag, drag.isActive, drag.current != drag.origin else {
+            // A press that never became a drag already did its work in mouseDown.
+            needsDisplay = true
+            return
+        }
+        delegate?.tabStrip(self, didMove: drag.origin, to: drag.current)
+        needsDisplay = true
+    }
+
+    /// Where `index` ends up after the element at `from` is moved to `to`.
+    ///
+    /// Pulled out and made static because it is the one piece of this gesture that is
+    /// pure arithmetic and easy to get subtly wrong — the moved element's own index
+    /// becomes `to`, and everything strictly between the two shifts by one *towards*
+    /// the origin.
+    static func indexAfterMove(_ index: Int, from: Int, to: Int) -> Int {
+        if index == from { return to }
+        if from < to && index > from && index <= to { return index - 1 }
+        if from > to && index >= to && index < from { return index + 1 }
+        return index
     }
 
     // MARK: - Overflow menu
