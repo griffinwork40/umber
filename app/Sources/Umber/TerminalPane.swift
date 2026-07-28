@@ -46,13 +46,17 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// `workingDirectory`"), so a future `GhosttyPane` reads this same property and
     /// hands it to a surface configuration instead. Keeping the root out of the
     /// SwiftTerm-specific call site is what makes that a one-line swap.
-    private let workingDirectory: URL?
+    private let workingDirectory: URL
 
-    /// `workingDirectory` is deliberately **not** defaulted: a terminal that does not
-    /// know its root is the bug this parameter exists to fix, so a future call site
-    /// that has no opinion should fail to compile rather than silently inherit the
-    /// app's own cwd.
-    init(config: AppConfig, frame: NSRect, workingDirectory: URL?) {
+    /// `workingDirectory` is deliberately **not** defaulted, and deliberately **not**
+    /// optional: a terminal that does not know its root is the bug this parameter
+    /// exists to fix, so a call site with no opinion should fail to compile rather
+    /// than silently inherit the app's own cwd. Optional would have re-opened that
+    /// hole at runtime for a caller that passed `nil` to make the compiler quiet —
+    /// and there is no such caller to serve, because the only one there is resolves
+    /// the default itself (`addTerminalDocument` passes `workingDirectory ?? root`,
+    /// and `root` is non-optional).
+    init(config: AppConfig, frame: NSRect, workingDirectory: URL) {
         self.config = config
         self.workingDirectory = workingDirectory
         // A zoom set with ⌘+ applies to every pane, including ones opened later
@@ -106,18 +110,21 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// launches, and directories get moved between them. Failing soft to the same
     /// place, but *saying so* under `UMBER_DIAG`, matches `AppConfig.load()`'s
     /// per-field contract: degrade, warn, never throw.
+    ///
+    /// The predicate itself is `FileManager.isUsableSpaceRoot(atPath:)` rather than an
+    /// inlined `fileExists(atPath:isDirectory:)` — a third caller of the rule that
+    /// `Config.swift:221` already warns about duplicating ("two copies of a
+    /// check-don't-trust rule is two places for it to drift"). Same question, one
+    /// answer: a remembered root can be replaced by a *file* of the same name, and
+    /// that has to read as unusable here exactly as it does for Space restore.
     private func resolvedWorkingDirectory() -> String? {
-        guard let workingDirectory else { return nil }
         // `.path`, not `absoluteString`: `chdir()` takes a filesystem path, and a
         // `file://` URL string with percent-escapes is not one.
         let path = workingDirectory.standardizedFileURL.path
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-            isDirectory.boolValue
-        else {
+        guard FileManager.default.isUsableSpaceRoot(atPath: path) else {
             if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
                 FileHandle.standardError.write(
-                    "[diag] pane root not a directory, shell will inherit app cwd: \(path)\n"
+                    "[diag] pane root not a usable directory, shell will inherit app cwd: \(path)\n"
                         .data(using: .utf8)!)
             }
             return nil
