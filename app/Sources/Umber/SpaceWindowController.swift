@@ -27,7 +27,82 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
     /// Every open Space, so the app can attach a new tab to one, fan a config
     /// reload across all of them, and know when the last one is gone.
+    ///
+    /// Also the source of truth restore is persisted from — see `persistOpenRoots()`.
+    /// That is why this needed no new machinery: the set of open Spaces was already
+    /// modelled here, it was just never written down.
     private(set) static var open: [SpaceWindowController] = []
+
+    /// Set by `AppDelegate.applicationShouldTerminate` the moment quitting is
+    /// committed, so the teardown of N windows cannot be mistaken for the user
+    /// closing N Spaces and erase the very list restore needs.
+    ///
+    /// AppKit is not documented to send `windowWillClose` on app termination, and it
+    /// generally does not — but the whole feature turns on that, the difference is
+    /// invisible until a real relaunch, and this flag costs one Bool. Deliberate
+    /// insurance against an ordering that is not verifiable in a headless build.
+    static var isTerminating = false
+
+    /// Write the roots of the currently-open Spaces down, in tab order.
+    ///
+    /// Called from the three places `open` changes rather than from
+    /// `applicationWillTerminate`, because a terminal hosting a long-running agent
+    /// gets force-quit, killed by the OOM killer, and crashed — none of which call any
+    /// termination hook. Persisting on change means the worst case is a session that
+    /// lost whatever changed after the last open or close, instead of everything.
+    ///
+    /// The empty list is a legitimate, deliberate state: closing your last Space is
+    /// you saying you are done, and the next launch should be one fresh default Space
+    /// rather than a resurrection of what you just dismissed. `isTerminating` is what
+    /// keeps ⌘Q from producing that same empty list for the opposite reason.
+    private static func persistOpenRoots() {
+        guard !isTerminating else { return }
+        OpenSpaceRoots.urls = inTabOrder.map(\.root)
+    }
+
+    /// The open Spaces in the order the user actually sees them.
+    ///
+    /// `open` is append-ordered — *creation* order — and a native tab bar can be
+    /// dragged to reorder, so the two diverge the first time anyone rearranges their
+    /// Spaces. `NSWindow.tabGroup?.windows` is the visual order, so prefer it and let
+    /// creation order cover what it cannot: a Space dragged out to its own window is
+    /// in no group with the others, and AppKit reports `tabGroup == nil` for a lone
+    /// untabbed window.
+    ///
+    /// Only the first group found is consulted. Restore rebuilds exactly one tab
+    /// group (see `AppDelegate.restoreSpaces()`), so a session split across two
+    /// windows is already being flattened; ordering it perfectly would be precision
+    /// the restore itself does not have.
+    private static var inTabOrder: [SpaceWindowController] {
+        guard let group = open.compactMap({ $0.window?.tabGroup }).first else { return open }
+        let grouped = group.windows.compactMap { window in open.first { $0.window === window } }
+        let ungrouped = open.filter { controller in !grouped.contains { $0 === controller } }
+        return grouped + ungrouped
+    }
+
+    /// Frame autosave name for one project root.
+    ///
+    /// This was the single hardcoded string `"UmberWindow"`, which meant every Space
+    /// shared one saved frame: the last window you moved overwrote the geometry of
+    /// all the others, and they all restored to it. A Space is a project, and the
+    /// window geometry that suits a project is a property of that project — a wide
+    /// two-monitor layout for one checkout, a narrow strip for another.
+    ///
+    /// The root's path, verbatim, rather than a hash of it: this lands in
+    /// `UserDefaults` as `NSWindow Frame UmberSpace:/path/to/project`, which stays
+    /// greppable in `defaults read com.griffinlong.umber` while debugging, and the
+    /// full path is already stored in the clear next to it by `LastSpaceRoot`, so
+    /// there is nothing new disclosed. The cost is one abandoned key per root ever
+    /// opened; a stale frame entry is a few dozen bytes and AppKit ignores it.
+    ///
+    /// `Umber`-prefixed per the naming convention, and distinct from the legacy
+    /// string so the pre-per-root frame stays readable — see `init`.
+    private static func frameAutosaveName(for root: URL) -> NSWindow.FrameAutosaveName {
+        "UmberSpace:\(root.path)"
+    }
+
+    /// The pre-per-root autosave name, still read once as a seed. Not written.
+    private static let legacyFrameAutosaveName: NSWindow.FrameAutosaveName = "UmberWindow"
 
     let space: SpaceViewController
 
@@ -87,8 +162,34 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
         window.delegate = self
         space.spaceDelegate = self
-        // Restore position/size per identifier across launches.
-        window.setFrameAutosaveName("UmberWindow")
+
+        // Seed from the old shared key BEFORE naming the per-root one, so an existing
+        // install's window does not jump back to the 1100×680 default the first time
+        // it opens a Space after this change. Read only, never written: the next
+        // frame change autosaves under the per-root name, and `"UmberWindow"` is left
+        // to go stale on its own.
+        //
+        // Ordering is the whole trick — `setFrameAutosaveName` applies the frame saved
+        // under the new name when one exists, so a Space that already has per-root
+        // geometry overwrites this seed, and one that does not keeps it.
+        _ = window.setFrameUsingName(Self.legacyFrameAutosaveName)
+        // Restore position/size per *project root*, not per app. This was one
+        // hardcoded string, so every Space shared a single saved frame and the last
+        // window moved dictated where all of them reopened.
+        //
+        // The Bool is discarded on purpose: it returns false when another live window
+        // already owns the name, which happens only when two Spaces share a root
+        // (⌘N twice — ⌘O dedupes, `AppDelegate.openFolder`). The loser then simply
+        // does not autosave, which is the correct outcome; there is one frame to
+        // remember for one project, and the alternative is two windows fighting over
+        // one key.
+        //
+        // Honest limit: while Spaces are *tabbed*, AppKit keeps every window in the
+        // group at the group's frame, so the per-root frames converge on it. The
+        // per-root name earns its keep for Spaces dragged out to their own windows and
+        // for the geometry a project reopens at — not for giving tabs different sizes,
+        // which a tab group cannot do anyway.
+        window.setFrameAutosaveName(Self.frameAutosaveName(for: root))
     }
 
     required init?(coder: NSCoder) {
@@ -102,6 +203,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         openFirstDocument()
+        Self.persistOpenRoots()
     }
 
     /// Open as a system tab on the frontmost existing Space, falling back to a
@@ -116,6 +218,9 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
             window?.makeKeyAndOrderFront(nil)
         }
         openFirstDocument()
+        // After `addTabbedWindow`, so `inTabOrder` sees this window already in the
+        // group and records the roots in the order the tab bar shows them.
+        Self.persistOpenRoots()
     }
 
     /// Deferred until the window is on screen, and forced through a layout pass
@@ -158,5 +263,11 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
     func windowWillClose(_ notification: Notification) {
         Self.open.removeAll { $0 === self }
+        // Closing a Space is the user saying they are done with that project, so it
+        // has to come back out of the restore list — otherwise ⌘⇧W would be
+        // undoable only until the next launch, which resurrected it. Gated on
+        // `isTerminating` inside `persistOpenRoots`, so ⌘Q tearing down N windows
+        // cannot be read as the user closing N Spaces.
+        Self.persistOpenRoots()
     }
 }
