@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + one patch); everything else is 27 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/umber`, single `main` branch.
+A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + one patch); everything else is 28 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/umber`, single `main` branch.
 
 Naming: the app was renamed from MacTerminal to **Umber** on 2026-07-27 (commit `faf1291`). Code, scripts, bundle id, env var, and config path are all `umber`/`Umber`/`UMBER_` — but the **checkout directory and this repo's local path are still `mac-terminal`**. Remaining `MacTerminal`/`MT_DIAG` strings in `.afk/` are historical records, not stale code; `MacTerminalView` in `KeyBindings.swift` is SwiftTerm's own upstream type name.
 
@@ -33,7 +33,7 @@ There is no `.xcodeproj` by design — the project stays all-text, diffable, and
 
 | Path | Purpose |
 |------|---------|
-| `app/` | The application: SwiftPM package (`swift-tools-version: 6.0`, macOS 14+), 27 Swift files, none over 350 LOC |
+| `app/` | The application: SwiftPM package (`swift-tools-version: 6.0`, macOS 14+), 28 Swift files, none over 350 LOC |
 | `app/Sources/Umber/` | All Swift source. Flat — no subdirectories, because SwiftPM globs the whole path and a flat list of well-named files is cheaper to scan than a tree to walk |
 | `app/Scripts/` | Bundle assembly + the four verification scripts + icon generation |
 | `vendor/SwiftTerm` | **Gitignored.** Upstream v1.15.0 + one local patch (Metal shader resource excluded). Recreation documented in `app/README.md` ("Dependency note") — needs `chmod -R u+w`, SPM checkouts are read-only |
@@ -52,11 +52,11 @@ Files are grouped by concern below. A `Type+Concern.swift` name always means "an
 | `StarterConfig.swift` | 47 | The commented `config.json` template ⌘, writes on first run |
 | **Space = one window = one project root** | | |
 | `SpaceWindowController.swift` | 293 | One window == one native macOS tab == one **Space**: `tabbingIdentifier`, `addTabbedWindow`, per-root frame autosave, the static open-Space registry and persisting it for restore, title/subtitle. Owns no PTY and no documents |
-| `SpaceViewController.swift` | 289 | The container — `NSSplitViewController` with a sidebar item (file tree) and the document area. Owns the document list and activation, fans config/zoom out, and owns `syncDocumentChrome()` — the single funnel from document state to the tab strip *and* the window's unsaved marker. Generalized over `SpaceDocument`; **do not reintroduce a concrete-type assumption** |
-| `SpaceViewController+Delegates.swift` | 128 | The four inbound delegate conformances (file viewer, tab strip, terminal, file tree) — one concern: "something the user did elsewhere arrives here" |
+| `SpaceViewController.swift` | 323 | The container — `NSSplitViewController` with a sidebar item (file tree) and the document area. Owns the document list and activation, fans config/zoom out, and owns `syncDocumentChrome()` — the single funnel from document state to the tab strip *and* the window's unsaved marker. Generalized over `SpaceDocument`; **do not reintroduce a concrete-type assumption**. `add(document:beforeActivating:)` is the polymorphic entry point; `addTerminalDocument` is the ⌘T path and calls through it |
+| `SpaceViewController+Delegates.swift` | 134 | The four inbound delegate conformances (file viewer, tab strip, document, file tree) — one concern: "something the user did elsewhere arrives here" |
 | `DocumentAreaViewController.swift` | 82 | The right-hand region: strip visibility + manual layout of strip over the active document |
 | **Documents — the heterogeneous-tab seam** | | |
-| `SpaceDocument.swift` | 194 | The `SpaceDocument` protocol (the seam heterogeneous tabs plug into), the `DocumentStatus` type, + `TerminalPane` conformance |
+| `SpaceDocument.swift` | 265 | The `SpaceDocument` protocol (the seam heterogeneous tabs plug into), the `DocumentStatus` type, the `SpaceDocumentDelegate` a document reports to and the optional `SpaceDocumentReporting` slot it reports through, + `TerminalPane` conformance |
 | `DocumentTabStrip.swift` | 276 | The hand-rolled in-window strip: the view, its owner-facing surface, and **all** geometry. Metrics live here and nowhere else |
 | `DocumentTabStrip+Drawing.swift` | 275 | Every mark painted. Reads geometry, never writes strip state |
 | `DocumentTabStrip+Accessibility.swift` | 226 | The AX tree and its element proxies — VoiceOver reaches tabs that overflow off-screen |
@@ -71,7 +71,8 @@ Files are grouped by concern below. A `Type+Concern.swift` name always means "an
 | `FileViewerPane+Editing.swift` | 142 | The write path — dirty tracking, encoding, the confirm alerts, `NSTextViewDelegate` |
 | `FileViewerPane+Document.swift` | 112 | The `SpaceDocument` conformance, self-contained. Adding a document kind must never touch the container |
 | **Terminal** | | |
-| `TerminalPane.swift` | 339 | The shell process + SwiftTerm view binding: `startProcess($SHELL, ["-l"])`, `apply(config:)`, font clamping/zoom, DECSCUSR cursor style, `LocalProcessTerminalViewDelegate` callbacks. ⚠ 11 lines from the ceiling — split it before adding to it |
+| `TerminalPane.swift` | 336 | The shell process + SwiftTerm view binding: `startProcess($SHELL, ["-l"])`, `apply(config:)`, font clamping/zoom, DECSCUSR cursor style, `LocalProcessTerminalViewDelegate` callbacks. ⚠ 14 lines from the ceiling — split it before adding to it |
+| `ShellHosting.swift` | 117 | The `ShellHosting` protocol — one member, `send(text:)` — plus `TerminalPane`'s conformance and the container's `shellHosts` / `focusedShellHost` queries. The seam that lets a shell-directed action (the file tree's "insert path") find a *shell* without naming a concrete pane or touching a SwiftTerm API. `FileViewerPane` must never conform |
 | `UmberTerminalView.swift` | 108 | `LocalProcessTerminalView` subclass whose only job is `performKeyEquivalent(with:)` interception (SwiftTerm declares `keyDown` `public`, not `open`) |
 | `KeyBindings.swift` | 65 | Pure, view-free `MacLineEditing.controlBytes(keyCode:modifiers:)` — the single ⌘-chord → control-byte table |
 | **Configuration** | | |

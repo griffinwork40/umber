@@ -153,6 +153,72 @@ protocol SpaceDocument: AnyObject {
     func saveDocument() -> Bool
 }
 
+/// What a document tells its Space when something happened to it that the container
+/// has to react to.
+///
+/// Declared here, beside `SpaceDocument`, because these are document-level events, not
+/// terminal-level ones — the container's reaction to each is already kind-agnostic
+/// (`syncDocumentChrome()`, `closeDocument(at:)`). This was `TerminalPaneDelegate` in
+/// `TerminalPane.swift` and typed all three callbacks to the concrete class, which gave
+/// a second engine-backed conformer *no route to the container at all* for shell-exit
+/// and title-change — and title changes drive both the strip and the window subtitle
+/// (`emulator-foundation-probe-and-vendor-integrity.md` §8.2, "The delegate cannot
+/// carry it"). Widening it and moving it here is site 1 of
+/// `libghostty-swap-sequencing-2026-07-28.md` §2.
+///
+/// The parameter type is `SpaceDocument` rather than `ShellHosting` even though only a
+/// shell-backed pane emits these today: "my title changed" and "I am finished" are not
+/// shell concepts. A file viewer that grew a background reload would report through
+/// exactly these callbacks, and narrowing the parameter now would be a second migration
+/// later for no gain — the reverse of the `focusedShellHost` decision below, where the
+/// *action* genuinely requires a shell.
+///
+/// Deliberately unrelated to `FileViewerPaneDelegate`, which is repaint-only and stays
+/// where it is: merging them would make every conformer answer callbacks for a concern
+/// it does not have. Two narrow inbound protocols is the correct shape while their
+/// event sets are disjoint.
+@MainActor
+protocol SpaceDocumentDelegate: AnyObject {
+    /// The document's work is over and it should be closed — a shell exited. Named for
+    /// the document rather than the pane because the container closes *a tab*, and it
+    /// looks the document up by identity rather than trusting an index
+    /// (`SpaceViewController+Delegates.swift`).
+    func documentDidTerminate(_ document: SpaceDocument)
+
+    /// The document reported a new title (OSC 0/2 for a shell). Drives the tab strip
+    /// and, when this is the active document, the window subtitle.
+    func document(_ document: SpaceDocument, didChangeTitle title: String)
+
+    /// `documentStatus` changed — the tab strip needs to repaint.
+    func documentDidChangeStatus(_ document: SpaceDocument)
+}
+
+/// A document that reports the events above, exposing the slot its Space writes itself
+/// into.
+///
+/// Exists so `SpaceViewController.add(document:)` can wire the delegate on any reporting
+/// conformer without naming one: the alternative it replaced was
+/// `(document as? TerminalPane)?.delegate = self`, which compiles and then silently
+/// leaves a second engine-backed pane's delegate nil — a tab that renders and never
+/// retitles, which is precisely the "silently inert rather than loudly broken" class
+/// `emulator-foundation-probe-and-vendor-integrity.md` §8.2 catalogues. A future
+/// `GhosttyPane` conforms and is wired by the same line.
+///
+/// Separate from `SpaceDocument` rather than a member of it because it is genuinely
+/// optional: `FileViewerPane` reports edited-state through its own repaint-only
+/// `FileViewerPaneDelegate` and has no use for these three callbacks, and a required
+/// slot it left nil would be a member that lies. This is the same reasoning the zoom
+/// members get in reverse — they are required because a conformer that skips them is
+/// *broken*, while a conformer that skips this one is merely quiet.
+@MainActor
+protocol SpaceDocumentReporting: SpaceDocument {
+    /// Named `documentDelegate`, not `delegate`, because conformers are AppKit-adjacent
+    /// types that may already own a `delegate` meaning something else entirely — and a
+    /// protocol requirement silently witnessed by an unrelated inherited property is a
+    /// bug with no compiler error attached.
+    var documentDelegate: SpaceDocumentDelegate? { get set }
+}
+
 extension SpaceDocument {
     /// The four defaults below are all *correct* for a live document rather than
     /// merely convenient, which is what separates them from the zoom members above:
@@ -168,6 +234,11 @@ extension SpaceDocument {
     /// never has anything urgent to say is correctly silent, not silently broken.
     var documentStatus: DocumentStatus { .idle }
 }
+
+/// The stored `documentDelegate` property on `TerminalPane` is the whole witness, so this
+/// is a declaration of intent rather than code: it is what makes
+/// `SpaceViewController.add(document:)`'s conditional wire-up reach this pane.
+extension TerminalPane: SpaceDocumentReporting {}
 
 extension TerminalPane: SpaceDocument {
     var documentView: NSView { view }

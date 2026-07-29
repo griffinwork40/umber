@@ -6,16 +6,6 @@
 import AppKit
 import SwiftTerm
 
-@MainActor
-protocol TerminalPaneDelegate: AnyObject {
-    /// The shell exited; the owning window/tab should close.
-    func paneDidTerminate(_ pane: TerminalPane)
-    /// The shell reported a new title (OSC 0/2).
-    func pane(_ pane: TerminalPane, didChangeTitle title: String)
-    /// `documentStatus` changed — the tab strip needs to repaint.
-    func paneDidChangeStatus(_ pane: TerminalPane)
-}
-
 /// A single terminal pane.
 ///
 /// Owns the SwiftTerm view and the shell process, and applies config/theme.
@@ -31,7 +21,14 @@ protocol TerminalPaneDelegate: AnyObject {
 final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDelegate {
     let view: UmberTerminalView
     private(set) var currentTitle: String = ""
-    weak var delegate: TerminalPaneDelegate?
+    /// The container, reached through the document-level protocol declared in
+    /// `SpaceDocument.swift` rather than a terminal-specific one. Moved there when the
+    /// callbacks stopped naming this class, so a second engine-backed conformer can
+    /// report the same three events without a parallel delegate
+    /// (plan `libghostty-swap-sequencing-2026-07-28.md` §2, site 1). Named
+    /// `documentDelegate` to witness `SpaceDocumentReporting` — see that protocol for
+    /// why the generic name was rejected.
+    weak var documentDelegate: SpaceDocumentDelegate?
 
     /// What the tab strip should be saying about this pane.
     ///
@@ -41,7 +38,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     private(set) var status: DocumentStatus = .idle {
         didSet {
             guard status != oldValue else { return }
-            delegate?.paneDidChangeStatus(self)
+            documentDelegate?.documentDidChangeStatus(self)
         }
     }
 
@@ -272,7 +269,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
         currentTitle = title
-        delegate?.pane(self, didChangeTitle: title)
+        documentDelegate?.document(self, didChangeTitle: title)
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
@@ -282,11 +279,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         // Deliberately does NOT set `.failed` on a non-zero exit code. This fires when
         // the *shell itself* exits, at which point the pane is closing
-        // (`SpaceViewController.paneDidTerminate`) — a status on a tab about to vanish
-        // is a status nobody reads. `.failed` is for a failed *command* inside a live
-        // shell, which needs OSC 133 and arrives with libghostty's
+        // (`SpaceViewController.documentDidTerminate`) — a status on a tab about to
+        // vanish is a status nobody reads. `.failed` is for a failed *command* inside a
+        // live shell, which needs OSC 133 and arrives with libghostty's
         // `TerminalSurfaceCommandFinishedDelegate` (probe plan §6.2).
-        delegate?.paneDidTerminate(self)
+        documentDelegate?.documentDidTerminate(self)
     }
 }
 
