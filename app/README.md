@@ -32,7 +32,7 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are six scripts and a diagnostic
+of pure logic would have caught. So the checks are eight scripts and a diagnostic
 env var, each aimed at something that has really gone wrong:
 
 ```sh
@@ -40,6 +40,7 @@ env var, each aimed at something that has really gone wrong:
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
+./Scripts/check-cwd-follow.sh    # does the sidebar follow the shell's cwd? — fast, headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
@@ -75,6 +76,22 @@ disk), including the fail-soft cases whose only other discovery path is a user w
 opens to nothing. It runs against a temp directory and a bundle-less binary's own defaults
 domain, so it cannot disturb your real remembered Spaces — and asserts that isolation as
 its last case instead of trusting it.
+
+`check-cwd-follow.sh` follows the same pattern for the sidebar-follows-shell feature, and is
+the most explicit of these gates about its own blindness. It compiles the shipped
+`ShellDirectory.swift` standalone — that file imports only Foundation and Darwin precisely so
+it can — spawns a real child shell into a temp directory, and reads that directory back
+through the same two syscalls the app uses, then checks the `cd` line it builds against paths
+containing spaces, quotes and `$`. Two things it cannot reach are named in its own comments
+rather than papered over. The `tcgetpgrp` branch is one: Darwin needs an explicit `TIOCSCTTY`
+that a `posix_spawn`ed child cannot issue and Swift marks `fork()` unavailable, so that branch
+only executes for real inside SwiftTerm's `forkpty` (`LocalProcess.swift:513`) — the gate
+asserts the `proc_pidinfo` fallback it *does* exercise and says so, instead of letting a case
+titled "foreground" quietly test something else. `setRoot(_:)` is the other, being AppKit.
+It paid for itself before it first went green: it caught the `URL`-vs-`.path` equality trap now
+documented at `FileTreeViewController.setRoot(_:)`, where `URL` equality carries a directory
+marker that `resolvingSymlinksInPath()` drops on a symlink-terminated path — which would have
+rebuilt the file tree twice a second and destroyed the user's expansion state.
 
 `check-reflow.sh` is the gate for SwiftTerm #494 and for local patch `0002`. It compiles a
 harness against the **vendored emulator itself** (not a file from `Sources/Umber`), seeds

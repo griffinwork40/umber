@@ -274,6 +274,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         space.windowDidBecomeKey()
     }
 
+    /// The mirror of the above, and it exists for one reason: cwd-follow polls the focused
+    /// shell's working directory on a timer, and a Space you are not looking at should not
+    /// be polling. See `SpaceViewController+DirectoryFollow.swift`.
+    func windowDidResignKey(_ notification: Notification) {
+        space.windowDidResignKey()
+    }
+
     /// Closing a Space closes every document in it, so it has to honour the same
     /// veto ⌘W does — otherwise ⌘⇧W is a way to discard unsaved work without ever
     /// being asked.

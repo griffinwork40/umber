@@ -131,4 +131,47 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
     func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL) {
         addTerminalDocument(workingDirectory: url)
     }
+
+    /// "cd Here" — the UI-to-shell half of cwd-follow.
+    ///
+    /// Note what this deliberately does NOT do: it never calls
+    /// `FileTreeViewController.setRoot(_:)`. It writes a `cd` to the shell and stops, and
+    /// the sidebar moves later, only once the poller in
+    /// `SpaceViewController+DirectoryFollow.swift` observes that the shell really did
+    /// change directory. That is the whole safety argument for this feature. If a click
+    /// moved the tree directly there would be two writers of "where are we" — the click
+    /// and the shell — and they would disagree the first time a `cd` failed (a directory
+    /// deleted between the tree reading it and the shell entering it, or one without `+x`),
+    /// leaving the sidebar showing a place the shell is not. Routing every navigation
+    /// through the shell makes the shell the single source of truth, so the sidebar cannot
+    /// lie, and a `cd` that fails simply leaves the tree where it was. It also cannot loop:
+    /// `setRoot(_:)` early-returns on an unchanged path, and `ShellDirectory` normalises
+    /// both sides to one spelling so "unchanged" is decidable.
+    ///
+    /// `url` is already resolved to a directory by the tree
+    /// (`FileTreeViewController.menuChangeDirectory`), so there is no file/folder branch
+    /// here — same division of labour as `didRequestNewTerminalAt` above.
+    func fileTree(_ controller: FileTreeViewController, didRequestChangeDirectory url: URL) {
+        // Same beep-rather-than-silence rule as `didRequestPathInsert`: a Space whose every
+        // tab is a file viewer has no shell to redirect, and a menu item that quietly does
+        // nothing reads as broken (PR #2 review, finding 5).
+        guard let host = focusedShellHost else {
+            NSSound.beep()
+            return
+        }
+        // Submitted, unlike path-insert, which leaves its text on the prompt. The
+        // difference is intent: inserting a path is for composing a command, while "cd
+        // Here" IS the command — leaving it unsubmitted would make the menu item look
+        // broken until the user also pressed Return. Quoting and the newline both come
+        // from `ShellDirectory.cdCommand(to:)` so there is one shell-quoting rule in the
+        // app rather than a second copy of the one above.
+        host.send(text: ShellDirectory.cdCommand(to: url))
+        // Bring the shell forward if a viewer was in front — a `cd` that lands in an
+        // invisible tab looks like nothing happened.
+        if let index = documents.firstIndex(where: { $0 === host }), index != activeIndex {
+            selectDocument(at: index)
+        } else {
+            host.documentDidBecomeActive()
+        }
+    }
 }
