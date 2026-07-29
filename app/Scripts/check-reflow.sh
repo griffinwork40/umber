@@ -93,13 +93,21 @@ if ! command -v swiftc >/dev/null 2>&1; then
 fi
 
 # The harness links the compiled vendored module, so SwiftTerm must be built.
+#
+# ALWAYS build — never skip on "the .o already exists". That guard was this
+# script's own first bug, and it was the exact silent-failure shape the vendor
+# pin exists to kill: `.build` is warm in every real working copy, so the gate
+# linked whatever was compiled LAST rather than the vendor tree under test. A
+# re-vendored SwiftTerm missing patch 0002 therefore passed 8/8 against a stale
+# patched object file. SwiftPM is incremental (~1.6s no-op here), so building
+# unconditionally costs nothing and is the only way the gate's subject is the
+# tree on disk. Verified by reverting 0002 and re-running with no manual build:
+# 6 of 8 cases fail, as they must.
 PRODUCTS=".build/out/Products/Debug"
-if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
-  say "building SwiftTerm first (the harness links the vendored module)…"
-  if ! swift build >/dev/null 2>&1; then
-    echo "error: swift build failed — fix that before trusting this gate." >&2
-    exit 2
-  fi
+say "building SwiftTerm first (the harness links the vendored module)…"
+if ! swift build >/dev/null 2>&1; then
+  echo "error: swift build failed — fix that before trusting this gate." >&2
+  exit 2
 fi
 if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
   echo "error: $PRODUCTS/SwiftTerm.o still absent after swift build." >&2
