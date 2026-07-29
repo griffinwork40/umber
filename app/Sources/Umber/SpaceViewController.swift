@@ -49,7 +49,19 @@ final class SpaceViewController: NSSplitViewController {
     private(set) var documents: [SpaceDocument] = []
     private(set) var activeIndex = 0
 
-    private let fileTree: FileTreeViewController
+    /// Internal, not `private`, for the same reason `FileTreeViewController.root` is:
+    /// one concern that acts on it lives in another file. `followDirectory(_:)` in
+    /// `SpaceViewController+DirectoryFollow.swift` is the only outside reader, and Swift's
+    /// `private` is file-scoped, so keeping it private would force the whole cwd-follow
+    /// concern into this already-323-line file. Nothing outside that extension should
+    /// touch the tree directly.
+    let fileTree: FileTreeViewController
+
+    /// Storage for the cwd poller; all of its behaviour is in
+    /// `SpaceViewController+DirectoryFollow.swift`. It lives here only because Swift
+    /// extensions cannot add stored properties — created lazily by
+    /// `startDirectoryFollow()`, so a Space that is never made key never builds one.
+    var directoryFollow: DirectoryFollow?
     private let documentArea: DocumentAreaViewController
 
     /// Default sidebar width. Bounds are Terax's: it caps its own sidebar at
@@ -226,6 +238,12 @@ final class SpaceViewController: NSSplitViewController {
         // viewers (PR #2 review, finding 1).
         document.documentWindowDidBecomeKey()
         document.documentDidBecomeActive()
+        // Switching tabs changes which shell `focusedShellHost` resolves to, so the
+        // sidebar has to re-root now rather than up to 750ms later — a visible lag here
+        // would read as the tree lagging the tab, which is exactly the staleness
+        // cwd-follow exists to remove. No-op when the new tab is a file viewer, because
+        // `focusedShellHost`'s fallback keeps resolving to the same shell.
+        directoryFollowPollNow()
     }
 
     /// ⌘⌥← / ⌘⌥→. Wraps, because a cycle that dead-ends at the edges is a worse
@@ -305,6 +323,10 @@ final class SpaceViewController: NSSplitViewController {
     /// same signal for the same reason: an open file viewer is as stale as the tree is.
     func windowDidBecomeKey() {
         fileTree.refresh()
+        // Follow the focused shell's cwd only while this Space can actually be looked at.
+        // Paired with `stopDirectoryFollow()` in `windowDidResignKey()` — a background
+        // Space polling a pty is pure cost. See `SpaceViewController+DirectoryFollow.swift`.
+        startDirectoryFollow()
         for document in documents { document.documentWindowDidBecomeKey() }
         // A document may have picked up an external change; the strip does not show
         // that today, but the dot state is cheap to keep honest.

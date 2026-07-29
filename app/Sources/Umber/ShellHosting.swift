@@ -40,11 +40,26 @@ import SwiftTerm
 /// have forced an `as? SpaceDocument` there — reintroducing a silent-failure branch
 /// on the exact path this protocol exists to make total.
 ///
-/// Deliberately one member. Everything else a terminal can do is either already on
-/// `SpaceDocument` (paint, zoom, title, status) or is nobody else's business. The
-/// value of the seam is inversely proportional to its width: a second conformer
-/// (`GhosttyPane`, plan §4) has to satisfy exactly one method to inherit the
-/// file-tree path-insert feature whole.
+/// Two members, and the second one arrived for a reason worth stating, because this
+/// comment used to say "deliberately one member" and that the value of the seam is
+/// inversely proportional to its width. That principle still holds — it is why this is
+/// not a general-purpose "terminal" protocol — but it argues for *narrow*, not for
+/// *frozen*. `currentDirectory` earns its place because a working directory is not an
+/// extra capability bolted onto a shell: it is a property a shell intrinsically HAS and
+/// nothing else here does. `SpaceDocument` cannot answer it (a file viewer has a file,
+/// not a cwd), and the alternative was for the container to reach past this protocol to
+/// a concrete pane's pty — reintroducing exactly the cast this file exists to delete.
+///
+/// The two members are also inverses, which is the test for whether a member belongs:
+/// `currentDirectory` reads where the shell is, `send(text:)` moves it. cwd-follow needs
+/// both halves and nothing more, and a second conformer (`GhosttyPane`, plan §4) still
+/// satisfies the whole feature — path-insert, `cd Here`, and sidebar-follows-shell — by
+/// answering just these two, reading its cwd from libghostty's own pwd delegate instead
+/// of from `proc_pidinfo`.
+///
+/// `FileViewerPane` must still never conform. That was true when this protocol had one
+/// member and the second makes it more true, not less: a file viewer asked for a working
+/// directory would have to invent one.
 ///
 /// `FileViewerPane` must never conform. That is not enforceable by the compiler, so
 /// it is stated here and in the header above: the conformance list *is* the
@@ -66,6 +81,23 @@ protocol ShellHosting: SpaceDocument {
     /// unsubmitted, because inserting a path is for composing a command, not running
     /// one.
     func send(text: String)
+
+    /// Where this shell currently is, or nil when that cannot be answered.
+    ///
+    /// Nil is normal and expected, not a failure to report: a pane that has not started
+    /// its process yet has no cwd, and neither does one whose shell has exited but whose
+    /// tab has not closed. Callers must hold their last good value rather than react to
+    /// nil — blanking the sidebar because a shell exited is worse than showing a
+    /// directory that is one `exit` stale.
+    ///
+    /// A *property*, not a `directoryDidChange` callback, because there is nothing to
+    /// push from: OSC 7 — the notification-shaped answer, which SwiftTerm already parses
+    /// into `hostCurrentDirectoryUpdate` — never fires under Umber, for the reason
+    /// documented at length in `ShellDirectory.swift`'s header (macOS's emitter is gated
+    /// on `TERM_PROGRAM == Apple_Terminal`, which SwiftTerm does not set). With no event
+    /// to subscribe to, the honest shape is a value the container polls, and
+    /// `SpaceViewController+DirectoryFollow.swift` owns that polling.
+    var currentDirectory: URL? { get }
 }
 
 // MARK: - TerminalPane
@@ -76,6 +108,26 @@ extension TerminalPane: ShellHosting {
     /// from typing, so it lands on the prompt and is subject to normal line editing.
     func send(text: String) {
         view.send(txt: text)
+    }
+
+    /// Asks the kernel, via `ShellDirectory` — not the emulator, and not the shell.
+    ///
+    /// `view.process` is SwiftTerm's `LocalProcess!`
+    /// (`vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacLocalTerminalView.swift:69`), an
+    /// implicitly-unwrapped optional that is genuinely nil between `init` and
+    /// `startProcess`, so it is bound with `guard let` rather than used directly: an
+    /// implicit force-unwrap here would trap on a pane whose shell has not started, which
+    /// is a state the tab strip can show for a whole frame.
+    ///
+    /// `childfd` is the pty's primary side and `shellPid` the login shell
+    /// (`LocalProcess.swift:67,70`); `ShellDirectory` prefers the pty's *foreground*
+    /// process group so the sidebar follows what the user is actually looking at, and
+    /// falls back to the shell itself. Both are read fresh on every call because both go
+    /// stale — the foreground group changes with every command the user runs.
+    var currentDirectory: URL? {
+        guard let process = view.process else { return nil }
+        return ShellDirectory.current(
+            foregroundOf: process.childfd, fallbackPid: process.shellPid)
     }
 }
 

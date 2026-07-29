@@ -6,7 +6,8 @@
 //  and the `NSOutlineView` data source and delegate, plus the cell machinery they
 //  build, in `FileTreeViewController+OutlineView.swift`. What stays here is the
 //  controller itself — the outline and scroll view it assembles, the
-//  identity-preserving `refresh()`, double-click routing, and the row context menu.
+//  identity-preserving `refresh()`, `setRoot(_:)` (repoint the tree at a new
+//  directory — cwd-follow), double-click routing, and the row context menu.
 //
 
 import AppKit
@@ -28,6 +29,14 @@ protocol FileTreeViewControllerDelegate: AnyObject {
     /// calling, so the Space never has to ask what kind of row was hit
     /// (`SpaceViewController.fileTree(_:didRequestNewTerminalAt:)`).
     func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL)
+
+    /// "cd Here". The user asked to make `url` — always a **directory**, resolved
+    /// from a clicked file to its parent exactly like `didRequestNewTerminalAt`
+    /// above — the focused shell's working directory. Unlike the other three
+    /// members this does not touch the tree itself; it is the other half of
+    /// cwd-follow, the shell-to-tree direction being `setRoot(_:)`
+    /// (`SpaceViewController.fileTree(_:didRequestChangeDirectory:)`).
+    func fileTree(_ controller: FileTreeViewController, didRequestChangeDirectory url: URL)
 }
 
 @MainActor
@@ -36,10 +45,24 @@ final class FileTreeViewController: NSViewController {
 
     /// Internal, not `private`: the `NSOutlineViewDataSource` conformance moved to
     /// `FileTreeViewController+OutlineView.swift` and its `node(for:)` substitutes
-    /// this for a nil item, which is how the root row is answered for. Still a
-    /// `let` — the extension can read the root, never repoint the tree at another
-    /// directory. This is the only member that file needs.
-    let root: FileNode
+    /// this for a nil item, which is how the root row is answered for. That
+    /// extension only ever reads it, so `private(set)` — not plain `private` —
+    /// keeps the getter at this same internal level while confining the *setter*
+    /// to this file, where `setRoot(_:)` lives.
+    ///
+    /// `var`, not `let`: this used to be immutable on purpose, with a comment
+    /// arguing the tree could never be repointed. That argument is retired, not
+    /// the protection it existed for — cwd-follow needs the tree to move when the
+    /// shell's cwd moves, and `setRoot(_:)` below is the one path allowed to do
+    /// it, still gated to this file by `private(set)`.
+    ///
+    /// This is only the tree's **displayed** root. A Space's *identity* root —
+    /// `SpaceWindowController.root`, the `UmberSpace:<path>` frame-autosave key,
+    /// `OpenSpaceRoots`, `LastSpaceRoot` — is a separate, still-immutable concept:
+    /// a Space stays "the project opened with ⌘O" no matter where its shell's cwd
+    /// wanders, so a `cd` moving the sidebar must never rename the Space, relabel
+    /// its window tab, or rewrite its remembered frame/restore entry.
+    private(set) var root: FileNode
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
     private let rowMenu = NSMenu()
@@ -116,6 +139,48 @@ final class FileTreeViewController: NSViewController {
         }
     }
 
+    /// Repoint the tree at a different directory — cwd-follow, the shell-to-tree
+    /// half of it (the tree-to-shell half is "cd Here" below).
+    ///
+    /// Deliberately does **not** preserve expansion/selection the way `refresh()`
+    /// does. `refresh()` re-reads the *same* directory, so an expanded row is still
+    /// the same path with possibly-changed contents — carrying its state forward is
+    /// exactly right. `setRoot(_:)` points at a *different* directory: a row
+    /// expanded under the old root is an unrelated path under the new one (same
+    /// relative position, different file), so "restoring" it would show disclosure
+    /// state that has nothing to do with what's on disk at the new root. A full
+    /// `reloadData()` against a fresh `FileNode` is the correct amount of state to
+    /// carry across a root change: none.
+    ///
+    /// The early return on an unchanged root is **load-bearing, not an
+    /// optimisation**: this is meant to be driven by a shell's reported cwd
+    /// (`TerminalPane.hostCurrentDirectoryUpdate`, currently a wired-but-empty OSC 7
+    /// stub) and the tree's own "cd Here" pushes the opposite direction, into the
+    /// shell — together that is a UI <-> shell feedback loop, and a shell that
+    /// echoes its cwd on every prompt would otherwise rebuild `root` and blow away
+    /// the user's expansion/selection on every keystroke even when the directory
+    /// never changed. The guard is what makes "did anything actually change?" the
+    /// question, not "did an update arrive?". `resolvingSymlinksInPath()` matches
+    /// the normalisation `AppDelegate.openFolder` and `SpaceRestore` already use so
+    /// `/tmp` vs `/private/tmp` cannot defeat it.
+    /// Compared as **paths, not as `URL`s**, and that is not a style preference — it is a
+    /// bug that was caught by `check-cwd-follow.sh` before it shipped. `URL` equality
+    /// includes the directory marker (a trailing slash), and `resolvingSymlinksInPath()`
+    /// drops that marker when the last component is itself a symlink: measured,
+    /// `URL(fileURLWithPath: "/private/tmp").resolvingSymlinksInPath()` is `file:///tmp/`
+    /// while `URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath()` is `file:///tmp` —
+    /// same `.path`, and `==` is **false**. With a `URL` comparison this guard would have
+    /// answered "changed" every time for such a directory, so a 750ms poller would have
+    /// rebuilt the tree and discarded the user's expansion and selection twice a second:
+    /// precisely the damage the guard exists to prevent, in the shape of a passing test.
+    func setRoot(_ url: URL) {
+        guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
+        else { return }
+        root = FileNode(url: url, isDirectory: true)
+        root.reloadChildren()
+        outlineView.reloadData()
+    }
+
     @objc private func handleDoubleClick() {
         guard let node = outlineView.item(atRow: outlineView.clickedRow) as? FileNode else { return }
         if node.isDirectory {
@@ -160,6 +225,13 @@ final class FileTreeViewController: NSViewController {
         menu.addItem(
             withTitle: "New Terminal Here", action: #selector(menuNewTerminal(_:)),
             keyEquivalent: "")
+        // Right beside "New Terminal Here": both answer "here", one by starting a
+        // fresh shell at this path, the other by redirecting the shell you already
+        // have. Same file-to-parent resolution as that item, for the same reason —
+        // see `menuChangeDirectory`.
+        menu.addItem(
+            withTitle: "cd Here", action: #selector(menuChangeDirectory(_:)),
+            keyEquivalent: "")
         // The separator moved out of the `!isDirectory` block rather than being
         // duplicated: it was conditional only because a directory row had nothing
         // above it to separate, and now every row does. The in-app actions stay above
@@ -199,6 +271,16 @@ final class FileTreeViewController: NSViewController {
         guard let node = node(from: sender) else { return }
         let directory = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
         delegate?.fileTree(self, didRequestNewTerminalAt: directory)
+    }
+
+    /// Same file-to-parent resolution as `menuNewTerminal`, and for the same
+    /// reason: the row under a right-click here is usually the file you are about
+    /// to work on, not its enclosing folder, so `cd`-ing to a *file* would fail —
+    /// this makes it just work instead of asking the container to handle that.
+    @objc private func menuChangeDirectory(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        let directory = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+        delegate?.fileTree(self, didRequestChangeDirectory: directory)
     }
 
     @objc private func menuReveal(_ sender: Any?) {
