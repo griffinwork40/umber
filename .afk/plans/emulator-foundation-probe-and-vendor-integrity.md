@@ -411,7 +411,7 @@ would be incoherent to hash-pin SwiftTerm's source while letting its replacement
 ### 8.2 "The seam's four methods" understates Step 1 by about 4×
 
 `SpaceDocument` is genuinely clean — 4 requirements (`documentView: NSView`, `documentTitle: String`,
-`documentSymbolName: String`, `func documentDidBecomeActive()`, at `SpaceDocument.swift:27/29/33/37`),
+`documentSymbolName: String`, `func documentDidBecomeActive()`, at `SpaceDocument.swift:97/99/103/107`),
 declared in a file that imports only AppKit, with no SwiftTerm type anywhere in it. Conforming
 `GhosttyPane` really is trivial.
 
@@ -421,20 +421,25 @@ silently inert rather than loudly broken:
 
 | Path | Filter that excludes a second conformer | Verified consequence |
 |---|---|---|
-| Font zoom / ⌘0 reset | `SpaceViewController.swift:95` — `documents.compactMap { $0 as? TerminalPane }`, reached from `AppDelegate.swift:150` `allPanes` | ⌘+/⌘−/⌘0 silently no-op on a `GhosttyPane` |
-| Live config reload (⌘R) | same cast at `:95`, iterated at `SpaceViewController.swift:156-158` | theme/font/scrollback changes never reach it |
-| File-tree activate → inject text | `SpaceViewController.swift:98` `activeTerminalPane`, then `:211-214` calls SwiftTerm's `view.send(txt:)` | clicking a file in the sidebar does nothing |
+| Font zoom / ⌘0 reset | ~~`SpaceViewController.swift:95`~~ — **resolved before this table was acted on**: the zoom fan-out iterates `[SpaceDocument]` at `AppDelegate.swift:236-238`, per `libghostty-swap-sequencing-2026-07-28.md` §2 | ⌘+/⌘−/⌘0 silently no-op on a `GhosttyPane` |
+| Live config reload (⌘R) | ~~same cast at `:95`~~ — **also resolved**: `SpaceViewController.apply(config:)` (`:296-301`) iterates `documents`, i.e. `[SpaceDocument]` | theme/font/scrollback changes never reach it |
+| File-tree activate → inject text | ~~`SpaceViewController.swift:98` `activeTerminalPane`, then `:211-214`~~ — **resolved 2026-07-29 (Phase 1)**: the cast is now `ShellHosting`-typed (`ShellHosting.swift:114`) and the call site goes through `send(text:)`, not SwiftTerm's `view.send(txt:)` (`SpaceViewController+Delegates.swift:98,109`) | clicking a file in the sidebar does nothing |
 
 Two further sites the spike write-up missed entirely:
 
-- **No polymorphic factory.** `SpaceViewController.addTerminalDocument()` (`:102-109`) hardcodes
-  `TerminalPane(config:frame:)` and returns concrete `-> TerminalPane`. There is no
-  `add(document:)`. A second kind needs a new entry point, not new wiring.
-- **The delegate cannot carry it.** `TerminalPaneDelegate` (`TerminalPane.swift:10-15`) types both
-  callbacks to the concrete class — `paneDidTerminate(_ pane: TerminalPane)`,
-  `pane(_ pane: TerminalPane, didChangeTitle:)`, implemented at `SpaceViewController.swift:187-199`.
-  A `GhosttyPane`'s shell-exit and title-change events have **no route to the container at all**.
-  This is load-bearing: title changes drive the document strip and the window subtitle.
+- **No polymorphic factory.** ~~`SpaceViewController.addTerminalDocument()` (`:102-109`)~~
+  **Resolved 2026-07-29 (Phase 1).** `addTerminalDocument` (`SpaceViewController.swift:129`) still
+  hardcodes `TerminalPane(config:frame:workingDirectory:)` and returns the concrete type — it is the
+  ⌘T path, and "a terminal rooted at this Space" is a policy worth keeping — but it now calls through
+  a polymorphic `add(document:beforeActivating:)` (`:173`) that takes any `SpaceDocument`. A second
+  kind is handed in, not wired in.
+- **The delegate cannot carry it.** ~~`TerminalPaneDelegate` (`TerminalPane.swift:10-15`)~~
+  **Resolved 2026-07-29 (Phase 1).** Widened to `SpaceDocumentDelegate` and moved beside the document
+  protocol (`SpaceDocument.swift:181-194`); all three callbacks now take `SpaceDocument`, implemented
+  at `SpaceViewController+Delegates.swift:50-72`. The delegate is wired on any
+  `SpaceDocumentReporting` conformer (`SpaceDocument.swift:214-220`) rather than by a concrete cast,
+  so a `GhosttyPane` is routed by the same line that routes `TerminalPane`. This was load-bearing:
+  title changes drive the document strip and the window subtitle.
 
 **Consequence for ordering:** the honest Step 1 is *regenericize the container first, then add the
 conformer* — otherwise `GhosttyPane` renders in a strip that never retitles it, ignores ⌘R, and
@@ -475,12 +480,20 @@ runtime question. Two consequences:
 
 Ordering differs from §6.2 in one way that matters: 0 comes before 1.
 
-0. **Regenericize the container** (no libghostty yet, `TerminalPane` still the only conformer, so
-   this is provably behaviour-preserving and verifiable by `check-keybindings.sh` +
-   `make-app-bundle.sh` alone): widen `TerminalPaneDelegate` to a `SpaceDocument`-typed
-   `SpaceDocumentDelegate`; add whatever minimal requirements the three fan-out paths need
-   (font sizing, `apply(config:)`, send-text) to `SpaceDocument` or a sibling protocol; replace the
-   two `as?` casts; add a polymorphic `add(document:)` beside `addTerminalDocument()`.
+0. **Regenericize the container** — **DONE 2026-07-29**, as Phase 1 of
+   `libghostty-swap-sequencing-2026-07-28.md` §2 (no libghostty yet, `TerminalPane` still the only
+   conformer, so this was provably behaviour-preserving and verifiable by `check-keybindings.sh` +
+   `check-file-size.sh` + `make-app-bundle.sh` alone): widened `TerminalPaneDelegate` to a
+   `SpaceDocument`-typed `SpaceDocumentDelegate` and moved it to `SpaceDocument.swift:181`; added a
+   polymorphic `add(document:beforeActivating:)` beside `addTerminalDocument()`
+   (`SpaceViewController.swift:173`). One correction to the prescription above: the font-sizing and
+   `apply(config:)` fan-outs needed **nothing** — they were already `[SpaceDocument]` (see the §8.2
+   table). And send-text was added to a **sibling protocol, not `SpaceDocument`** — `ShellHosting`,
+   one member, `send(text:)` (`ShellHosting.swift:53`). Putting it on `SpaceDocument` would have been
+   wrong, not merely broad: `FileViewerPane` conforms to `SpaceDocument`, so it would have let the
+   file tree inject a path into an editor buffer. Hence "replace the two `as?` casts" was also only
+   half right — the zoom/config cast was already gone, and the `focusedTerminalPane` cast was
+   **narrowed** to `ShellHosting`, never widened.
 1. Add the dependency at `.exact("1.3.2")` (§8.1) and amend the auditable-vendor convention in
    `AFK.md` honestly, per §7 risk 3 — the convention dies here, and it should die in writing.
 2. `GhosttyPane: SpaceDocument` + `GhosttyTerminalView: AppTerminalView`, `super`-fallback ordering

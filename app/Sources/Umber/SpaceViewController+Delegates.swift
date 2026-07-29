@@ -45,26 +45,28 @@ extension SpaceViewController: DocumentTabStripDelegate {
     }
 }
 
-// MARK: - TerminalPaneDelegate
+// MARK: - SpaceDocumentDelegate
 
-extension SpaceViewController: TerminalPaneDelegate {
-    func paneDidTerminate(_ pane: TerminalPane) {
+extension SpaceViewController: SpaceDocumentDelegate {
+    func documentDidTerminate(_ document: SpaceDocument) {
         // The shell exited — close that document specifically, not the active one:
         // a background tab's shell can exit while you are looking at another.
-        guard let index = documents.firstIndex(where: { $0 === pane }) else { return }
+        guard let index = documents.firstIndex(where: { $0 === document }) else { return }
         closeDocument(at: index)
     }
 
-    func pane(_ pane: TerminalPane, didChangeTitle title: String) {
+    func document(_ document: SpaceDocument, didChangeTitle title: String) {
         syncDocumentChrome()
-        guard documents.indices.contains(activeIndex), documents[activeIndex] === pane else { return }
-        spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: pane.documentTitle)
+        guard documents.indices.contains(activeIndex), documents[activeIndex] === document else {
+            return
+        }
+        spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
     }
 
-    /// A background pane raised or cleared an attention marker. Only the strip cares —
-    /// the window title stays the active document's, because a background tab beeping
+    /// A background document raised or cleared an attention marker. Only the strip cares
+    /// — the window title stays the active document's, because a background tab beeping
     /// must not relabel the window you are working in.
-    func paneDidChangeStatus(_ pane: TerminalPane) {
+    func documentDidChangeStatus(_ document: SpaceDocument) {
         syncDocumentChrome()
     }
 }
@@ -90,23 +92,27 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
     /// gesture that means "open". Now it is ⌥-double-click and a context-menu item,
     /// which also makes it discoverable, which it never was.
     func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL) {
-        // A Space with zero terminal tabs (every document is a file viewer) has
+        // A Space with zero shell-hosting tabs (every document is a file viewer) has
         // nowhere for this to land — beep rather than silently doing nothing, so
         // the gesture doesn't read as broken (PR #2 review, finding 5).
-        guard let pane = focusedTerminalPane else {
+        guard let host = focusedShellHost else {
             NSSound.beep()
             return
         }
         // Single-quoted, with any embedded quote closed-escaped-reopened, so spaces,
         // `$`, and quotes in a filename survive the shell verbatim.
         let quoted = "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        pane.view.send(txt: quoted + " ")
-        // Bring the terminal forward if a viewer was in front, otherwise the text
+        // Through `ShellHosting.send(text:)` rather than the old `pane.view.send(txt:)`,
+        // which reached a SwiftTerm-concrete API through a concrete pane's concrete view
+        // and coupled this feature to the emulator (plan §2). Same bytes to the same pty;
+        // the indirection is the whole change.
+        host.send(text: quoted + " ")
+        // Bring the shell forward if a viewer was in front, otherwise the text
         // lands in a tab the user cannot see.
-        if let index = documents.firstIndex(where: { $0 === pane }), index != activeIndex {
+        if let index = documents.firstIndex(where: { $0 === host }), index != activeIndex {
             selectDocument(at: index)
         } else {
-            pane.documentDidBecomeActive()
+            host.documentDidBecomeActive()
         }
     }
 

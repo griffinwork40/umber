@@ -111,19 +111,6 @@ final class SpaceViewController: NSSplitViewController {
         documents.indices.contains(activeIndex) ? documents[activeIndex] : nil
     }
 
-    var terminalPanes: [TerminalPane] { documents.compactMap { $0 as? TerminalPane } }
-
-    /// The terminal a shell-directed action should land in.
-    ///
-    /// Falls back to the most recent terminal in this Space rather than returning
-    /// nil when the active document is *not* a terminal. Without the fallback,
-    /// "insert this path into the shell" would do nothing whenever a file viewer
-    /// happened to be the front tab — the failure would be invisible, and the
-    /// feature would look broken exactly when the file tree is most in use.
-    var focusedTerminalPane: TerminalPane? {
-        (activeDocument as? TerminalPane) ?? terminalPanes.last
-    }
-
     /// Add a terminal document rooted at `workingDirectory`, defaulting to the Space's
     /// own `root`.
     ///
@@ -143,11 +130,58 @@ final class SpaceViewController: NSSplitViewController {
         let pane = TerminalPane(
             config: config, frame: documentArea.container.bounds,
             workingDirectory: workingDirectory ?? root)
-        pane.delegate = self
-        documents.append(pane)
-        if start { pane.start() }
-        selectDocument(at: documents.count - 1)
+        // `beforeActivating`, not after, and this ordering is load-bearing rather than
+        // stylistic — it is what makes routing ⌘T through `add(document:)` a pure
+        // refactor. `start()` hands the pty its initial `winsize` from the view's
+        // *current* geometry (`MacLocalTerminalView.swift:204-209` builds it from
+        // `terminal.rows`/`cols`), while activation is what makes the tab strip appear at
+        // the second document — costing the container ~30pt, i.e. about two rows
+        // (`DocumentAreaViewController.viewDidLayout`). Starting after activation would
+        // therefore hand a *different* initial row count to every terminal but the first
+        // and add a SIGWINCH before the first prompt. Both are reflow inputs, and reflow
+        // is the one area of this app with a known open defect (SwiftTerm #494), so the
+        // original sequence — append, start, select — is reproduced exactly.
+        add(document: pane, beforeActivating: { if start { pane.start() } })
         return pane
+    }
+
+    /// Install a document this container did not construct, and make it active.
+    ///
+    /// The polymorphic entry point `addTerminalDocument` above lacked: it hardcodes a
+    /// `TerminalPane(config:frame:workingDirectory:)` and returns the concrete type, so a
+    /// second engine-backed kind (`GhosttyPane`, plan §4) had nowhere to be handed in
+    /// (`libghostty-swap-sequencing-2026-07-28.md` §2, site 2). Everything the container
+    /// owes *any* document — the delegate wire-up, the list, activation — is here and
+    /// stated once; a caller supplies only the thing this container cannot know, which is
+    /// how to build the document.
+    ///
+    /// `addTerminalDocument` deliberately survives as the ⌘T path and calls through here
+    /// rather than being replaced by it: ⌘T means "a terminal rooted at this Space",
+    /// which is a policy this container owns and a generic entry point cannot express.
+    /// Taking `SpaceDocument` and not `ShellHosting`, because the container installs
+    /// documents; hosting a shell is irrelevant to installing one, and `openFile` will
+    /// route through here too the moment the editor column is regenericized (§8's
+    /// deferred list).
+    ///
+    /// `beforeActivating` exists for one caller and one reason: a document that spawns a
+    /// process must be able to do so while the view geometry is still what it was when the
+    /// document was constructed, because activation can resize the container (the tab
+    /// strip appears at the second document). See `addTerminalDocument` for the full
+    /// argument. It is a closure rather than a `start()` protocol member so the container
+    /// stays ignorant of what any kind needs to do in that window — it only guarantees
+    /// *when* the window is.
+    func add(document: SpaceDocument, beforeActivating: () -> Void = {}) {
+        // Wired through `SpaceDocumentReporting`, deliberately NOT `as? TerminalPane`. A
+        // concrete cast here would compile and then leave a `GhosttyPane`'s delegate nil
+        // — it would render in a strip that never retitles it, which is §8.2's
+        // "silently inert rather than loudly broken" failure reintroduced at the exact
+        // site meant to retire it. Conditional rather than a `SpaceDocument` requirement
+        // so `FileViewerPane` (repaint-only, via its own `FileViewerPaneDelegate`) is not
+        // forced to carry a property it would leave nil.
+        (document as? any SpaceDocumentReporting)?.documentDelegate = self
+        documents.append(document)
+        beforeActivating()
+        selectDocument(at: documents.count - 1)
     }
 
     /// Open `url` as a read-only document, or surface the tab that already has it.
