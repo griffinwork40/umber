@@ -11,20 +11,27 @@
 #   * a RE-VENDORED, UNPATCHED tree fails SILENTLY — it compiles and runs fine,
 #     because the patch only removes a build-time resource
 #
-# So following app/README.md's recreation steps faithfully but forgetting the patch
+# So following app/README.md's recreation steps faithfully but forgetting a patch
 # produced a green build with a different dependency than the one that was tested.
 # verify-vendor.sh turns that silent case into a loud one.
 #
-# VERIFIED PROVENANCE (2026-07-27)
+# As of patch 0002 (Buffer.swift, the #494 reflow fix) the stakes are higher: a tree
+# missing 0002 does not merely build differently, it silently CORRUPTS SCROLLBACK when a
+# window is narrowed. That is why the Buffer.swift check below is a hard failure.
+#
+# VERIFIED PROVENANCE (2026-07-27, amended 2026-07-29)
 # A full recursive diff of the vendored tree against the upstream v1.15.0 tarball
 # reported exactly ONE differing entry: Package.swift. Everything else — all 190+
-# source files including Buffer.swift and Terminal.swift — is byte-identical to
-# upstream. The "upstream + one patch" claim in app/README.md is therefore now
-# mechanically established, not inferred from file mtimes.
+# source files including Buffer.swift and Terminal.swift — was byte-identical to
+# upstream.
+#
+# As of 2026-07-29 there are TWO differing entries: Package.swift and
+# Buffer.swift. The vendored tree is upstream v1.15.0 + two local patches.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -39,15 +46,33 @@ patched_package_swift  = 90e0a07aab0bd278fcb6d10902158e1f3314063de603c7df627a87b
 # the specific reason this file exists. verify-vendor.sh reports it by name.
 upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
 
-# Buffer.swift is pinned SEPARATELY from the patch, as a version tripwire rather than a
-# patch check — it is unmodified upstream and must stay that way while option A is unchosen.
+# Buffer.swift AFTER applying 0002-index-iswrapped-buffer-absolute.patch.
+# This is the hash verify-vendor.sh requires.
 #
-# It carries the confirmed reflow defect of record: lines 1171 and 1211 set
+# This file used to be pinned as a version TRIPWIRE with the note "it is unmodified
+# upstream and must stay that way while option A is unchosen". That is no longer true,
+# and the sentence was removed rather than softened: Buffer.swift now carries a REQUIRED
+# patch, so this is a patch check exactly like Package.swift above, not a tripwire.
+#
+# What the patch fixes — the reflow defect of record: upstream lines 1171 and 1211 set
 # `_lines[_y].isWrapped = true` using a SCREEN-relative index, while the adjacent content
-# writes at 1176 and 1224 correctly use the BUFFER-absolute `_lines[_y + _yBase]`. See
+# writes at 1176 and 1224 correctly use the BUFFER-absolute `_lines[_y + _yBase]` (`_y` is
+# screen-relative per Buffer.swift:22, 40-43). With non-empty scrollback the wrapped-line
+# flag therefore landed `_yBase` rows off target and reflow mangled history. See
 # .afk/plans/emulator-foundation-probe-and-vendor-integrity.md §2 and SwiftTerm issue #494.
 #
-# If this hash changes, the vendored SwiftTerm moved. Re-check whether that defect still
-# exists at those lines before trusting anything the plan or AFK.md says about #494.
-buffer_swift   = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f4d2c16bd
+# The fix is verified by app/Scripts/check-reflow.sh, which FAILS (exit 1, 6 of 8 cases)
+# against an unpatched tree and passes against a patched one. If you re-vendor, run it.
+patched_buffer_swift  = 926fd2931367c584657dbff8bca53c5f2acf5487d97fafc0c1339d93981a0ea8
+
+# Buffer.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
+# re-vendored and 0002 was never applied — the silent-failure case, and now the WORSE of
+# the two: patch 0001 only drops a build-time resource, but a missing 0002 compiles, runs,
+# and silently corrupts scrollback on every window narrowing. verify-vendor.sh reports it
+# by name and FAILS (it only warned while Buffer.swift was unmodified upstream).
+upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f4d2c16bd
+
+# Terminal.swift is still a pure version tripwire — unmodified upstream, no patch. The
+# reflow read-back API check-reflow.sh depends on lives here
+# (getBufferAsData, Terminal.swift:5947), so a change means re-checking that gate.
 terminal_swift = 7d29fe260ff9561ac827e3e145838005c1ad5306f5ca0d087fec2b813520ede9
