@@ -46,30 +46,47 @@ patched_package_swift  = 90e0a07aab0bd278fcb6d10902158e1f3314063de603c7df627a87b
 # the specific reason this file exists. verify-vendor.sh reports it by name.
 upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
 
-# Buffer.swift AFTER applying 0002-index-iswrapped-buffer-absolute.patch.
+# Buffer.swift AFTER applying BOTH 0002-index-iswrapped-buffer-absolute.patch AND
+# 0003-trim-lines-on-narrowing-for-all-buffers.patch. One hash covers both: they are
+# independent hunks of the same file (0002 near line 1170, 0003 near line 520), and a
+# single hash is deliberately unforgiving — a tree carrying only one of the two matches
+# neither this nor the upstream hash and verify-vendor.sh calls it "unknown" (exit 3).
 # This is the hash verify-vendor.sh requires.
 #
 # This file used to be pinned as a version TRIPWIRE with the note "it is unmodified
 # upstream and must stay that way while option A is unchosen". That is no longer true,
-# and the sentence was removed rather than softened: Buffer.swift now carries a REQUIRED
-# patch, so this is a patch check exactly like Package.swift above, not a tripwire.
+# and the sentence was removed rather than softened: Buffer.swift now carries REQUIRED
+# patches, so this is a patch check exactly like Package.swift above, not a tripwire.
 #
-# What the patch fixes — the reflow defect of record: upstream lines 1171 and 1211 set
+# What 0002 fixes — the reflow defect of record: upstream lines 1171 and 1211 set
 # `_lines[_y].isWrapped = true` using a SCREEN-relative index, while the adjacent content
 # writes at 1176 and 1224 correctly use the BUFFER-absolute `_lines[_y + _yBase]` (`_y` is
 # screen-relative per Buffer.swift:22, 40-43). With non-empty scrollback the wrapped-line
 # flag therefore landed `_yBase` rows off target and reflow mangled history. See
 # .afk/plans/emulator-foundation-probe-and-vendor-integrity.md §2 and SwiftTerm issue #494.
 #
-# The fix is verified by app/Scripts/check-reflow.sh, which FAILS (exit 1, 6 of 8 cases)
-# against an unpatched tree and passes against a patched one. If you re-vendor, run it.
-patched_buffer_swift  = 926fd2931367c584657dbff8bca53c5f2acf5487d97fafc0c1339d93981a0ea8
+# What 0003 fixes — the ALT-buffer resize defect: upstream keeps the "trim each line to
+# the new width" loop inside `if isReflowEnabled`, and `isReflowEnabled` is just
+# `hasScrollback` (Buffer.swift:419), which is false for the alt buffer (built
+# `scrollback: nil`, Terminal.swift:694). Narrowing therefore shrank `cols` while every
+# BufferLine kept its old width, and the next WIDENING copied those stale cells back into
+# the visible grid (BufferLine.swift:197). Under tmux — which lives in the alt buffer and
+# repaints only deltas — that is content bleeding across pane and window boundaries.
+# See .afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md.
+#
+# Both fixes are verified behaviourally, and each gate was validated by falsification:
+# app/Scripts/check-reflow.sh FAILS 6 of 8 cases without 0002, and
+# app/Scripts/check-altbuffer-resize.sh FAILS 2 of 4 without 0003 (cases 1 and 2, while
+# its control and its render-range case keep passing). If you re-vendor, run both.
+patched_buffer_swift  = e5166175a15520d599d6a54e2e05e9569242e009aeb13fe9ef447188baefaced
 
 # Buffer.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
-# re-vendored and 0002 was never applied — the silent-failure case, and now the WORSE of
-# the two: patch 0001 only drops a build-time resource, but a missing 0002 compiles, runs,
-# and silently corrupts scrollback on every window narrowing. verify-vendor.sh reports it
-# by name and FAILS (it only warned while Buffer.swift was unmodified upstream).
+# re-vendored and NEITHER 0002 nor 0003 was applied — the silent-failure case, and now the
+# WORSE of the two files: patch 0001 only drops a build-time resource, but a Buffer.swift
+# missing its patches compiles, runs, and silently corrupts the buffer — 0002's absence
+# mangles scrollback on every window narrowing, 0003's bleeds stale cells across tmux panes
+# on every widening. verify-vendor.sh reports it by name and FAILS (it only warned while
+# Buffer.swift was unmodified upstream).
 upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f4d2c16bd
 
 # Terminal.swift is still a pure version tripwire — unmodified upstream, no patch. The

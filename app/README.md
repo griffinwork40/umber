@@ -36,12 +36,13 @@ of pure logic would have caught. So the checks are eight scripts and a diagnosti
 env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH both patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all three patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-cwd-follow.sh    # does the sidebar follow the shell's cwd? — fast, headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
+./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
@@ -118,6 +119,27 @@ because every case sizes scrollback with headroom and the harness checks that he
 precondition — a token vanishing is unambiguous corruption only when legitimate trimming is
 impossible, which is the confound the old gate cited as its reason for dropping the
 assertion entirely.
+
+`check-altbuffer-resize.sh` is the gate for local patch `0003`, and it is `check-reflow.sh`'s
+sibling: same vendored subject, same `SwiftTerm.o` link, same `1` vs `2` exit split. It exists
+because `check-reflow.sh` going green said **nothing** about the alternate buffer — it only
+ever exercised the normal one, and the alt buffer is precisely where the second `Buffer.swift`
+defect lived, so "the reflow gate is green" was a narrower claim than it looked like. Each of
+its four cases answers a different question. Case 1 observes the defect directly: after
+narrowing, are the alt buffer's lines still their old width? Case 2 is the user-visible bug
+end to end — narrow, let tmux fully repaint at the new width, widen again, and assert that
+nothing from the wide era reappears. Case 4 asserts the stale cells are *not* visible while
+narrow, which is what makes "the corruption shows up when you make the window bigger" a
+prediction of the model rather than a coincidence, since the renderer clamps to
+`min(terminal.cols-1, line.count-1)` (`Apple/AppleTerminalView.swift:887`).
+
+Case 3 is the one worth copying elsewhere. It runs the **identical** sequence against the
+normal buffer, where the trim always ran, and asserts it stays clean. Without it, a harness
+bug that broke every case would read as a damning result for the code under test; with it,
+cases 1–2 failing *while the control passes* is the only shape that implicates the alt-buffer
+path specifically. The gate was then validated the same way `check-reflow.sh` was — by
+falsification, not by passing: reverting `0003` fails exactly cases 1 and 2 and keeps 3 and 4
+green. A gate that has never been observed to fail for the right reason is not evidence.
 
 `check-find-menu.sh` covers the three Edit-menu items with **no Umber code behind them** —
 Undo, Redo, and Find and Replace are AppKit responder actions reached with `target = nil`,
@@ -223,7 +245,7 @@ installs a full palette, with the 256-colour trade-off described above.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **two** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **three** local patches:
 
 1. `0001-exclude-metal-shader-from-target.patch` — the optional Metal GPU shader is
    excluded from the build, because Xcode 26.6 moved the Metal toolchain to a separate
@@ -235,10 +257,21 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **two** local pat
    wrapped-line flag buffer-absolute (`_lines[_y + _yBase]`) at `Buffer.swift:1171` and
    `:1211`, which previously used the screen-relative `_lines[_y]` and so corrupted
    scrollback on every narrowing. See "Known upstream risk" below.
+3. `0003-trim-lines-on-narrowing-for-all-buffers.patch` — hoists the "trim each line to
+   the new width" loop out of `if isReflowEnabled` at `Buffer.swift:522`, so it runs for
+   the **alternate** buffer too. `isReflowEnabled` is just `hasScrollback`
+   (`Buffer.swift:419`) and the alt buffer is built `scrollback: nil`
+   (`Terminal.swift:694`), so narrowing left every `BufferLine` at its old width while
+   `cols` shrank, and the next *widening* copied those stale cells back into the visible
+   grid (`BufferLine.swift:197`). Under tmux — which lives in the alt buffer and repaints
+   only deltas — that is content bleeding across pane and window boundaries. The loop must
+   stay **after** `reflow`, which rewraps from the old width. Diagnosis:
+   `../.afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md`.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`../patches/swiftterm/0001-exclude-metal-shader-from-target.patch` and
-`../patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch`, both pinned by
+`../patches/swiftterm/0001-exclude-metal-shader-from-target.patch`,
+`../patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch` and
+`../patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -247,12 +280,18 @@ git clone --depth 1 --branch v1.15.0 \
 chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (both patches)
-(cd app && ./Scripts/check-reflow.sh)   # proves 0002 actually took
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all three patches)
+(cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
+(cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 ```
 
-Both patches are required. `verify-vendor.sh` exits `2` naming the specific file if
-either is missing.
+All three patches are required. `verify-vendor.sh` exits `2` naming the specific file if
+one is missing. Note that `0002` and `0003` patch the **same file**, so the pin carries a
+single combined `Buffer.swift` hash: a tree with only one of them matches neither the
+patched nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
+deliberate — half-patched is not a state this project supports, and it is louder than a
+hash that quietly tolerated either.
 
 Earlier revisions of this file said to "exclude the shader resource in its
 `Package.swift` (the change is annotated in place)" — i.e. the only description of the
@@ -265,9 +304,11 @@ vendored tree against the upstream `v1.15.0` tarball (commit `dd2fb8a`) reported
 one** differing entry, `Package.swift`. Every other file — including `Buffer.swift` — was
 byte-identical to upstream, which is why the #494 defect is upstream's and not something
 introduced here. As of 2026-07-29 there are **two** differing entries, `Package.swift` and
-`Buffer.swift`, the second being patch `0002`; the pin records the upstream hash of
-`Buffer.swift` alongside the patched one precisely so "re-vendored, patch forgotten" stays
-a nameable state rather than an unexplained hash mismatch.
+`Buffer.swift`, the latter carrying patches `0002` and `0003`; the pin records the upstream
+hash of `Buffer.swift` alongside the patched one precisely so "re-vendored, patch forgotten"
+stays a nameable state rather than an unexplained hash mismatch. That byte-identical
+baseline is also what establishes both `Buffer.swift` defects as **upstream's**: the file
+was untouched here before either patch, so neither was self-inflicted.
 
 To restore the stock dependency once
 `xcodebuild -downloadComponent MetalToolchain` has run, change `Package.swift`

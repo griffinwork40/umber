@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its two local patches applied.
+# WITH its three local patches applied.
 #
 # Why this exists: vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not a
 # git repo, app/Package.swift:20 is an unpinned `.package(path:)`, and
@@ -16,12 +16,18 @@
 # produced a green build against a different dependency than the tested one. This
 # script makes that case loud. It is called first by make-app-bundle.sh.
 #
-# Patch 0002 (Buffer.swift, the #494 reflow fix) raised the stakes, which is why the
-# Buffer.swift check below is a HARD FAILURE and not the warning it was until
-# 2026-07-29. A tree missing 0002 compiles, runs, passes every other check, and
-# silently CORRUPTS SCROLLBACK on every window narrowing — the same silent-failure
-# asymmetry this script was written to kill, in its worst form yet. Warn-only would
-# have meant the one check that can catch it printing to stderr and exiting 0.
+# The two Buffer.swift patches raised the stakes, which is why the Buffer.swift check
+# below is a HARD FAILURE and not the warning it was until 2026-07-29. A tree missing
+# them compiles, runs, passes every other check, and silently CORRUPTS THE BUFFER:
+# without 0002 (#494) reflow mangles SCROLLBACK on every window narrowing; without 0003
+# the ALT buffer resurrects stale cells on every widening, which under tmux is content
+# bleeding across pane and window boundaries. Same silent-failure asymmetry this script
+# was written to kill, in its worst form yet. Warn-only would have meant the one check
+# that can catch it printing to stderr and exiting 0.
+# Both patches touch the SAME file, so the pin carries ONE combined hash: a tree with
+# only one of them matches neither the patched nor the upstream hash and lands in the
+# exit-3 "unknown" branch, which is the intended outcome — half-patched is not a state
+# this project supports.
 #
 # Usage:
 #   ./Scripts/verify-vendor.sh            # verify, print one OK line
@@ -31,7 +37,7 @@
 #   0  vendored tree matches the pin
 #   1  vendor/ missing, or pin/patch files missing
 #   2  present but UNPATCHED (the silent case this script exists to catch) —
-#      either Package.swift is missing patch 0001, or Buffer.swift is missing 0002
+#      either Package.swift is missing patch 0001, or Buffer.swift is missing 0002/0003
 #   3  present but a hash matches neither patched nor upstream (unknown revision)
 #
 set -euo pipefail
@@ -48,6 +54,7 @@ VENDOR="$REPO_ROOT/vendor/SwiftTerm"
 PIN="$REPO_ROOT/patches/swiftterm/SwiftTerm.pin"
 PATCH="$REPO_ROOT/patches/swiftterm/0001-exclude-metal-shader-from-target.patch"
 PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
+PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -61,7 +68,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -86,9 +93,12 @@ if [[ ! -d "$VENDOR" ]]; then
   err "  chmod -R u+w vendor/SwiftTerm"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
   err ""
-  err "BOTH patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
-  err "narrowing); app/Scripts/check-reflow.sh is what proves it applied."
+  err "ALL THREE patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption"
+  err "on narrowing) and 0003 fixes the alt-buffer resize defect (stale cells bleeding"
+  err "across tmux panes on widening); check-reflow.sh and check-altbuffer-resize.sh are"
+  err "what prove they applied."
   exit 1
 fi
 
@@ -150,9 +160,11 @@ if [[ "$GOT_BUFFER" == "$WANT_BUFFER_UPSTREAM" ]]; then
   err ""
   err "Apply the patch:"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
   err ""
-  err "Then prove it took (fails 6 of 8 cases unpatched, passes all 8 patched):"
-  err "  cd app && ./Scripts/check-reflow.sh"
+  err "Then prove they took (each gate was validated by falsification):"
+  err "  cd app && ./Scripts/check-reflow.sh            # 6 of 8 fail without 0002"
+  err "  cd app && ./Scripts/check-altbuffer-resize.sh  # 2 of 4 fail without 0003"
   exit 2
 fi
 
@@ -164,12 +176,14 @@ if [[ "$GOT_BUFFER" != "$WANT_BUFFER" ]]; then
   err "  found:              $GOT_BUFFER"
   err ""
   err "If you deliberately re-vendored or upgraded SwiftTerm: re-check whether the #494"
-  err "_yBase defect still exists at lines 1171/1211, re-apply or retire patch 0002, run"
-  err "  cd app && ./Scripts/check-reflow.sh"
+  err "_yBase defect still exists at lines 1171/1211 and whether the line-trim loop is"
+  err "still inside 'if isReflowEnabled' near line 522, re-apply or retire 0002 and 0003,"
+  err "run BOTH gates"
+  err "  cd app && ./Scripts/check-reflow.sh && ./Scripts/check-altbuffer-resize.sh"
   err "and only then regenerate the pin:"
   err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift"
   err "  # then update patched_buffer_swift in patches/swiftterm/SwiftTerm.pin"
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 2 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 3 local patches"
