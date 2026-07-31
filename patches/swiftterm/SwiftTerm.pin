@@ -25,8 +25,10 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-07-29 there are TWO differing entries: Package.swift and
-# Buffer.swift. The vendored tree is upstream v1.15.0 + two local patches.
+# As of 2026-07-31 there are still exactly TWO differing FILES — Package.swift and
+# Buffer.swift — but they now carry FOUR patches between them: 0001 on Package.swift,
+# and 0002/0003/0004 on Buffer.swift. File count and patch count are not the same
+# number and have not been since 0003; do not infer one from the other.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift
@@ -37,21 +39,48 @@ upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
 upstream_commit = dd2fb8ac5b861e7bf617c872895e338f38165648
 
-# Package.swift AFTER applying 0001-exclude-metal-shader-from-target.patch.
+# Package.swift AFTER applying 0001-ship-metal-shader-as-copy-resource.patch.
 # This is the hash verify-vendor.sh requires.
-patched_package_swift  = 90e0a07aab0bd278fcb6d10902158e1f3314063de603c7df627a87b58fc4fab6
+#
+# What 0001 does, and what it used to do wrong. Upstream declares the Metal renderer's
+# shader as `.process("Apple/Metal/Shaders.metal")`, which invokes the offline Metal
+# compiler at build time. That is impossible here — Xcode 26.6 moved the toolchain to
+# `xcodebuild -downloadComponent MetalToolchain` and this machine has Command Line Tools
+# only — and it fails LOUDLY: `error: unable to spawn process 'metal'`.
+#
+# Until 2026-07-31 this patch avoided that with `exclude:`, which also removed the shader
+# from the resource bundle. That was one step too far. MetalTerminalRenderer.makeLibrary
+# (Apple/Metal/MetalTerminalRenderer.swift:2746) falls back to compiling the .metal SOURCE
+# at RUNTIME (:2765) — no offline toolchain needed — but only if the file is in the bundle.
+# With `exclude` it was not, so the fallback threw `shaderSourceMissing` (:2762) and the
+# vendored GPU renderer was unreachable for the life of the project, silently.
+#
+# 0001 is now `.copy`, which ships the raw source and never invokes the build-time
+# compiler. Both halves measured rather than assumed: `.process` fails as quoted above,
+# `.copy` builds and lands the file at SwiftTerm_SwiftTerm.bundle/Contents/Resources/,
+# and runtime compilation of the real shaders on an M4 Pro takes 173ms cold / ~0ms warm
+# with all seven required functions present. app/Scripts/check-metal-renderer.sh is the
+# gate; .afk/research/performance-audit-2026-07-31.md §1 is the argument.
+patched_package_swift  = 8cc7331ee1f5168eb686fd147987ea868d3e0f4c6c2f65307c79f78afe3003c9
 
-# Package.swift as shipped upstream at v1.15.0. Matching THIS hash instead means the
-# tree was re-vendored and the patch was never applied — the silent-failure case, and
-# the specific reason this file exists. verify-vendor.sh reports it by name.
+# Package.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
+# re-vendored and 0001 was never applied. Note this one case is NOT silent: with upstream's
+# `.process` the build dies at `unable to spawn process 'metal'`. verify-vendor.sh still
+# reports it by name, because a named cause beats a compiler error about a missing tool.
 upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
 
-# Buffer.swift AFTER applying BOTH 0002-index-iswrapped-buffer-absolute.patch AND
-# 0003-trim-lines-on-narrowing-for-all-buffers.patch. One hash covers both: they are
-# independent hunks of the same file (0002 near line 1170, 0003 near line 520), and a
-# single hash is deliberately unforgiving — a tree carrying only one of the two matches
-# neither this nor the upstream hash and verify-vendor.sh calls it "unknown" (exit 3).
-# This is the hash verify-vendor.sh requires.
+# Buffer.swift AFTER applying ALL THREE of 0002-index-iswrapped-buffer-absolute.patch,
+# 0003-trim-lines-on-narrowing-for-all-buffers.patch and
+# 0004-gate-resize-post-condition-behind-debug.patch. One hash covers all three: they are
+# independent hunks of the same file (0002 near line 1170, 0003 near line 520, 0004 near
+# line 544), and a single hash is deliberately unforgiving — a tree carrying only some of
+# them matches neither this nor the upstream hash and verify-vendor.sh calls it "unknown"
+# (exit 3). This is the hash verify-vendor.sh requires.
+#
+# That combined hash is also why 0004 needs no check of its own even though, unlike 0002
+# and 0003, its absence corrupts nothing. A tree missing it is merely slower and carries a
+# release-build `abort()`; it still cannot pass, because it cannot match this hash. The
+# existing "half-patched is not a state this project supports" rule covers it for free.
 #
 # This file used to be pinned as a version TRIPWIRE with the note "it is unmodified
 # upstream and must stay that way while option A is unchosen". That is no longer true,
@@ -74,11 +103,31 @@ upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a49
 # repaints only deltas — that is content bleeding across pane and window boundaries.
 # See .afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md.
 #
-# Both fixes are verified behaviourally, and each gate was validated by falsification:
+# What 0004 fixes — a debug assertion that ships. Upstream wraps this file's other five
+# debug blocks in `#if DEBUG` (:47, :62, :81, :98, :116) but leaves the `// DEBUG:
+# Post-condition` loop after the resize trim ungated. Verified against the pristine
+# v1.15.0 file, where it sits at :533-546 with no surrounding conditional — so this is an
+# upstream leftover, not something 0002/0003 introduced. It walks the viewport PLUS THE
+# ENTIRE SCROLLBACK on every resize (the third such walk in the function, after reflow and
+# after 0003's trim) and calls `abort()` on mismatch. Every size change reaches it:
+# processSizeChange (live window drag — once per drag frame — plus ⌘B and full screen) and
+# resetFont (⌘+/⌘-/⌘0, ⌘R). At Umber's default 1000-line scrollback that is 1000 iterations
+# per buffer per resize event, and a hard crash path raised from inside a window drag in a
+# terminal whose whole job is hosting long-running agent sessions.
+# See .afk/research/performance-audit-2026-07-31.md §2.
+#
+# 0002 and 0003 are verified behaviourally, and each gate was validated by falsification:
 # app/Scripts/check-reflow.sh FAILS 6 of 8 cases without 0002, and
 # app/Scripts/check-altbuffer-resize.sh FAILS 2 of 4 without 0003 (cases 1 and 2, while
 # its control and its render-range case keep passing). If you re-vendor, run both.
-patched_buffer_swift  = e5166175a15520d599d6a54e2e05e9569242e009aeb13fe9ef447188baefaced
+#
+# 0004 gets NO behavioural gate, deliberately, and this is the honest reason: it changes no
+# release behaviour that any check could observe. Its whole effect is deleting work and
+# deleting a crash path, so a passing gate would prove only that the compiler honours
+# `#if DEBUG`. What guards it instead is this pin's hash plus the fact that both remaining
+# Buffer.swift gates still pass with it applied — i.e. that removing the assertion did not
+# remove anything the assertion was catching. Both were re-run when 0004 landed.
+patched_buffer_swift  = 05d64bab59de389334e0557b7cbf776551d0cf3d9bf9ab4d59df09736d31c8d1
 
 # Buffer.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
 # re-vendored and NEITHER 0002 nor 0003 was applied — the silent-failure case, and now the

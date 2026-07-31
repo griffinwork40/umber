@@ -34,6 +34,10 @@ enum StarterConfig {
       "// optionAsMeta": "true lets Option act as Meta instead of typing accents",
       "optionAsMeta": true,
 
+      "// renderer": "coretext (default) | metal. metal is SwiftTerm's GPU path: a glyph atlas plus per-row vertex caching, which should scroll a big log noticeably faster than coretext, where every visible row is re-shaped through Core Text on every frame.",
+      "// renderer-note": "OPT-IN because upstream calls the GPU path experimental and its speedup here has not been measured. Falls back to coretext by itself if it cannot start, and says so on stderr. Change it and hit Cmd-R; run app/Scripts/check-metal-renderer.sh if you suspect it silently fell back.",
+      "renderer": "coretext",
+
       "// theme": "OMITTED ON PURPOSE. With no theme, SwiftTerm's own colours stand and ANSI 16-255 keep the standard xterm values. Setting a background or foreground makes SwiftTerm regenerate indices 16-255 by interpolating them out of your bg/fg, so 256-colour programs render against synthesised approximations. Uncomment below only if you want that trade.",
       "// theme-example": {
         "preset": "afk-dark",
