@@ -41,6 +41,7 @@ env var, each aimed at something that has really gone wrong:
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-cwd-follow.sh    # does the sidebar follow the shell's cwd? — fast, headless
+./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
@@ -93,6 +94,38 @@ It paid for itself before it first went green: it caught the `URL`-vs-`.path` eq
 documented at `FileTreeViewController.setRoot(_:)`, where `URL` equality carries a directory
 marker that `resolvingSymlinksInPath()` drops on a symlink-terminated path — which would have
 rebuilt the file tree twice a second and destroyed the user's expansion state.
+
+`check-git-status.sh` gates the git sidebar's data layer, and it is the only check here made of
+**two files**: the shell half builds fixtures, and the assertions live in
+`Scripts/check-git-status-harness.swift`, which it copies to `main.swift` and compiles against
+the two shipped sources. That split was forced by the 350-line ceiling rather than chosen —
+inline the halves came to 358 lines — but it lands on a real seam, and the harness being actual
+Swift rather than a quoted heredoc means a formatter and an editor can both read it.
+
+Every fixture is built by running real `git`: real commits, a real `git mv` (so the `-z` rename
+record really does span two NUL-delimited tokens), a real merge conflict from two diverging
+branches (so the `u` record's different field count is really exercised), a real bare remote,
+a real detached HEAD, and a real `git worktree add` — the last because in a worktree `.git` is
+an ASCII *file*, not a directory, so any repo detection written as `isDirectory(root/.git)`
+would fail on every `.afk-worktrees/*` checkout including this project's own while passing
+every manual test from an ordinary clone. Hand-typed porcelain strings were refused for the
+reason `check-cwd-follow.sh` gives about quoting: they encode only the author's assumptions
+about the format, which is exactly where a looks-right-is-wrong bug hides.
+
+It was validated by falsification like the reflow pair, but the counterexample had to be
+manufactured — there is no upstream bug to revert in first-party code. A deliberately naive
+parser was written first (rename token not consumed, `u` record read with the ordinary field
+offsets, fixed fields whitespace-split), the finished gate was run against it, and it failed
+4 cases while the **control case stayed green** — which is the part that matters, because a
+harness bug would have shown up as control-and-edges-both-red and its verdict would have had
+to be thrown away. The transcript is kept at
+`.afk/research/git-sidebar-falsification-2026-07-31.md`.
+
+What it cannot reach is stated in its own header: the poller's cadence, the badge glyph, colour
+legibility inside the selection pill, and every line of AppKit wiring — all of which import
+AppKit and therefore cannot be compiled alone. `UMBER_DIAG=1` prints one `[umber] git:` line
+per changed snapshot to cover the gap that matters most, which is telling "not a repository"
+apart from "the tint failed to draw".
 
 `check-reflow.sh` is the gate for SwiftTerm #494 and for local patch `0002`. It compiles a
 harness against the **vendored emulator itself** (not a file from `Sources/Umber`), seeds

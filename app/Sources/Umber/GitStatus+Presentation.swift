@@ -66,4 +66,26 @@ extension GitFileStatus {
             return .tertiaryLabelColor
         }
     }
+
+    /// What VoiceOver says instead of the badge letter.
+    ///
+    /// The letter and the colour are both glance affordances, and neither survives being
+    /// read aloud: "M" is not a word and a tint is not announced at all. Without this the
+    /// entire feature is invisible to a screen reader — which would make colour the *only*
+    /// channel carrying the status, and colour alone is also what a colour-blind user does
+    /// not get. That is the same reasoning that keeps the letter badge on by default rather
+    /// than following Zed's colour-only look.
+    var accessibilityDescription: String {
+        switch self {
+        case .conflicted: return "conflicted"
+        case .added: return "added"
+        case .modified: return "modified"
+        case .deleted: return "deleted"
+        case .renamed: return "renamed"
+        case .copied: return "copied"
+        case .typeChanged: return "type changed"
+        case .untracked: return "untracked"
+        case .ignored: return "ignored"
+        }
+    }
 }

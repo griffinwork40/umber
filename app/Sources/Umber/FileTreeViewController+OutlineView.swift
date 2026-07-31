@@ -40,7 +40,7 @@ extension FileTreeViewController: NSOutlineViewDataSource {
     private func node(for item: Any?) -> FileNode { (item as? FileNode) ?? root }
 }
 
-/// A source-list row whose glyph tracks the row's own state.
+/// A source-list row whose glyph and text track the row's own state.
 ///
 /// The tint has to be re-derived from `backgroundStyle` rather than assigned once
 /// at build time: AppKit flips a selected row to `.emphasized` and expects the cell
@@ -50,13 +50,34 @@ extension FileTreeViewController: NSOutlineViewDataSource {
 /// glyph is what you skim.
 @MainActor
 private final class FileCellView: NSTableCellView {
+    /// The git tint for this row, or nil when the file is clean. Stored rather than applied
+    /// directly because the selection pill can arrive at any time and the answer has to be
+    /// re-derivable: inside the pill, git colour must yield to the pill's own contrast
+    /// colour or an orange filename on saturated blue becomes the least legible thing in
+    /// the window. This is the same problem the icon already had, so it takes the same
+    /// shape — one stored input, one `applyTint()` that owns the whole rule.
+    var decorationColour: NSColor?
+
+    /// The status letter, trailing-aligned. Its own control rather than a suffix on the
+    /// filename: appended to `stringValue` it would be truncated away by
+    /// `.byTruncatingMiddle` on exactly the long paths where a status matters most, and it
+    /// would be read aloud as part of the name.
+    let badge = NSTextField(labelWithString: "")
+
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet { applyTint() }
     }
 
     func applyTint() {
+        let selected = backgroundStyle == .emphasized
         imageView?.contentTintColor =
-            backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+            selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        // A clean row keeps `labelColor` — decoration is the exception, never the default,
+        // so an unmodified tree looks precisely as it did before this feature landed.
+        textField?.textColor =
+            selected ? .alternateSelectedControlTextColor : (decorationColour ?? .labelColor)
+        badge.textColor =
+            selected ? .alternateSelectedControlTextColor : (decorationColour ?? .clear)
     }
 }
 
@@ -73,7 +94,34 @@ extension FileTreeViewController: NSOutlineViewDelegate {
 
         cell.textField?.stringValue = node.name
         cell.imageView?.image = Self.symbol(named: Self.symbolName(for: node))
+        applyGitDecoration(to: cell, for: node)
         return cell
+    }
+
+    /// Put this row's git status on the cell — or take it off.
+    ///
+    /// Called from two places, and the second is why this is a function rather than four
+    /// lines inside `viewFor`: a new snapshot repaints realised rows through
+    /// `gitStatusDidChange()` without rebuilding them, and one description of how a row
+    /// looks is the only way those two paths cannot drift apart.
+    ///
+    /// **It must always write, never only when there is a status.** Cells are recycled by
+    /// `makeView(withIdentifier:)`, so a clean file scrolling into the cell a modified one
+    /// just vacated inherits its orange text and its `M` unless the nil case is written
+    /// too. That is the whole class of bug behind "the sidebar shows the wrong status",
+    /// and it is invisible until you scroll.
+    func applyGitDecoration(to cell: NSTableCellView, for node: FileNode) {
+        let status = gitStatus(for: node)
+        if let view = cell as? FileCellView {
+            view.decorationColour = status?.decorationColour
+            view.badge.stringValue = status?.letter ?? ""
+            view.applyTint()
+        }
+        // VoiceOver reads the cell, not its subviews, so the status has to join the name
+        // here or it is announced as a bare letter after it — or not at all.
+        cell.setAccessibilityLabel(
+            status.map { "\(node.name), \($0.accessibilityDescription)" } ?? node.name)
+
     }
 
     /// SF Symbols rather than `NSWorkspace.icon(forFile:)`.
@@ -137,10 +185,25 @@ extension FileTreeViewController: NSOutlineViewDelegate {
         textField.font = .systemFont(ofSize: 12)
         textField.lineBreakMode = .byTruncatingMiddle
 
+        // Bold and a point smaller: at 12pt regular the letter reads as another character
+        // of the filename, which is the one thing it must not do.
+        let badge = cell.badge
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.font = .boldSystemFont(ofSize: 11)
+        badge.alignment = .center
+
         cell.addSubview(imageView)
         cell.addSubview(textField)
+        cell.addSubview(badge)
         cell.imageView = imageView
         cell.textField = textField
+
+        // The badge must never be the thing that gives way: a filename truncating is a
+        // cosmetic loss in a narrow sidebar, a status silently vanishing is a correctness
+        // one. So it resists compression and the name — already `.byTruncatingMiddle` —
+        // absorbs the squeeze instead.
+        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
@@ -148,8 +211,13 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             imageView.widthAnchor.constraint(equalToConstant: 16),
             imageView.heightAnchor.constraint(equalToConstant: 16),
             textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 5),
-            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
             textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            // Between the name and the trailing edge. An empty badge has no intrinsic
+            // width, so a clean row's name reaches exactly as far as it did before.
+            badge.leadingAnchor.constraint(
+                equalTo: textField.trailingAnchor, constant: 4),
+            badge.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            badge.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         // Seed the tint: `backgroundStyle` only fires its observer on a *change*,
         // so an unselected row built fresh would otherwise draw an untinted glyph.

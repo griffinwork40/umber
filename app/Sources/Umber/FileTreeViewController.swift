@@ -74,6 +74,19 @@ final class FileTreeViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let rowMenu = NSMenu()
 
+    /// The git-status poller. Nil until the Space's window first becomes key, because a
+    /// Space nobody has looked at has nothing to decorate — see `startGitFollow()`.
+    ///
+    /// The only stored property the git concern needs, and it is here rather than in
+    /// `FileTreeViewController+Git.swift` only because Swift extensions cannot add stored
+    /// properties. Everything it does lives over there.
+    var gitFollow: GitStatusFollow?
+
+    /// The branch line above the tree. Built eagerly and hidden — it costs one view, and
+    /// `loadView` has to put it in the stack before the first poll can decide whether it
+    /// belongs on screen.
+    let gitHeader = GitBranchHeaderView()
+
     init(root url: URL) {
         self.root = FileNode(url: url, isDirectory: true)
         super.init(nibName: nil, bundle: nil)
@@ -113,10 +126,26 @@ final class FileTreeViewController: NSViewController {
         // The sidebar item paints its own vibrant material; an opaque scroll view
         // on top of it would flatten that back to a solid rectangle.
         scrollView.drawsBackground = false
-        scrollView.autoresizingMask = [.width, .height]
+
+        // A stack rather than manual constraints, for one specific property: an
+        // `NSStackView` detaches hidden views from its layout, so `GitBranchHeaderView`
+        // hiding itself in a Space that is not a git repository leaves no gap above the
+        // tree and needs no height constraint to animate to zero. The sidebar then looks
+        // exactly as it did before this feature existed, which is the bar for added chrome.
+        let stack = NSStackView(views: [gitHeader, scrollView])
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 0, right: 6)
+        // The header keeps its 22pt; the scroll view takes everything left over. Without
+        // this the stack splits the space between them and the tree ends up half-height.
+        gitHeader.setContentHuggingPriority(.required, for: .vertical)
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        // The split view sizes this controller's root view by frame, as it did when that
+        // root was the scroll view itself; inside the stack, its children use constraints.
+        stack.autoresizingMask = [.width, .height]
 
         root.reloadChildren()
-        view = scrollView
+        view = stack
     }
 
     /// Re-read the tree, preserving expansion and selection.
@@ -135,6 +164,15 @@ final class FileTreeViewController: NSViewController {
 
         root.reloadChildren()
         outlineView.reloadData()
+
+        // Git status is stale for exactly the same reason the tree is, at exactly the same
+        // moment: the agent in the terminal beside this sidebar has been editing and
+        // committing while the window was in the background. So the two refreshes share
+        // one trigger rather than inventing a second lifecycle hook. `start()` is
+        // idempotent and polls once immediately, so this both starts the poller the first
+        // time and re-reads on every later activation. The stop half is in
+        // `SpaceViewController.windowDidResignKey()`, next to cwd-follow's.
+        startGitFollow()
 
         for node in expanded { outlineView.expandItem(node) }
         if let selectedURL {
@@ -186,6 +224,11 @@ final class FileTreeViewController: NSViewController {
         root = FileNode(url: url, isDirectory: true)
         root.reloadChildren()
         outlineView.reloadData()
+        // The tree now shows a different project, so the decorations on screen belong to
+        // the old one. Waiting out the poller's 2s tick would leave them there — not merely
+        // late but *wrong*, which is worse than showing none. The follower re-discovers the
+        // repository when it finds the root has moved outside the one it knew.
+        gitFollowPollNow()
     }
 
     @objc private func handleDoubleClick() {
