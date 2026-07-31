@@ -2,12 +2,14 @@
 //  FileTreeViewController.swift
 //  The sidebar file tree, rooted at the Space's project directory.
 //
-//  Two concerns live in files of their own: the tree's model in `FileNode.swift`,
-//  and the `NSOutlineView` data source and delegate, plus the cell machinery they
-//  build, in `FileTreeViewController+OutlineView.swift`. What stays here is the
-//  controller itself — the outline and scroll view it assembles, the
-//  identity-preserving `refresh()`, `setRoot(_:)` (repoint the tree at a new
-//  directory — cwd-follow), double-click routing, and the row context menu.
+//  Four concerns live in files of their own: the tree's model in `FileNode.swift`; the
+//  `NSOutlineView` data source and delegate, plus the cell machinery they build, in
+//  `FileTreeViewController+OutlineView.swift`; the right-click menu in
+//  `FileTreeViewController+ContextMenu.swift`; and git status — the poller, the snapshot
+//  and the branch header — in `FileTreeViewController+Git.swift`. What stays here is the
+//  controller itself: the views it assembles, the identity-preserving `refresh()`,
+//  `setRoot(_:)` (repoint the tree at a new directory — cwd-follow), and double-click
+//  routing.
 //
 
 import AppKit
@@ -63,7 +65,12 @@ final class FileTreeViewController: NSViewController {
     /// wanders, so a `cd` moving the sidebar must never rename the Space, relabel
     /// its window tab, or rewrite its remembered frame/restore entry.
     private(set) var root: FileNode
-    private let outlineView = NSOutlineView()
+
+    /// Internal for the same reason `root` is: two extensions in other files need it.
+    /// `+ContextMenu` reads `clickedRow` to know which row was hit, and `+Git` reloads
+    /// row views in place when a status snapshot changes. Both only ever read it — the
+    /// view is still built and owned here, and nothing outside this type may replace it.
+    let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
     private let rowMenu = NSMenu()
 
@@ -197,104 +204,4 @@ final class FileTreeViewController: NSViewController {
             delegate?.fileTree(self, didActivate: node.url)
         }
     }
-
-    // MARK: - Context menu
-
-    /// Built per right-click rather than once, so the item set can depend on what
-    /// was actually clicked (a directory has nothing to "Open" in a viewer).
-    ///
-    /// Every action carries its `FileNode` in `representedObject` instead of
-    /// re-reading `clickedRow` when it fires: the menu outlives the click, and a
-    /// refresh landing in between would silently retarget the action at whatever
-    /// row moved into that index.
-    @objc private func menuNeedsUpdateImpl(_ menu: NSMenu) {
-        menu.removeAllItems()
-        guard let node = outlineView.item(atRow: outlineView.clickedRow) as? FileNode else { return }
-
-        if !node.isDirectory {
-            menu.addItem(withTitle: "Open", action: #selector(menuOpen(_:)), keyEquivalent: "")
-            menu.addItem(
-                withTitle: "Insert Path in Terminal", action: #selector(menuInsertPath(_:)),
-                keyEquivalent: "")
-        }
-        // Offered for files as well as directories — it resolves a file to its parent
-        // (`menuNewTerminal`), which is what "here" means when you right-click a file
-        // you are about to run something against. Finder's own "New Terminal at
-        // Folder" service is directory-only and that is a worse rule in a project
-        // tree, where the row your eye is on is usually the file, not its folder.
-        menu.addItem(
-            withTitle: "New Terminal Here", action: #selector(menuNewTerminal(_:)),
-            keyEquivalent: "")
-        // Right beside "New Terminal Here": both answer "here", one by starting a
-        // fresh shell at this path, the other by redirecting the shell you already
-        // have. Same file-to-parent resolution as that item, for the same reason —
-        // see `menuChangeDirectory`.
-        menu.addItem(
-            withTitle: "cd Here", action: #selector(menuChangeDirectory(_:)),
-            keyEquivalent: "")
-        // The separator moved out of the `!isDirectory` block rather than being
-        // duplicated: it was conditional only because a directory row had nothing
-        // above it to separate, and now every row does. The in-app actions stay above
-        // it, the two hand-offs to the rest of macOS stay below.
-        menu.addItem(.separator())
-        menu.addItem(
-            withTitle: "Reveal in Finder", action: #selector(menuReveal(_:)), keyEquivalent: "")
-        menu.addItem(
-            withTitle: "Copy Path", action: #selector(menuCopyPath(_:)), keyEquivalent: "")
-
-        for item in menu.items where item.action != nil {
-            item.target = self
-            item.representedObject = node
-        }
-    }
-
-    private func node(from sender: Any?) -> FileNode? {
-        (sender as? NSMenuItem)?.representedObject as? FileNode
-    }
-
-    @objc private func menuOpen(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        delegate?.fileTree(self, didActivate: node.url)
-    }
-
-    @objc private func menuInsertPath(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        delegate?.fileTree(self, didRequestPathInsert: node.url)
-    }
-
-    /// Resolve the clicked row to a directory here, in the one place that knows what
-    /// was clicked, rather than passing the raw node and making the Space re-derive
-    /// it: `deletingLastPathComponent()` on a directory URL would climb to its
-    /// *parent*, so a receiver that guessed wrong would open every folder's terminal
-    /// one level too high.
-    @objc private func menuNewTerminal(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        let directory = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
-        delegate?.fileTree(self, didRequestNewTerminalAt: directory)
-    }
-
-    /// Same file-to-parent resolution as `menuNewTerminal`, and for the same
-    /// reason: the row under a right-click here is usually the file you are about
-    /// to work on, not its enclosing folder, so `cd`-ing to a *file* would fail —
-    /// this makes it just work instead of asking the container to handle that.
-    @objc private func menuChangeDirectory(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        let directory = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
-        delegate?.fileTree(self, didRequestChangeDirectory: directory)
-    }
-
-    @objc private func menuReveal(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([node.url])
-    }
-
-    @objc private func menuCopyPath(_ sender: Any?) {
-        guard let node = node(from: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(node.url.path, forType: .string)
-    }
-}
-
-extension FileTreeViewController: NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) { menuNeedsUpdateImpl(menu) }
 }

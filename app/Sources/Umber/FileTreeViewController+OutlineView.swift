@@ -7,12 +7,12 @@
 //  is answered for and drawn. It holds the data source's four callbacks, the
 //  delegate's `viewFor`, and the cell machinery nothing else uses: `FileCellView`,
 //  the SF Symbol table, the glyph cache, and the row's Auto Layout. It reaches
-//  back into the controller for exactly one thing, `root`. What stays in
-//  `FileTreeViewController.swift` is the controller's own job — building the
-//  outline and scroll view, the identity-preserving `refresh()`, double-click
-//  routing, and the row context menu. `NSMenuDelegate` stays there too: its single
-//  member forwards to the context-menu code, so it belongs to that concern, not
-//  this one.
+//  back into the controller for `root`, and — since the git sidebar landed — for
+//  the current status snapshot, which it asks about per row rather than caching
+//  anything on the node. What stays in `FileTreeViewController.swift` is the
+//  controller's own job: building the outline and scroll view, the
+//  identity-preserving `refresh()`, and double-click routing. The right-click menu
+//  and the git poller each have their own file.
 //
 
 import AppKit
