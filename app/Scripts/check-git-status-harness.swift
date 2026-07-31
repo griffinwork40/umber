@@ -174,6 +174,35 @@ check("a plain directory is not a repo",
 check("a subdirectory of a plain directory is not a repo either",
       GitStatusReader.discoverRepository(at: fixture("notrepo/sub")) == nil)
 
+// NESTED REPOSITORIES — a repo inside another repo's working tree, which is this project's
+// own layout. Discovery is not the bug here: asked directly, it answers correctly, and case
+// one proves it. What the other two cases pin is the reason a CONTAINMENT test cannot be
+// substituted for asking — because containment stays true while the answer changes, and a
+// cache keyed on it returns the outer repo forever once the tree root moves inward. That is
+// a real defect that shipped in `GitStatusFollow.tick()` and is why it now keys its cache on
+// the root it was answered for. These cases cannot reach that AppKit code; they assert the
+// property underneath it, which is the part a `swiftc` harness can hold.
+if let outer = GitStatusReader.discoverRepository(at: fixture("outer")),
+    let inner = GitStatusReader.discoverRepository(at: fixture("outer/inner-wt"))
+{
+    check("a nested worktree resolves to ITSELF, not to the repo containing it",
+          inner.root.lastPathComponent == "inner-wt", inner.root.path)
+    check("the outer repo still CONTAINS the inner root — containment is not identity",
+          outer.relativePath(for: fixture("outer/inner-wt")) == "inner-wt",
+          outer.relativePath(for: fixture("outer/inner-wt")) ?? "nil")
+    // The cost of reusing the outer repo is not a mislabelled branch alone: the outer repo
+    // ignores the worktree, so every decoration inside it silently disappears.
+    if let outerSnapshot = GitStatusReader.snapshot(of: outer) {
+        check("the outer repo reports NO status for the inner worktree's dirty file",
+              outerSnapshot.status(forRelativePath: "inner-wt/o.txt") == nil)
+    } else {
+        print("  ✗ the outer repo's snapshot was unreadable"); failures += 1
+    }
+} else {
+    print("  ✗ the nested-worktree fixture was not recognised as two repositories")
+    failures += 1
+}
+
 print("RELATIVE PATHS — how a tree node finds its decoration")
 check("a file inside the repo resolves",
       plainRepo.relativePath(for: fixture("plain/nested/deep/buried.txt"))

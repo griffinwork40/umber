@@ -73,6 +73,29 @@ final class GitStatusFollow {
     /// The repository the tree currently sits in, or nil when it is not in one.
     private(set) var repository: GitRepository?
 
+    /// The tree root `repository` was answered for, symlink-resolved. Nil until the first
+    /// read lands.
+    ///
+    /// Keyed on the root it was *answered for*, rather than tested with
+    /// `repository.relativePath(for: newRoot) != nil`, because **containment is not
+    /// identity**. A worktree or submodule is a repository nested inside another one's
+    /// working tree, so "still inside the repo I knew" stays true long after the right answer
+    /// has become the inner repo — and under the containment test it stayed true forever,
+    /// because nothing ever asked again. This project's own layout is that shape
+    /// (`.afk-worktrees/*` are repositories under the main checkout, gitignored there, so the
+    /// outer repo reports nothing about their contents), and the symptom was a header naming
+    /// the wrong branch over a tree whose every file drew no badge.
+    ///
+    /// Keyed this way the reuse still absorbs what actually costs spawns — the 2s timer
+    /// re-ticking an unchanged root — and pays one `rev-parse` per genuine `cd`, ~6ms off the
+    /// main thread. Asserted in `check-git-status.sh`'s NESTED REPOSITORIES cases, which pin
+    /// the containment/identity split rather than trusting this comment.
+    ///
+    /// A path, never a `URL`: `URL` equality carries the directory marker that
+    /// `resolvingSymlinksInPath()` drops on a symlink-terminated path, which is the trap
+    /// `check-cwd-follow.sh` caught in `setRoot(_:)` (`FileTreeViewController.swift:211`).
+    private var repositoryRootPath: String?
+
     /// The whole answer from the last successful `git status`. `.empty` means either "no
     /// repository" or "nothing changed" — the tree draws the same thing for both.
     private(set) var snapshot: GitStatusSnapshot = .empty
@@ -133,13 +156,11 @@ final class GitStatusFollow {
         isReading = true
 
         let rootURL = tree.root.url
-        // Re-use the repository we already found while the tree's root is still inside it,
-        // and only re-discover when it has moved out. cwd-follow moves this root on every
-        // `cd`, and most of those land in a subdirectory of the same project — where
-        // re-running `rev-parse` would spawn a second process to be told the same answer.
-        // `relativePath(for:)` returning nil is exactly "no longer inside", so the reuse
-        // test is the same one the decoration lookup already relies on.
-        let known = repository.flatMap { $0.relativePath(for: rootURL) == nil ? nil : $0 }
+        // Re-use the repository we already found only for the very same root we found it
+        // for. The test this replaces asked "is the root still *inside* that repo?", which
+        // stays true when the root moves into a nested one — see `repositoryRootPath`.
+        let rootPath = rootURL.resolvingSymlinksInPath().path
+        let known = repositoryRootPath == rootPath ? repository : nil
 
         // Off the main thread, because this is a fork/exec and up to ~92ms of it. On the
         // main thread that is a dropped frame every 2s on a large repo — the exact stutter
@@ -149,7 +170,9 @@ final class GitStatusFollow {
         DispatchQueue.global(qos: .utility).async {
             let found = known ?? GitStatusReader.discoverRepository(at: rootURL)
             let read = found.flatMap { GitStatusReader.snapshot(of: $0) }
-            Task { @MainActor in self.finish(repository: found, snapshot: read) }
+            Task { @MainActor in
+                self.finish(rootPath: rootPath, repository: found, snapshot: read)
+            }
         }
     }
 
@@ -159,11 +182,19 @@ final class GitStatusFollow {
     /// incremental invalidation is refused. `GitStatusSnapshot` is `Equatable` precisely so
     /// this comparison is possible: the common case is "a 2s tick found nothing new", and
     /// it must cost no AppKit work at all.
-    private func finish(repository found: GitRepository?, snapshot read: GitStatusSnapshot?) {
+    private func finish(
+        rootPath: String, repository found: GitRepository?, snapshot read: GitStatusSnapshot?
+    ) {
         isReading = false
         let next = read ?? .empty
         let changed = found != repository || next != snapshot
         repository = found
+        // The root this read was ISSUED for, not whatever the tree shows by the time it
+        // lands. Those differ when `setRoot(_:)` moves the tree mid-read, and recording the
+        // issued-for root is what makes that case correct itself: the next tick compares the
+        // tree's new root against this one, finds them different, and re-discovers instead
+        // of trusting an answer computed for somewhere else.
+        repositoryRootPath = rootPath
         snapshot = next
 
         // `UMBER_DIAG=1` dumps the resolved git state to stderr, matching what

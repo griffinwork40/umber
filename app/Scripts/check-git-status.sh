@@ -150,6 +150,25 @@ build_fixtures() {
     [ -e "$WORK/linked/.git" ] || { echo "ENV: worktree fixture missing"; return 1; }
     [ -d "$WORK/linked/.git" ] && { echo "ENV: worktree .git is a dir — git changed"; return 1; }
 
+    # --- outer + inner-wt: a repository INSIDE another repository's working tree ---
+    # Its own fixture rather than a worktree under `plain`, because `plain`'s dirty state is
+    # asserted line by line and committing a .gitignore into it would move those answers.
+    # This is Umber's own layout: `.afk-worktrees/*` are real repositories under the main
+    # checkout, gitignored there, so the outer repo reports nothing about their contents. It
+    # is the shape that makes a CONTAINMENT test the wrong way to cache a discovered
+    # repository — the inner root is inside the outer one, so "still inside the repo I knew"
+    # stays true after the answer has changed.
+    git init -q "$WORK/outer"
+    cd "$WORK/outer"
+    printf 'o\n' > o.txt
+    printf 'inner-wt/\n' > .gitignore
+    git add -A && git commit -qm base
+    git worktree add -q -b gate-nested "$WORK/outer/inner-wt" >/dev/null 2>&1
+    [ -e "$WORK/outer/inner-wt/.git" ] || { echo "ENV: nested worktree fixture missing"; return 1; }
+    # A change only the INNER repo can see, so "the outer repo has nothing to say about it"
+    # is asserted against a file that is genuinely dirty rather than against an empty tree.
+    printf 'DIRTY\n' >> "$WORK/outer/inner-wt/o.txt"
+
     # --- notrepo: a plain directory, to prove discovery declines ---
     mkdir -p "$WORK/notrepo/sub"
     return 0
