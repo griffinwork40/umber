@@ -46,12 +46,18 @@ patched_package_swift  = 90e0a07aab0bd278fcb6d10902158e1f3314063de603c7df627a87b
 # the specific reason this file exists. verify-vendor.sh reports it by name.
 upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
 
-# Buffer.swift AFTER applying BOTH 0002-index-iswrapped-buffer-absolute.patch AND
-# 0003-trim-lines-on-narrowing-for-all-buffers.patch. One hash covers both: they are
-# independent hunks of the same file (0002 near line 1170, 0003 near line 520), and a
-# single hash is deliberately unforgiving — a tree carrying only one of the two matches
-# neither this nor the upstream hash and verify-vendor.sh calls it "unknown" (exit 3).
-# This is the hash verify-vendor.sh requires.
+# Buffer.swift AFTER applying ALL THREE of 0002-index-iswrapped-buffer-absolute.patch,
+# 0003-trim-lines-on-narrowing-for-all-buffers.patch and
+# 0004-gate-resize-post-condition-behind-debug.patch. One hash covers all three: they are
+# independent hunks of the same file (0002 near line 1170, 0003 near line 520, 0004 near
+# line 544), and a single hash is deliberately unforgiving — a tree carrying only some of
+# them matches neither this nor the upstream hash and verify-vendor.sh calls it "unknown"
+# (exit 3). This is the hash verify-vendor.sh requires.
+#
+# That combined hash is also why 0004 needs no check of its own even though, unlike 0002
+# and 0003, its absence corrupts nothing. A tree missing it is merely slower and carries a
+# release-build `abort()`; it still cannot pass, because it cannot match this hash. The
+# existing "half-patched is not a state this project supports" rule covers it for free.
 #
 # This file used to be pinned as a version TRIPWIRE with the note "it is unmodified
 # upstream and must stay that way while option A is unchosen". That is no longer true,
@@ -74,11 +80,31 @@ upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a49
 # repaints only deltas — that is content bleeding across pane and window boundaries.
 # See .afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md.
 #
-# Both fixes are verified behaviourally, and each gate was validated by falsification:
+# What 0004 fixes — a debug assertion that ships. Upstream wraps this file's other five
+# debug blocks in `#if DEBUG` (:47, :62, :81, :98, :116) but leaves the `// DEBUG:
+# Post-condition` loop after the resize trim ungated. Verified against the pristine
+# v1.15.0 file, where it sits at :533-546 with no surrounding conditional — so this is an
+# upstream leftover, not something 0002/0003 introduced. It walks the viewport PLUS THE
+# ENTIRE SCROLLBACK on every resize (the third such walk in the function, after reflow and
+# after 0003's trim) and calls `abort()` on mismatch. Every size change reaches it:
+# processSizeChange (live window drag — once per drag frame — plus ⌘B and full screen) and
+# resetFont (⌘+/⌘-/⌘0, ⌘R). At Umber's default 1000-line scrollback that is 1000 iterations
+# per buffer per resize event, and a hard crash path raised from inside a window drag in a
+# terminal whose whole job is hosting long-running agent sessions.
+# See .afk/research/performance-audit-2026-07-31.md §2.
+#
+# 0002 and 0003 are verified behaviourally, and each gate was validated by falsification:
 # app/Scripts/check-reflow.sh FAILS 6 of 8 cases without 0002, and
 # app/Scripts/check-altbuffer-resize.sh FAILS 2 of 4 without 0003 (cases 1 and 2, while
 # its control and its render-range case keep passing). If you re-vendor, run both.
-patched_buffer_swift  = e5166175a15520d599d6a54e2e05e9569242e009aeb13fe9ef447188baefaced
+#
+# 0004 gets NO behavioural gate, deliberately, and this is the honest reason: it changes no
+# release behaviour that any check could observe. Its whole effect is deleting work and
+# deleting a crash path, so a passing gate would prove only that the compiler honours
+# `#if DEBUG`. What guards it instead is this pin's hash plus the fact that both remaining
+# Buffer.swift gates still pass with it applied — i.e. that removing the assertion did not
+# remove anything the assertion was catching. Both were re-run when 0004 landed.
+patched_buffer_swift  = 05d64bab59de389334e0557b7cbf776551d0cf3d9bf9ab4d59df09736d31c8d1
 
 # Buffer.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
 # re-vendored and NEITHER 0002 nor 0003 was applied — the silent-failure case, and now the
