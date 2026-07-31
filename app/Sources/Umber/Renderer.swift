@@ -7,8 +7,8 @@
 //  from a user-supplied string to a case, and a pure mapping can be read — and compiled
 //  into a check — without an NSView in scope. *Acting* on the decision needs a live
 //  SwiftTerm view and lives in `TerminalPane+Renderer.swift`. Keeping them apart is also
-//  what stops `Config.swift` (289 lines, already inside `check-file-size.sh`'s warning
-//  band) from growing an enum it does not own.
+//  what stops `Config.swift` (306 lines — under the 350-line ceiling, with 44 to spare)
+//  from growing an enum it does not own.
 //
 
 import Foundation

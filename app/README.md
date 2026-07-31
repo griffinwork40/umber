@@ -32,8 +32,8 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are nine scripts and a diagnostic
-env var, each aimed at something that has really gone wrong:
+of pure logic would have caught. So the checks are ten `check-*.sh` scripts, a vendor
+verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
 ./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all four patches?
@@ -44,6 +44,7 @@ env var, each aimed at something that has really gone wrong:
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
+./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
@@ -142,21 +143,49 @@ path specifically. The gate was then validated the same way `check-reflow.sh` wa
 falsification, not by passing: reverting `0003` fails exactly cases 1 and 2 and keeps 3 and 4
 green. A gate that has never been observed to fail for the right reason is not evidence.
 
-`check-metal-renderer.sh` is the gate for local patch `0001` and for the `renderer` config
-field, and it guards a failure that is invisible by construction: a config that says
+`check-metal-renderer.sh` is the gate for local patch `0001` and for SwiftTerm's
+`setUseMetal`/`isUsingMetalRenderer` contract — the `renderer` config *string*, and whether it
+maps to the case it names, is `check-renderer-config.sh`'s job below — and it guards a failure
+that is invisible by construction: a config that says
 `"renderer": "metal"` while the app quietly draws with Core Text. That is not hypothetical —
 it was this project's actual state until 2026-07-31, because `0001` used to `exclude:` the
 Metal shader rather than ship it, and `MetalTerminalRenderer` needs the `.metal` source in the
-resource bundle so it can compile it at runtime. Five cases: two static (the shader is in the
+resource bundle so it can compile it at runtime. Six cases: two static (the shader is in the
 SwiftPM resource bundle, **and** in `Umber.app/Contents/Resources` — different lookup paths,
-so one proves nothing about the other), two behavioural (asking for `metal` yields metal;
-asking for `coretext` yields coretext, which is the control that stops case 1 being a
-tautology), and one falsification. The falsification case is the load-bearing one: it hides
+so one proves nothing about the other), three behavioural (asking for `metal` yields metal;
+asking for `coretext` yields coretext; and asking for `metal` *then* `coretext` in one process
+still yields coretext), and one falsification. Only the third behavioural case is a real
+control. A freshly built view already has `useMetalRenderer == false`, so `setUseMetal(false)`
+on its own early-returns (`Mac/MacTerminalView.swift:379-381`) and the case passes without any
+teardown running — it would still pass if `setUseMetal` were a no-op. The metal-then-coretext
+case is the one that removes the `MTKView` and restores the caret view, which is what a ⌘R
+after editing `renderer` back to `coretext` actually does. The falsification case is the
+load-bearing one: it hides
 `Shaders.metal`, re-runs, and *requires* the request to fail. If Metal still came up with the
 shader hidden, the gate would be passing for some reason other than our packaging and its
 other cases would mean nothing — so that case exits `1` saying the gate is BLIND rather than
 reporting success. Like the two gates above it separates `1` (a real failure) from `2` (no
-Metal device, no window server, build broken).
+Metal device, no window server, build broken) — and a harness process that dies is `2`, not a
+wrong-renderer `1`, because a crash is a statement about the machine.
+
+`check-renderer-config.sh` is that gate's necessary sibling, and the reason it is a separate
+script is the reason it is worth having. Every behavioural case above calls SwiftTerm's
+`setUseMetal` directly, which means all of them bypass `Renderer.named` — the hand-maintained
+table that turns a string in `config.json` into a case. So a typo there would ship with
+`check-metal-renderer.sh` still green, and the symptom would be the quietest one available: a
+config line that reads correctly, parses without a warning, and does nothing. That is the same
+class of silent failure patch `0001` caused for the life of the project. It compiles the
+shipped `Renderer.swift` standalone — that file is Foundation-only *by design*, the same trick
+`check-keybindings.sh` plays on `KeyBindings.swift` and `check-cwd-follow.sh` plays on
+`ShellDirectory.swift` — and so needs swiftc and one source file, no GPU, no window server, no
+`swift build`. Folding it into the expensive gate would have made the cheap half unavailable on
+exactly the machines where the other half cannot run. It asserts all thirteen accepted
+spellings, that unknown values and a trailing space map to `nil` (which is what lets
+`AppConfig.load()` warn and degrade instead of silently switching renderer), that `configName`
+round-trips for every case — driven off `allCases`, so adding a case cannot leave the assertion
+behind — and that the default is still `coretext`. It was validated by falsification like its
+siblings: breaking one alias, flipping the default, and making unknown values resolve each make
+it fail with the specific case named.
 
 `check-find-menu.sh` covers the three Edit-menu items with **no Umber code behind them** —
 Undo, Redo, and Find and Replace are AppKit responder actions reached with `target = nil`,
@@ -248,7 +277,7 @@ Omit `theme` entirely — the default — and no colours are installed at all.
 | `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
-| `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings: `coretext`/`core-text`/`cpu`, `metal`/`gpu` |
+| `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `theme` | **Omitted by default.** Present at all ⇒ colours get installed, which regenerates ANSI 16–255 out of your bg/fg. See the note above |
 | `theme.preset` | `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
