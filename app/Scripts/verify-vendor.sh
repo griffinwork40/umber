@@ -9,8 +9,14 @@
 # revision or the local patches. That made the two failure modes asymmetric:
 #
 #   * missing vendor/            -> loud (SwiftPM cannot resolve the path dependency)
-#   * re-vendored, UNPATCHED     -> SILENT (compiles and runs; patch 0001 only drops
-#                                   a build-time resource, so nothing complains)
+#   * re-vendored, UNPATCHED     -> depends which patch is missing, and only one of the
+#                                   two is loud:
+#       - 0001 missing  -> LOUD. Upstream's `.process` on Shaders.metal needs the offline
+#                          Metal toolchain, so the build dies at `unable to spawn process
+#                          'metal'`. (This was silent until 2026-07-31, when 0001 stopped
+#                          being an `exclude:` and became a `.copy` resource.)
+#       - 0002/3/4 missing -> SILENT. Compiles, runs, and corrupts the buffer or ships a
+#                          release-build abort(). This is the case that matters.
 #
 # Following app/README.md's recreation steps but forgetting a patch therefore
 # produced a green build against a different dependency than the tested one. This
@@ -55,7 +61,7 @@ REPO_ROOT="$(cd .. && pwd)"
 
 VENDOR="$REPO_ROOT/vendor/SwiftTerm"
 PIN="$REPO_ROOT/patches/swiftterm/SwiftTerm.pin"
-PATCH="$REPO_ROOT/patches/swiftterm/0001-exclude-metal-shader-from-target.patch"
+PATCH="$REPO_ROOT/patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch"
 PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
 PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
 PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
@@ -95,7 +101,7 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it (SPM checkouts are read-only, hence the chmod):"
   err "  git clone --depth 1 --branch $UPSTREAM_TAG $UPSTREAM_REPO vendor/SwiftTerm"
   err "  chmod -R u+w vendor/SwiftTerm"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
@@ -119,13 +125,16 @@ GOT_PACKAGE="$(sha256_of "$VENDOR/Package.swift")"
 if [[ "$GOT_PACKAGE" == "$WANT_UPSTREAM" ]]; then
   err "error: vendor/SwiftTerm is UNPATCHED upstream $UPSTREAM_TAG."
   err ""
-  err "This is the silent-failure case verify-vendor.sh exists to catch: the tree"
-  err "compiles and runs, but the Metal shader is compiled as a resource, which"
-  err "fails on machines without the Metal toolchain component (Xcode 26.6 moved it"
-  err "to \`xcodebuild -downloadComponent MetalToolchain\`)."
+  err "Upstream declares Shaders.metal as \`.process\`, which invokes the offline Metal"
+  err "compiler. Xcode 26.6 moved that toolchain to a downloadable component"
+  err "(\`xcodebuild -downloadComponent MetalToolchain\`), so on a Command Line Tools"
+  err "machine the build dies at \`unable to spawn process 'metal'\`. 0001 makes it a"
+  err "\`.copy\` instead: the shader ships as source and MetalTerminalRenderer compiles"
+  err "it at runtime, which needs no toolchain. Without 0001 you get no build at all;"
+  err "with the OLD exclude-based 0001 you got a build with no reachable GPU renderer."
   err ""
   err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch"
   exit 2
 fi
 

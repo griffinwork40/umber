@@ -232,6 +232,58 @@ Stated explicitly so this audit closes doors as well as opening them.
 
 ---
 
+## OUTCOME — what was actually done, same day
+
+Written after the fact, in the same file as the argument, so the two never drift apart.
+
+**§2 shipped as vendor patch `0004`** (`d71c9b6`). The `// DEBUG: Post-condition` block is now
+inside `#if DEBUG`. Two things were confirmed rather than assumed on the way: the block is
+ungated in **pristine upstream** too (the v1.15.0 file was fetched and its SHA-256 matched the
+pin's own `upstream_buffer_swift` exactly, so this is an upstream defect and not something
+`0002`/`0003` introduced), and removing it broke nothing the assertion had been catching —
+`check-reflow.sh` 8/8 and `check-altbuffer-resize.sh` 4/4 still pass with it applied. It
+deliberately has no gate of its own; the pin explains why at length.
+
+**§1 shipped, opt-in.** Patch `0001` was rewritten from `exclude:` to
+`resources: [.copy("Apple/Metal/Shaders.metal")]` and renamed
+`0001-ship-metal-shader-as-copy-resource.patch`, because a patch called
+"exclude-metal-shader" that ships the shader is a lie in the file listing. Umber gained a
+`renderer` config field (`coretext` | `metal`), `Renderer.swift` (the pure decision) and
+`TerminalPane+Renderer.swift` (the action, which reads the outcome back from
+`isUsingMetalRenderer` instead of trusting `setUseMetal` and prints an unconditional stderr
+line on a downgrade).
+
+**The prediction held.** `check-metal-renderer.sh` — new, 5 cases — passes all of them:
+
+```
+  ok  shader in SwiftPM resource bundle
+  ok  shader in Umber.app/Contents/Resources
+  ok  request metal -> metal
+  ok  request coretext (control) -> coretext
+  ok  shader hidden -> falls back to coretext AND throws (gate is discriminating)
+```
+
+The third line is the finding: **`setUseMetal(true)` now succeeds and the view reports
+`isUsingMetalRenderer == true`.** The fifth is why the third is believable — hiding
+`Shaders.metal` recreates the pre-2026-07-31 state exactly and the request fails, so Metal is
+coming up *because of* the shipped shader rather than for some unrelated reason.
+
+**What deliberately did NOT happen: the throughput harness, and so the default did not flip.**
+The plan above named an offscreen `cat`-a-large-file benchmark as the deliverable. It was not
+built, and the reason is a validity problem rather than a time one: an offscreen, unmapped
+`NSWindow` is not guaranteed to receive display cycles, so a harness like that can silently
+measure the feed path while appearing to measure the render path — and a benchmark that can
+report a number it did not actually measure is worse than no benchmark, in exactly the way the
+retired `ReflowGateTests` was worse than nothing. Making it valid needs forced synchronous
+draws at a fixed cadence on both paths plus a control proving drawing occurred at all (e.g.
+Core Text CPU time must exceed a no-view baseline).
+
+So the magnitude of §1 is **still unmeasured**, `renderer` defaults to `coretext`, and what
+shipped instead is the check that kills the *silent* failure mode: with the gate green, a
+`metal` config that quietly draws with Core Text is no longer possible without the gate
+saying so. Flipping the default is a one-word change once either the harness exists or real
+use settles it.
+
 ## Recommended order
 
 1. **§2 first** (patch `0004`, two lines): certain, tiny, removes a release-build `abort()`. No
