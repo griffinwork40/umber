@@ -4,7 +4,23 @@
 # behaviourally (asking for it succeeds).
 #
 # This is the gate for patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch and
-# for Renderer.swift / TerminalPane+Renderer.swift.
+# for SwiftTerm's own setUseMetal / isUsingMetalRenderer contract, which is what
+# TerminalPane+Renderer.swift is built on top of.
+#
+# WHAT IT CANNOT TEST, stated here rather than left to be discovered — the same disclosure
+# check-cwd-follow.sh makes about its own two blind spots.
+#
+#   * `Renderer.named` — the config-string mapping. Not here: it needs no Metal device, no
+#     window server and no `swift build`, and bundling it into a gate that exits 2 when the
+#     machine has no GPU would make the cheap headless check unavailable exactly when it is
+#     most useful. It lives in its own script, check-renderer-config.sh. Every case below
+#     calls setUseMetal directly and therefore bypasses that mapping entirely.
+#   * `applyRenderer(_:)` — the wrapper. It is an extension on TerminalPane, which needs
+#     AppKit, SwiftTerm and a live NSView, so it cannot be compiled standalone the way
+#     Renderer.swift can. The cases below call the same `setUseMetal` it calls and do the
+#     same readback, so they cover the CONTRACT it depends on, not the wrapper. In
+#     particular they say nothing about WHEN applyRenderer runs relative to the view
+#     entering a window, which is a real and separately-tracked gap.
 #
 # WHY IT EXISTS. Until 2026-07-31 patch 0001 used `exclude:` on Apple/Metal/Shaders.metal,
 # which kept the file out of the resource bundle. MetalTerminalRenderer.makeLibrary
@@ -17,13 +33,28 @@
 # Text is worse than a config that fails, because it is indistinguishable from success.
 #
 # WHAT MAKES THIS GATE WORTH BELIEVING. A check that only ever asserts "metal works" would
-# still pass if it were asserting something vacuous. Three cases guard against that, and
-# case 3 is the load-bearing one:
+# still pass if it were asserting something vacuous. Four behavioural cases guard against
+# that, and case 4 is the load-bearing one:
 #
 #   1. request metal -> the view reports metal            (the thing we want)
-#   2. request coretext -> the view reports coretext      (control: the assertion CAN fail,
-#                                                          so case 1 is not a tautology)
-#   3. HIDE the shader, request metal -> the view reports coretext AND setUseMetal throws
+#   2. request coretext -> the view reports coretext      (WEAK control: on a fresh view
+#                                                          useMetalRenderer is already
+#                                                          false, so setUseMetal early-
+#                                                          returns — MacTerminalView.swift
+#                                                          :379-381 — and this passes
+#                                                          without any teardown running. It
+#                                                          still falsifies "the harness
+#                                                          ignores its argument", which is
+#                                                          why it stays; it does not
+#                                                          falsify "setUseMetal is a no-op")
+#   3. metal THEN coretext in one process -> reports coretext
+#                                                         (REAL control: the only case that
+#                                                          makes the teardown path run, and
+#                                                          the only one that would fail if
+#                                                          setUseMetal were a no-op. This is
+#                                                          also the path a ⌘R after editing
+#                                                          `renderer` back to coretext takes)
+#   4. HIDE the shader, request metal -> the view reports coretext AND setUseMetal throws
 #                                                         (falsification: proves case 1
 #                                                          passes BECAUSE of the shipped
 #                                                          shader, not for some other
@@ -31,7 +62,7 @@
 #                                                          pre-2026-07-31 state, recreated
 #                                                          on purpose)
 #
-# Case 3 is what the retired ReflowGateTests never had, and what check-altbuffer-resize.sh
+# Case 4 is what the retired ReflowGateTests never had, and what check-altbuffer-resize.sh
 # added as its control. Without it, this script could pass on a machine where Metal happens
 # to work via a stale default library and we would learn nothing about our own packaging.
 #
@@ -43,8 +74,10 @@
 #   0  the GPU renderer ships and is reachable
 #   1  a real failure — the shader is missing from a bundle, or asking for Metal silently
 #      falls back, or the falsification case did NOT fall back (the gate is blind)
-#   2  environmental — no toolchain, no Metal device, no window server, build failed.
-#      Never conflated with 1: a broken environment must not read as a green gate.
+#   2  environmental — no toolchain, no Metal device, no window server, build failed, or the
+#      harness process itself died. Never conflated with 1: a broken environment must not
+#      read as a green gate, and it must not read as a RED one either — a harness that
+#      crashes is telling us about the machine, not about the renderer.
 
 set -uo pipefail
 
@@ -99,7 +132,7 @@ say "  ok  shader in SwiftPM resource bundle"
 # --- static case B: does the packaged .app carry it too? --------------------------
 # The dev path (`swift run`) and the shipped path (`open build/Umber.app`) resolve the
 # bundle from DIFFERENT places — Bundle.main.bundleURL versus Bundle.main.resourceURL
-# (candidateBundles(), MetalTerminalRenderer.swift:2828) — so checking one proves nothing
+# (candidateBundles(), MetalTerminalRenderer.swift:2825) — so checking one proves nothing
 # about the other. make-app-bundle.sh:51 is what carries it across; this asserts it did.
 if ! ./Scripts/make-app-bundle.sh >/dev/null 2>&1; then
   echo "error: make-app-bundle.sh failed — cannot check the packaged path." >&2
@@ -115,6 +148,8 @@ if [[ ! -f "$APP_SHADER" ]]; then
   exit 1
 fi
 say "  ok  shader in Umber.app/Contents/Resources"
+
+failures=0
 
 # --- the behavioural harness ------------------------------------------------------
 cat > "$TMP/main.swift" <<'SWIFT'
@@ -145,7 +180,17 @@ RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 // second thing that can fail for reasons the gate is not about.
 var threw = "none"
 do {
-    try view.setUseMetal(want == "metal")
+    if want == "downgrade" {
+        // The only case that makes the TEARDOWN path run. A freshly constructed view already
+        // has useMetalRenderer == false, so `setUseMetal(false)` on its own early-returns
+        // (MacTerminalView.swift:379-381) and asserts nothing — enable first, then disable,
+        // so removing the MTKView and restoring the caret view is actually exercised. This is
+        // also the path a ⌘R takes after `renderer` is edited back to coretext.
+        try view.setUseMetal(true)
+        try view.setUseMetal(false)
+    } else {
+        try view.setUseMetal(want == "metal")
+    }
 } catch {
     threw = "\(error)"
 }
@@ -168,14 +213,28 @@ fi
 # probes. Compiled anywhere else, the harness would fail to find the shader for a reason
 # that has nothing to do with whether the shader ships.
 
-run_case() { "$PRODUCTS/metalcheck" "$1" 2>/dev/null || echo "CRASH"; }
+# stderr is KEPT, not discarded. When the harness dies its stderr is the only useful thing it
+# produced, and `2>/dev/null` was throwing exactly that away — leaving "expected metal, got
+# CRASH" as the entire diagnosis. Truncated per case so the log always describes this run.
+run_case() {
+  : > "$TMP/harness.err"
+  "$PRODUCTS/metalcheck" "$1" 2>"$TMP/harness.err" || echo "CRASH"
+}
 
-failures=0
 report() { # name expected_live actual_output
   local name="$1" expect="$2" out="$3"
   local live="${out#LIVE=}"; live="${live%% *}"
   if [[ "$out" == "NO_METAL_DEVICE" ]]; then
     echo "✗ no Metal device / no window server — environmental, not a verdict" >&2
+    exit 2
+  fi
+  # A dead harness is a statement about the machine, not about the renderer. Exit 2, not 1:
+  # letting it fall through to the comparison below scored it as a wrong renderer and exited
+  # 1, which is the documented code for "a real failure" — the exact conflation the 1-vs-2
+  # split exists to prevent, just pointing the other way.
+  if [[ "$out" == "CRASH" ]]; then
+    echo "✗ the harness died running case '$name' — environmental, not a verdict" >&2
+    [[ -s "$TMP/harness.err" ]] && sed 's/^/    /' "$TMP/harness.err" >&2
     exit 2
   fi
   if [[ "$live" == "$expect" ]]; then
@@ -188,17 +247,30 @@ report() { # name expected_live actual_output
 
 say "==> behavioural cases"
 report "request metal" "metal" "$(run_case metal)"
-report "request coretext (control)" "coretext" "$(run_case coretext)"
+report "request coretext (weak control)" "coretext" "$(run_case coretext)"
+report "metal -> coretext teardown (real control)" "coretext" "$(run_case downgrade)"
 
-# --- case 3: falsification -------------------------------------------------------
+# --- case 4: falsification -------------------------------------------------------
 # Recreate the pre-2026-07-31 state exactly — shader absent from the bundle — and require
 # that asking for Metal now FAILS. If it still succeeds, this gate is not measuring our
-# packaging and its other two cases mean nothing.
+# packaging and its other three cases mean nothing.
 HIDDEN="$TMP/Shaders.metal.hidden"
 mv "$SHADER" "$HIDDEN"
 falsify_out="$(run_case metal)"
-mv "$HIDDEN" "$SHADER"
-HIDDEN=""
+# Clear the sentinel ONLY if the restore actually worked. `set -e` is deliberately off (see
+# the top of the file), so a failed `mv` here would otherwise fall straight through to
+# `HIDDEN=""`, disarming the trap that is the only other thing holding a copy — and then
+# cleanup's `rm -rf "$TMP"` would delete the file this case moved out of the way. The blast
+# radius is build products, not vendor/, so this is recoverable with `swift build`; it is
+# still not a thing to leave to luck in the one case that deliberately breaks the tree.
+mv "$HIDDEN" "$SHADER" && HIDDEN=""
+# Same rule as `report`: a dead harness is environmental. Checked after the restore above, so
+# exiting here cannot leave the shader hidden.
+if [[ "$falsify_out" == "CRASH" ]]; then
+  echo "✗ the harness died running the falsification case — environmental, not a verdict" >&2
+  [[ -s "$TMP/harness.err" ]] && sed 's/^/    /' "$TMP/harness.err" >&2
+  exit 2
+fi
 falsify_live="${falsify_out#LIVE=}"; falsify_live="${falsify_live%% *}"
 if [[ "$falsify_live" == "coretext" && "$falsify_out" == *"THREW="* && "$falsify_out" != *"THREW=none"* ]]; then
   say "  ok  shader hidden -> falls back to coretext AND throws (gate is discriminating)"
@@ -213,7 +285,11 @@ fi
 
 echo
 if [[ "$failures" -eq 0 ]]; then
-  echo "all metal-renderer cases passed (2 behavioural + 1 falsification + 2 static)"
+  # Counts only what THIS script ran. The pure mapping check is a sibling script with its own
+  # exit code (check-renderer-config.sh) — claiming it here would be this gate reporting a
+  # case it never executed, which is the same species of lie as a config that says `metal`
+  # over a Core Text surface.
+  echo "all metal-renderer cases passed (2 static + 3 behavioural + 1 falsification)"
   exit 0
 fi
 echo "$failures metal-renderer case(s) FAILED" >&2
