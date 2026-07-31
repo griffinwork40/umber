@@ -154,6 +154,14 @@ extension SpaceViewController {
     /// `SpaceWindowController.windowDidResignKey(_:)`.
     func windowDidResignKey() {
         stopDirectoryFollow()
+        // The git-status poller stops here too, for the identical reason and on the
+        // identical trigger: a background Space cannot be looked at, so decorating it is
+        // pure cost. Its start half is not here — it rides
+        // `FileTreeViewController.refresh()`, because git status goes stale at exactly the
+        // moment the tree does. Two pollers, one resign, and this is the site the research
+        // named for fanning out rather than sharing a class between two concerns whose
+        // intervals differ (750ms vs 2s).
+        fileTree.stopGitFollow()
     }
 
     /// Re-poll immediately — see `DirectoryFollow.pollNow()` for why the timer's rhythm
