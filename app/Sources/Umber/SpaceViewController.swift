@@ -308,8 +308,16 @@ final class SpaceViewController: NSSplitViewController {
         // Space polling a pty is pure cost. See `SpaceViewController+DirectoryFollow.swift`.
         startDirectoryFollow()
         for document in documents { document.documentWindowDidBecomeKey() }
+        // Retire the active document's mark, because coming back to the window IS looking
+        // at it. Reachable only since PR #21 review item 1 made `isActiveDocument` test
+        // `isKeyWindow` too: a mark can now be raised while the whole app is in the
+        // background, and without this the tab you return to would keep staring until you
+        // switched away and back. The other documents keep theirs — the marker's contract is
+        // "looking at the tab retires it", and only one tab is being looked at.
+        activeDocument?.clearAttention()
         // A document may have picked up an external change; the strip does not show
-        // that today, but the dot state is cheap to keep honest.
+        // that today, but the dot state is cheap to keep honest. After the line above, so
+        // the cleared status is what gets drawn rather than the stale one.
         syncDocumentChrome()
     }
 }

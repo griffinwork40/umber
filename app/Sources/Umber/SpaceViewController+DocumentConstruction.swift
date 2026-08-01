@@ -94,6 +94,19 @@ extension SpaceViewController {
 /// moment it starts.
 @MainActor
 protocol ShellStarting: AnyObject {
+    /// Spawn the shell. MUST be idempotent — a second call is a no-op, not a second shell.
+    ///
+    /// Stated here rather than left to each conformer for the same reason
+    /// `SpaceDocument.documentWillClose()` states its own: the container is what calls this,
+    /// and a requirement only a conformer knows about is one a future conformer can compile
+    /// past. Today the guard lives in `GhosttyPane`'s private `didStart` flag alone.
+    ///
+    /// Not defensive bookkeeping — `fontSize` is part of `TerminalSurfaceOptions` and so part
+    /// of its `isEquivalent(to:)` (`Surface/TerminalSurfaceOptions.swift:36-42`), so a second
+    /// `start()` after ANY zoom builds a non-equivalent configuration, trips `configuration`'s
+    /// didSet and **respawns the shell**, losing the running session. That is a live agent REPL
+    /// discarded by a call the caller was entitled to make, which is why this is a contract
+    /// rather than an implementation detail of one pane.
     func start()
 }
 

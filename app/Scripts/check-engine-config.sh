@@ -174,14 +174,37 @@ if ! swiftc -O -o "$TMP/enginecheck" "$SRC" "$TMP/pure/main.swift" 2>"$TMP/compi
   exit 2
 fi
 
-out="$("$TMP/enginecheck" 2>&1)"
-if [[ "$out" == *"ALL-OK"* ]]; then
+out="$("$TMP/enginecheck" 2>&1)"; status=$?
+# BOTH the exit status and the verdict string, and neither alone is sufficient here.
+#
+# The string alone was the bug (PR #21 review, item 2): a harness that printed ALL-OK and then
+# crashed exits nonzero while that substring is still sitting in $out, so a substring-only test
+# reads a crash as a green gate. Not hypothetical — it is the defect check-ghostty-pane.sh
+# shipped with, falsified there by patching its harness to SIGABRT after printing its verdict and
+# watching the old logic exit 0. Both sibling gates added in this PR already do it right
+# (check-command-outcome.sh:136-139, check-pane-teardown.sh:292-303).
+#
+# The status alone would be worse still, because THIS harness has no exit() — it prints ALL-OK or
+# SOME-FAILED and falls off the end of main.swift, which exits 0 either way. So the substring is
+# what catches a failed mapping and the status is what catches a crash, and dropping either one
+# blinds the gate to a whole class of failure.
+if [[ $status -eq 0 && "$out" == *"ALL-OK"* ]]; then
   say "  ok  every documented spelling and alias maps as promised; unknown values rejected"
   say "  ok  configName round-trips for every case; configNames enumerates both; default is swiftterm"
   say "  ok  falsification pin: swapping the switch's two branches would be caught"
   echo
   echo "all engine-config cases passed (18 mappings + falsification pin + round-trip + default)"
   exit 0
+fi
+
+# A harness that died rather than judged is telling you about the machine, not about the mapping
+# — the same 1-vs-2 split check-pane-teardown.sh:298-302 draws, and the reason this script's
+# header promises 2 is never conflated with 1. A crash leaves no FAIL line to print, so the
+# absence of a verdict is what distinguishes the two.
+if [[ $status -ne 0 && "$out" != *"FAIL "* ]]; then
+  echo "error: the harness died before judging (exit $status) — treating as environmental." >&2
+  echo "$out" | sed 's/^/    /' >&2
+  exit 2
 fi
 
 echo "✗ FAIL: $SRC's config-string mapping is wrong:" >&2

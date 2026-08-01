@@ -100,13 +100,24 @@ extension GhosttyPane {
         resetStatus()
     }
 
-    /// Is this the document currently on screen in its Space?
+    /// Is this the document the user is actually looking at? Two halves, both required.
     ///
-    /// Derived from the view hierarchy rather than tracked with a flag, for the reason
-    /// `TerminalPane.isActiveDocument` documents in full: `DocumentAreaViewController.present`
-    /// maintains exactly this invariant already, and a cached flag would be a second copy of
-    /// that fact with no "did become inactive" callback to keep it honest.
-    fileprivate var isActiveDocument: Bool { view.superview != nil }
+    /// **Superview** — is this the presented document *in its Space*? Read from the view
+    /// hierarchy rather than tracked with a flag, for the reason `TerminalPane.isActiveDocument`
+    /// documents in full: `DocumentAreaViewController.present` maintains exactly that invariant
+    /// already, and a cached flag would be a second copy of it with no "did become inactive"
+    /// callback to keep it honest.
+    ///
+    /// **`isKeyWindow`** — and is that Space the one on screen? Spaces are native macOS window
+    /// tabs, one project root per window, so only one window of a tab group is visible at a
+    /// time and the superview test alone is *intra-Space*: it stayed true for the selected tab
+    /// of a **background** Space, whose finished command then took `.ignore` from
+    /// `CommandOutcome.of` (`CommandOutcome.swift:60`) and never marked the tab — this pane's
+    /// headline signal silently off in the app's primary multi-project workflow. With this half
+    /// a background Space's selected tab marks correctly (PR #21 review, item 1).
+    fileprivate var isActiveDocument: Bool {
+        view.superview != nil && view.window?.isKeyWindow == true
+    }
 }
 
 // MARK: - ShellHosting

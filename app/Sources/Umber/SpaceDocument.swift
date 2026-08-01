@@ -143,6 +143,14 @@ protocol SpaceDocument: AnyObject {
     /// status enum shaped around SwiftTerm's callbacks would be rewritten with it.
     var documentStatus: DocumentStatus { get }
 
+    /// Retire whatever `documentStatus` was trying to say — the user is looking now.
+    ///
+    /// On the protocol so the container can retire a mark without naming a pane type. It
+    /// needs to since PR #21 review item 1 made `isActiveDocument` window-aware: a mark can
+    /// now be raised while the whole app is in the background, including on the tab the user
+    /// returns to, and `windowDidBecomeKey()` is the only hook that sees that return.
+    func clearAttention()
+
     /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
     /// Implementors that can hold unsaved work MUST prompt here — every close path
     /// in the app funnels through it, so this is the single choke point between a
@@ -255,6 +263,10 @@ extension SpaceDocument {
     /// is why this one gets a default while the zoom members do not: a conformer that
     /// never has anything urgent to say is correctly silent, not silently broken.
     var documentStatus: DocumentStatus { .idle }
+
+    /// Paired with that default: a document with nothing to say has nothing to retire.
+    /// `TerminalPane` and `GhosttyPane` both override with `status = .idle`.
+    func clearAttention() {}
 }
 
 /// The stored `documentDelegate` property on `TerminalPane` is the whole witness, so this

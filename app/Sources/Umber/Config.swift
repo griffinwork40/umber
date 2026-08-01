@@ -290,8 +290,13 @@ struct AppConfig {
         if let raw = file.engine {
             if let e = TerminalEngine.named(raw) { config.engine = e }
             else {
+                // `acceptedConfigNames`, not `configNames`: this message is read by someone who
+                // just mistyped the field, so it must name every spelling that would have
+                // worked — including `libghostty`, which `named(_:)` takes and the canonical
+                // list omits (PR #21 review, item 5). `configNames` stays the canonical list.
                 config.warnings.append(
-                    "engine '\(raw)' unrecognised (expected one of: \(TerminalEngine.configNames))"
+                    "engine '\(raw)' unrecognised (expected one of:"
+                        + " \(TerminalEngine.acceptedConfigNames))"
                         + " — using \(config.engine.configName)")
             }
         }

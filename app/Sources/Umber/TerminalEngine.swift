@@ -76,11 +76,32 @@ enum TerminalEngine: String, CaseIterable {
         }
     }
 
-    /// The spellings `AppConfig.load()` names in a warning when it rejects a value. Derived
-    /// from `allCases` rather than written out, so adding a case cannot leave the user-facing
-    /// message behind.
+    /// The canonical spellings, one per case. Derived from `allCases` rather than written out,
+    /// so adding a case cannot leave the user-facing message behind.
+    ///
+    /// Deliberately narrower than what `named(_:)` accepts, and `check-engine-config.sh`
+    /// asserts exactly that: it requires every case's `configName` to appear here, so this
+    /// must stay one-name-per-case. Widening the *warning* is `acceptedConfigNames` below.
     static var configNames: String {
         allCases.map(\.configName).joined(separator: ", ")
+    }
+
+    /// Every spelling `named(_:)` actually accepts — what `AppConfig.load()` puts in front of a
+    /// user who just mistyped the field (`Config.swift:293-295`).
+    ///
+    /// Separate from `configNames` because the two answer different questions. That one is
+    /// "what should I write in the file", one canonical name per engine, and the gate pins it
+    /// to `allCases`. This one is "what would have worked", and naming only the canonical two
+    /// told a user that `libghostty` — the dependency's own name, the word in every commit
+    /// message and plan doc about it — was invalid when `named(_:)` takes it happily
+    /// (PR #21 review, item 5).
+    ///
+    /// Hand-written, and that is the cost: it is a second copy of `named(_:)`'s switch and can
+    /// drift from it. Accepted because the alias table cannot be derived from `allCases` the
+    /// way `configNames` can, and the failure mode is a warning that understates rather than a
+    /// mapping that misfires. Add an alias to `named(_:)` and add it here.
+    static var acceptedConfigNames: String {
+        "swiftterm, swift-term, swift, legacy, ghostty, libghostty, lib-ghostty"
     }
 
     /// The canonical spelling to write in a config file.
