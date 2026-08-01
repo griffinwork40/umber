@@ -34,10 +34,21 @@ let package = Package(
         // mitigation "becomes real only when production declares .exact("1.3.2")" —
         // this line is that mitigation.
         //
-        // This is a 51.8 MB prebuilt XCFramework (MIT) and it pulls two transitive
-        // deps, msdisplaylink and swift-argument-parser. It is NOT auditable text,
-        // which contradicts a stated project convention; ../AFK.md is amended in the
-        // same commit rather than left standing while this line violates it (§7 risk 3).
+        // This is a 51.8 MB prebuilt XCFramework (MIT). It is NOT auditable text, which
+        // contradicts a stated project convention; ../AFK.md is amended in the same
+        // commit rather than left standing while this line violates it (§7 risk 3).
+        // Its checksum IS verified — `checksum: "9dcfaa19…"` in the dependency's own
+        // Package.swift:49 — so the risk is version drift, not an unverified download.
+        //
+        // ONE transitive dep, not two: it declares only MSDisplayLink
+        // (its Package.swift:18). swift-argument-parser comes from the VENDORED SwiftTerm
+        // (vendor/SwiftTerm/Package.swift:151) and predates this line.
+        //
+        // `.exact` here pins only THIS edge. Both live transitive constraints are
+        // floating `from:`, so the pin becomes reproducible only because
+        // `Package.resolved` is committed — see the `!app/Package.resolved` negation in
+        // ../.gitignore. Ignoring it was correct while every dependency was a local
+        // path (nothing to pin); a versioned remote dependency changed that.
         .package(url: "https://github.com/Lakr233/libghostty-spm.git", exact: "1.3.2"),
     ],
     targets: [

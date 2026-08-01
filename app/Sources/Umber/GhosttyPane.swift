@@ -9,12 +9,36 @@
 //  live at once, and exactly one dependency gets deleted at Step 2 after the operator has
 //  actually lived in the winner. Nothing here is allowed to modify `TerminalPane`.
 //
-//  WHAT THIS ENGINE GIVES FOR FREE that SwiftTerm did not, all confirmed by running the
-//  spike (§6.2) and now wired in `GhosttyPane+Document.swift`: OSC 7 working directory, OSC
-//  133 command boundaries with exit code and duration, hover links, and a first-class bell
-//  delegate. `TerminalPane.hostCurrentDirectoryUpdate` has been a wired-but-empty callback
-//  for the life of the project because a stock zsh emits no OSC 7 under Umber
-//  (`ShellHosting.swift:97` explains why); here it arrives without shell cooperation.
+//  WHAT THIS ENGINE GIVES FOR FREE that SwiftTerm did not, wired in
+//  `GhosttyPane+Document.swift`: OSC 7 working directory, OSC 133 command boundaries with exit
+//  code and duration, hover links, and a first-class bell delegate.
+//  `TerminalPane.hostCurrentDirectoryUpdate` has been a wired-but-empty callback for the life
+//  of the project because a stock zsh emits no OSC 7 under Umber (`ShellHosting.swift:97`
+//  explains why); here it arrives without shell cooperation.
+//
+//  OSC 7 IS OBSERVED, and the story of how it was nearly recorded as unconfirmed is worth
+//  keeping. `check-ghostty-pane.sh` case 5b now runs a real shell in a real pane and asserts
+//  both that OSC 7 arrives and that the path it names is THIS pane's root. It reports one every
+//  run. PR #20 shipped a disclaimer saying the opposite — "wired but the gate reports `pwd=-`,
+//  inherited from the spike, not re-confirmed" — and that disclaimer was an artifact of the
+//  gate, not a fact about libghostty: case 5 pumped the run loop `until title || pwd`, `pump`
+//  returns as soon as its condition holds, and a zsh sends the title first, so the harness
+//  stopped a beat before the OSC 7 sequence landed. Two signals folded into one `||` produced a
+//  confident false negative that was then written down as a correction.
+//
+//  WHAT PHASE 4 MUST DO BEFORE IT CONSTRUCTS ONE OF THESE. Nothing in the app builds a
+//  `GhosttyPane` yet, which is what makes this latent rather than live:
+//
+//    TEARDOWN. Nothing frees the surface. There is no `deinit` here, `SpaceDocument` has no
+//    close hook, `SpaceViewController.closeDocument(at:)` only drops the document and removes
+//    its view, and the dependency deliberately removed its own safety net
+//    (`Surface/TerminalSurface.swift:405-410`: "Surface should be freed explicitly via free()
+//    before deinit. The deinit safety net is intentionally removed"). The only `surface?.free()`
+//    is inside `TerminalSurfaceCoordinator.tearDownSurface`, reachable by nilling
+//    `view.controller`. So a closed Ghostty tab leaks the surface AND its child process. The fix
+//    is a teardown verb on the document seam called from `closeDocument`, and it belongs in the
+//    commit that first constructs a pane — added now it would be a function with no caller,
+//    which is the failure class the `.custom` accounting below rails against.
 //
 //  THREE PARITY GAPS, NAMED RATHER THAN PAPERED OVER. Each is a real config field that this
 //  engine cannot honour through its typed Swift API, and each is attempted through the
@@ -93,6 +117,8 @@ final class GhosttyPane: NSObject {
     var config: AppConfig
     var fontSize: CGFloat
     private let workingDirectory: URL
+    /// Guards `start()`. See its doc comment for why a second call would cost a session.
+    private var didStart = false
 
     /// The directory this pane was created for, before the shell has reported one.
     /// Read by `ShellHosting.currentDirectory` so a brand-new tab answers with the truth
@@ -151,7 +177,16 @@ final class GhosttyPane: NSObject {
     /// `check-ghostty-pane.sh`'s control case caught it: a pane that was never started reported
     /// a title and an OSC 7 pwd for the app's own directory. The spike had this order right
     /// (`afk/libghostty-spike` main.swift:61-64) and this diverged from it.
+    ///
+    /// IDEMPOTENT, and not as defensive bookkeeping. `fontSize` is part of
+    /// `TerminalSurfaceOptions` below and therefore part of its `isEquivalent(to:)`
+    /// (`Surface/TerminalSurfaceOptions.swift:36-42`), so a second `start()` after ANY zoom
+    /// builds a non-equivalent configuration, trips `configuration`'s didSet, and respawns the
+    /// shell — losing the running session. `controller`'s own didSet guards on `!==` and would
+    /// not catch it, so the guard has to be here.
     func start() {
+        guard !didStart else { return }
+        didStart = true
         view.configuration = TerminalSurfaceOptions(
             backend: .exec,
             fontSize: Float(fontSize),

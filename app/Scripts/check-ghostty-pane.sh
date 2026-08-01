@@ -23,24 +23,35 @@
 # It uses `.accessory` activation and an offscreen frame, so it does NOT steal focus the way
 # check-keys-e2e.sh does.
 #
-# THE CONTROL CASE IS THE REASON TO BELIEVE THE OTHERS. Case 4 asserts the shell reported
-# something within a timeout. On its own that is a claim a broken harness could make by
-# accident — a stray title set by AppKit, a default that happens to be non-empty. So case 5
-# builds an identical pane, never calls `start()`, pumps the identical run loop for the
-# identical duration, and requires SILENCE. If both fire, the harness is measuring something
-# other than the shell and its verdict must be discarded — the same structure that makes
-# check-altbuffer-resize.sh's two real cases worth believing.
+# THE CONTROL CASE IS THE REASON TO BELIEVE THE OTHERS. Case 5a asserts the shell reported a
+# title within a timeout. On its own that is a claim a broken harness could make by accident — a
+# stray title set by AppKit, a default that happens to be non-empty. So case 6 builds an
+# identical pane, never calls `start()`, pumps the identical run loop for the identical duration,
+# and requires SILENCE. If both fire, the harness is measuring something other than the shell and
+# its verdict must be discarded — the same structure that makes check-altbuffer-resize.sh's two
+# real cases worth believing.
+#
+# CASE 5b EXISTS BECAUSE THE DISJUNCTION IT WAS EXTRACTED FROM TOLD A LIE. Splitting `title ||
+# OSC 7` into two cases did not merely make the gate stricter — it revealed that OSC 7 works.
+# `pump` returns the moment its condition holds, and a zsh sends the title first, so the old
+# combined condition stopped the run loop a beat before the OSC 7 sequence arrived and the gate
+# printed `pwd=-` every time. PR #20's body dutifully recorded that as a corrected overclaim; the
+# overclaim was correct and the correction was the artifact. A gate that cannot notice good news
+# cannot notice the bad news sharing its channel.
 #
 # Usage:
 #   ./Scripts/check-ghostty-pane.sh            # run all cases
 #   ./Scripts/check-ghostty-pane.sh --quiet    # summary line and failures only
 #
-# Exit codes:
+# Exit codes — the harness's own exit status, corroborated by its printed verdict. A status and
+# verdict that disagree are treated as environmental, which is what closes the window where a
+# crash AFTER printing "ALL-OK" read as green:
 #   0  the pane builds, conforms, and a real shell renders and reports through it
 #   1  a real failure — the kill criterion is unmet, or a conformance/mapping is wrong
 #   2  environmental — no toolchain, no window server, no testable objects, harness would not
-#      compile. Never conflated with 1: a machine that cannot run the check must not read as a
-#      green gate, and must not read as "libghostty is not ready" either.
+#      compile, or it died (before or after reporting). Never conflated with 1: a machine that
+#      cannot run the check must not read as a green gate, and must not read as "libghostty is
+#      not ready" either.
 
 set -uo pipefail
 
@@ -166,17 +177,53 @@ MainActor.assumeIsolated {
              + "got \(pane.currentDirectory?.path ?? "nil")")
     }
 
-    // ---- case 5: THE KILL CRITERION — a real shell runs and reports ---------------------
+    // ---- case 5a: THE KILL CRITERION — a real shell runs and reports --------------------
+    // The title ALONE, deliberately. This used to be `title || OSC 7`, which meant no case in
+    // the file could move if OSC 7 went from working to dead or from dead to working — the
+    // disjunction was satisfied by the title either way. OSC 7 is asserted separately in 5b.
     pane.start()
-    pump(12.0) { !pane.currentTitle.isEmpty || pane.reportedDirectory != nil }
-    let spoke = !pane.currentTitle.isEmpty || pane.reportedDirectory != nil
-    if spoke {
-        print("  shell reported: title=\(pane.currentTitle.isEmpty ? "-" : pane.currentTitle) "
-              + "pwd=\(pane.reportedDirectory ?? "-")")
-    } else {
-        fail("case5 KILL CRITERION: no title and no OSC 7 within 12s — a shell did not come up "
-             + "in a real GhosttyPane. This is the condition the probe plan says means "
-             + "libghostty is not ready.")
+    // Waits for the CONJUNCTION, then asserts the two halves separately. `||` was the bug (see
+    // 5b); a fixed settling pump after the title would only have narrowed it, since the budget
+    // for OSC 7 would then be a guess rather than the same 12s the title gets. `pump` still
+    // returns the moment both have landed, so the common case costs nothing.
+    pump(12.0) { !pane.currentTitle.isEmpty && pane.reportedDirectory != nil }
+    let titled = !pane.currentTitle.isEmpty
+    print("  shell reported: title=\(pane.currentTitle.isEmpty ? "-" : pane.currentTitle) "
+          + "pwd=\(pane.reportedDirectory ?? "-")")
+    if !titled {
+        fail("case5a KILL CRITERION: no OSC 0/2 title within 12s — a shell did not come up in a "
+             + "real GhosttyPane. This is the condition the probe plan says means libghostty is "
+             + "not ready.")
+    }
+
+    // ---- case 5b: OSC 7 — the capability this engine is being evaluated FOR --------------
+    // REQUIRED, and separating it from 5a is what made it visible at all. `pump` returns as soon
+    // as its condition holds; the old condition was `title || pwd`, and a zsh sends the title
+    // first — so the harness stopped pumping a beat before OSC 7 landed and printed `pwd=-`.
+    // PR #20's body records that as "OSC 7 is wired but the gate reports pwd=-, so it is
+    // inherited from the spike, not re-confirmed". THAT WAS AN ARTIFACT OF THIS HARNESS, not a
+    // fact about libghostty: with the settling pump in 5a, OSC 7 arrives every run. The
+    // disjunction was not merely weak, it was actively reporting a false negative — which is the
+    // strongest argument in this file for why a gate must never fold two signals into one `||`.
+    //
+    // The PATH is asserted, not just its presence. A surface that reports the app's own cwd
+    // instead of the pane's is the exact bug case 6 caught once already (a pane started in
+    // `init` against default options), and it would sail through a nil-check.
+    if titled {
+        if let reported = pane.reportedDirectory {
+            let want = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path
+            let got = URL(fileURLWithPath: reported).resolvingSymlinksInPath().path
+            if got != want {
+                fail("case5b OSC 7 reported the wrong directory: \(got), want \(want). The shell "
+                     + "is talking, but not about this pane's root.")
+            }
+        } else {
+            fail("case5b: no OSC 7 within 12s. This is the capability GhosttyPane's header "
+                 + "names as the engine's advantage over TerminalPane, which has to ask the "
+                 + "KERNEL for the same fact (ShellDirectory.swift). It was observed working at "
+                 + "d22e7e8, so this is a regression — fix it, or make the header and AFK.md "
+                 + "stop claiming it, before relaxing this case.")
+        }
     }
 
     // ---- case 6: THE CONTROL — an unstarted pane must stay silent -----------------------
@@ -200,7 +247,12 @@ MainActor.assumeIsolated {
         fail("case7 zoom: currentFontSize is \(pane.currentFontSize), want \(before + 3)")
     }
     pump(1.5)
-    if spoke && pane.currentTitle.isEmpty && pane.reportedDirectory == nil {
+    if !titled {
+        // Said out loud rather than skipped silently: the assertion below needs a shell that
+        // spoke BEFORE the font change to have anything to compare against, so when 5a failed
+        // this is unevaluated — which is not the same as passing.
+        print("  case7 rebuild assertion UNEVALUATED — case5a never reported a title")
+    } else if pane.currentTitle.isEmpty {
         fail("case7 zoom rebuilt the surface: the shell had reported before the font change and "
              + "has gone silent after it — scrollback would be discarded on every ⌘+")
     }
@@ -212,7 +264,12 @@ MainActor.assumeIsolated {
 
     print(bad == 0 ? "ALL-OK" : "SOME-FAILED")
 }
-exit(0)
+// The EXIT CODE is the verdict; the printed line only corroborates it. This was `exit(0)`
+// unconditionally, which made a stdout substring the sole channel — and the shell half then
+// forgave a nonzero status whenever "ALL-OK" appeared anywhere in the output, so a crash during
+// teardown AFTER the verdict printed read as a green gate. `check-metal-renderer.sh` never had
+// that hole because it counts failures and exits on the count.
+exit(bad == 0 ? 0 : 1)
 SWIFT
 
 OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
@@ -231,25 +288,32 @@ fi
 
 out="$("$TMP/panecheck" 2>&1)"
 status=$?
-if [[ $status -ne 0 && "$out" != *"ALL-OK"* && "$out" != *"SOME-FAILED"* ]]; then
-  echo "error: the harness died before reporting (exit $status) — treating as environmental." >&2
-  echo "  A crashed process is telling you about the machine (no window server, no GPU), not" >&2
-  echo "  about whether libghostty is ready." >&2
+
+# Status and verdict must AGREE, and disagreement is environmental rather than a verdict. The
+# harness exits 0 with ALL-OK or 1 with SOME-FAILED; anything else means it died — including
+# dying after printing, which is why the status is checked and never forgiven by the substring.
+if ! { [[ $status -eq 0 && "$out" == *"ALL-OK"* ]] \
+    || [[ $status -eq 1 && "$out" == *"SOME-FAILED"* ]]; }; then
+  echo "error: the harness exited $status without a matching verdict — treating as" >&2
+  echo "  environmental. A crashed process is telling you about the machine (no window server," >&2
+  echo "  no GPU), not about whether libghostty is ready. If it printed a verdict and STILL" >&2
+  echo "  exited nonzero, it crashed during teardown — real, but not a statement about the pane." >&2
   echo "$out" | tail -12 | sed 's/^/    /' >&2
   exit 2
 fi
 
-echo "$out" | grep -E '^  shell reported:' | sed 's/^/  /'
-if [[ "$out" == *"ALL-OK"* ]]; then
+echo "$out" | grep -E '^  (shell reported:|case7 rebuild assertion)' | sed 's/^/  /'
+if [[ $status -eq 0 ]]; then
   say "  ok  pane constructs; SpaceDocument surface correct (title, symbol, status, close)"
   say "  ok  reachable as SpaceDocument, ShellHosting and SpaceDocumentReporting"
   say "  ok  all 6 cursor styles bridge to the right ghostty shape + blink"
   say "  ok  currentDirectory falls back to the launch root before OSC 7"
-  say "  ok  KILL CRITERION: a real shell came up in a real GhosttyPane and reported"
+  say "  ok  KILL CRITERION: a real shell came up in a real GhosttyPane and set a title"
+  say "  ok  OSC 7 arrived AND named this pane's root — the engine's advantage, now observed"
   say "  ok  control: an unstarted pane stayed silent for the same 12s"
   say "  ok  zoom is live — font changed without restarting the shell; ⌘0 restores"
   echo
-  echo "all ghostty-pane cases passed (4 static + kill criterion + control + zoom)"
+  echo "all ghostty-pane cases passed (4 static + kill criterion + OSC-7 pin + control + zoom)"
   exit 0
 fi
 

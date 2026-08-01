@@ -27,6 +27,12 @@
 # rather than a tautology: if the move mistyped a code, this fails even though the new file is
 # internally consistent.
 #
+# Validated by falsification, like check-reflow.sh and check-altbuffer-resize.sh: mistyping one
+# DECSCUSR code fails 2 cases, dropping one config spelling fails 1, and breaking the shape/blink
+# decomposition fails 2 — which is the only reason to believe the passes mean anything. Recorded
+# here rather than in the pull request that introduced it, because a PR body is not something the
+# next reader of this script will ever see.
+#
 # Usage:
 #   ./Scripts/check-cursor-style.sh            # run all cases
 #   ./Scripts/check-cursor-style.sh --quiet    # summary line and failures only

@@ -4,6 +4,13 @@
 .build/
 .swiftpm/
 Package.resolved
+# ...except the app's own, which is now load-bearing. `Package.swift` pins libghostty
+# `.exact("1.3.2")`, but that pins one EDGE: its transitive deps declare floating `from:`
+# constraints (MSDisplayLink 2.1.0+, swift-argument-parser 1.0.0+), so without this file a
+# fresh clone resolves them to whatever is newest — the exact drift the `.exact` was added
+# to prevent. Ignoring it was right while every dependency was a local path; it stopped
+# being right the moment a versioned remote one arrived.
+!app/Package.resolved
 
 # Assembled .app bundles
 build/

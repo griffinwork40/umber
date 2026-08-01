@@ -258,7 +258,14 @@ struct AppConfig {
             else { config.warnings.append("scrollback must be >= 0 — using \(config.scrollback)") }
         }
         if let sh = file.shell {
-            if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
+            // A newline is rejected as well as a non-executable, because `shell` is not only
+            // exec'd. `GhosttyPane+Appearance.swift` renders it into a `key = value` line of a
+            // ghostty config whose lines are joined with "\n", so a legal macOS filename
+            // containing one would inject arbitrary further config keys. Caught here so the
+            // result is one fail-soft warning rather than engine-specific silent corruption.
+            if sh.contains(where: \.isNewline) {
+                config.warnings.append("shell path contains a newline — using \(config.shell)")
+            } else if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
             else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
         }
         if let meta = file.optionAsMeta { config.optionAsMeta = meta }

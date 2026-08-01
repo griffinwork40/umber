@@ -59,9 +59,12 @@ cannot resolve the path dependency. A **re-vendored but unpatched** tree failed
 *silently*: it compiled and ran, because patch 0001 only drops a build-time resource, so
 following the recreation steps below and forgetting the patch produced a green build
 against a different dependency than the tested one. Nothing in git recorded otherwise —
-`vendor/` is gitignored, `vendor/SwiftTerm` is not a git repo, `Package.resolved` is
-ignored, and `Package.swift`'s path dependency is unpinned. Exit codes: `2` = present but
-unpatched, `3` = unknown revision, `1` = missing vendor or missing pin.
+`vendor/` is gitignored, `vendor/SwiftTerm` is not a git repo, and `Package.swift`'s path
+dependency is unpinned. `Package.resolved` **is** committed as of the libghostty pin, but
+it changes nothing here: SwiftPM writes no pin entry for a local path dependency, so that
+file records the three remote packages and stays silent about the vendored one. Exit
+codes: `2` = present but unpatched, `3` = unknown revision, `1` = missing vendor or
+missing pin.
 
 It checks **two** files now, and both are hard failures. `Buffer.swift` was a warn-only
 version tripwire until 2026-07-29, when patch `0002` made it load-bearing: a tree missing

@@ -213,7 +213,12 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// being SwiftTerm's and became this project's own — it is the same table, and it now
     /// lives beside the cases it enumerates rather than in the one pane that happened to
     /// need it first.
-    private func applyCursorStyle(_ style: CursorStyle) {
+    /// Module-qualified deliberately: this file imports SwiftTerm, which exports its own
+    /// `public enum CursorStyle` (`vendor/SwiftTerm/Sources/SwiftTerm/TerminalOptions.swift:13`).
+    /// Bare `CursorStyle` resolves correctly only by same-module shadowing, and
+    /// `check-cursor-style.sh` compiles the enum standalone so it cannot see this collision at
+    /// all. Spelling the module is what makes the right one an assertion rather than a default.
+    private func applyCursorStyle(_ style: Umber.CursorStyle) {
         view.feed(text: "\u{1b}[\(style.decscusrCode) q")
     }
 

@@ -27,6 +27,13 @@ extension GhosttyPane {
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and hitting ⌘R
         // changes the size. A live ⌘+ zoom still outranks the file; ⌘0 drops it.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+        // Where `TerminalPane.apply(config:)` emits its own diag block (`TerminalPane.swift:190`).
+        // Here rather than in `pushConfiguration()` because a live ⌘+ pushes too and would
+        // reprint the whole report per keystroke; ⌘R and pane construction are the events worth
+        // a line. It is called AT ALL because an uncalled diagnostic is the precise failure
+        // class this pane's header says the report exists to prevent — a config-shaped thing
+        // that parses and does nothing — and the three `.custom` keys have no other witness.
+        diagnoseResolvedState()
     }
 
     /// Push the whole resolved appearance at the controller in one call.
@@ -77,16 +84,34 @@ extension GhosttyPane {
         // `UMBER_DIAG` line below reports exactly what was sent.
         c = c.custom("command", "\(config.shell) -l")
         c = c.custom("macos-option-as-alt", config.optionAsMeta ? "true" : "false")
-        if config.scrollback > 0 {
-            // Lines -> bytes. ghostty's `scrollback-limit` is a BYTE budget; Umber's
-            // `scrollback` is a line count. 512 bytes/line is a deliberate over-estimate of a
-            // typical 80-120 column line so the user gets at least the history they asked
-            // for. This is an assumption, not a measurement, and it is the single least
-            // defensible line in this file — Phase 5 either confirms the key and the unit or
-            // this comes out and `scrollback` is documented as engine-specific.
-            c = c.custom("scrollback-limit", String(config.scrollback * 512))
+        if let limit = scrollbackLimitBytes(config.scrollback) {
+            c = c.custom("scrollback-limit", limit)
         }
         return c
+    }
+
+    /// ghostty's `scrollback-limit` in BYTES, or nil when the user asked for no scrollback.
+    ///
+    /// Lines -> bytes. ghostty's `scrollback-limit` is a BYTE budget; Umber's `scrollback` is a
+    /// line count. 512 bytes/line is a deliberate over-estimate of a typical 80-120 column line
+    /// so the user gets at least the history they asked for. This is an assumption, not a
+    /// measurement, and it is the single least defensible number in this file — Phase 5 either
+    /// confirms the key and the unit or this comes out and `scrollback` becomes engine-specific.
+    ///
+    /// A function rather than two inline multiplications because `diagnoseResolvedState()` has
+    /// to report the same number, and the diagnostic drifting from what was actually sent would
+    /// defeat its whole purpose.
+    ///
+    /// OVERFLOW IS CLAMPED, NOT TRAPPED. `Config.swift` validates `scrollback` as `>= 0` with no
+    /// ceiling, so `lines * 512` traps above `Int.max / 512` — turning a bad config field into a
+    /// crash, which is exactly what this repo's fail-soft-per-field invariant exists to prevent.
+    /// The guard belongs here rather than in `Config.swift` because the overflow is created by
+    /// THIS file's unit conversion: the line count itself is representable, and `TerminalPane`
+    /// never multiplies it.
+    static func scrollbackLimitBytes(_ lines: Int) -> String? {
+        guard lines > 0 else { return nil }
+        let (bytes, overflowed) = lines.multipliedReportingOverflow(by: 512)
+        return String(overflowed ? Int.max : bytes)
     }
 
     // MARK: - Font sizing
@@ -131,7 +156,7 @@ extension GhosttyPane {
         diag("""
         UNVERIFIED custom keys sent: command='\(config.shell) -l' \
         macos-option-as-alt=\(config.optionAsMeta) \
-        scrollback-limit=\(config.scrollback > 0 ? String(config.scrollback * 512) : "unset") \
+        scrollback-limit=\(Self.scrollbackLimitBytes(config.scrollback) ?? "unset") \
         — none confirmed against ghostty's schema; renderer='\(config.renderer.configName)' \
         is INAPPLICABLE here (libghostty is GPU-only)
         """)
