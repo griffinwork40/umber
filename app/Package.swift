@@ -10,19 +10,49 @@ let package = Package(
     name: "Umber",
     platforms: [.macOS(.v14)],
     dependencies: [
-        // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with one
-        // local patch (the optional Metal shader resource is excluded, because
-        // Xcode 26.6 moved the Metal toolchain to a downloadable component that
-        // is not installed here). See README.md ("Dependency note") for the
-        // rationale and how to recreate it. Swapping to the real upstream
-        // package once `xcodebuild -downloadComponent MetalToolchain` has run is
-        // a one-line change.
-        .package(path: "../vendor/SwiftTerm")
+        // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with FOUR
+        // local patches — 0001 ships the Metal shader as a `.copy` resource so the
+        // GPU renderer is reachable, 0002/0003 are required correctness fixes
+        // (SwiftTerm #494 scrollback reflow, and the alt-buffer resize that bled
+        // stale cells across tmux panes), 0004 gates an upstream debug `abort()`
+        // behind `#if DEBUG`. See ../patches/swiftterm/SwiftTerm.pin for the hashes
+        // and README.md ("Dependency note") for how to recreate the tree.
+        //
+        // A tree missing 0002/0003 compiles, runs, and silently corrupts the
+        // buffer, which is why Scripts/verify-vendor.sh is a hard gate in
+        // Scripts/make-app-bundle.sh rather than advisory.
+        .package(path: "../vendor/SwiftTerm"),
+
+        // libghostty — the candidate replacement emulator core. Phase 2 of
+        // ../.afk/plans/libghostty-swap-sequencing-2026-07-28.md §3.
+        //
+        // `.exact`, NOT `from:`. The spike (afk/libghostty-spike @ 123919f) used
+        // `from: "1.2.0"`, and the probe plan §8.1 names that as precisely the
+        // mistake not to repeat: libghostty's ABI is PRE-STABLE and its embedding
+        // API is undocumented outside Zig source, so a floating constraint lets a
+        // stray `swift package update` move it silently. §7 risk 2 records that the
+        // mitigation "becomes real only when production declares .exact("1.3.2")" —
+        // this line is that mitigation.
+        //
+        // This is a 51.8 MB prebuilt XCFramework (MIT) and it pulls two transitive
+        // deps, msdisplaylink and swift-argument-parser. It is NOT auditable text,
+        // which contradicts a stated project convention; ../AFK.md is amended in the
+        // same commit rather than left standing while this line violates it (§7 risk 3).
+        .package(url: "https://github.com/Lakr233/libghostty-spm.git", exact: "1.3.2"),
     ],
     targets: [
         .executableTarget(
             name: "Umber",
-            dependencies: ["SwiftTerm"],
+            dependencies: [
+                "SwiftTerm",
+                // Both engines are linked ON PURPOSE for the duration of the probe.
+                // `GhosttyPane` lands beside `TerminalPane` behind the `SpaceDocument`
+                // seam so the foundation choice stays reversible instead of becoming a
+                // bet (probe plan §5). Exactly one of these dependencies gets deleted
+                // at Step 2 — "decide, then delete the loser" — and not before the
+                // operator has actually lived in the winner (§7 Phase 6).
+                .product(name: "GhosttyTerminal", package: "libghostty-spm"),
+            ],
             path: "Sources/Umber"
         )
     ]
