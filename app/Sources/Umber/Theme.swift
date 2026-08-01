@@ -37,6 +37,32 @@ extension NSColor {
         )
     }
 
+    /// The inverse of `fromHex`, as `#rrggbb`.
+    ///
+    /// Exists because libghostty's configuration takes every colour as a **string** —
+    /// `TerminalConfigCommand.background(String)`, `.cursorColor(String)`,
+    /// `.palette(index:color:)` — rather than as a typed colour
+    /// (`Configuration/TerminalConfiguration.swift:22-34`). SwiftTerm takes a typed
+    /// `SwiftTerm.Color` instead, which is what `asSwiftTermColor` below is for; the two
+    /// engines want the same `Theme` in two different shapes, and both conversions belong
+    /// here beside the parsing rather than in whichever pane needed one first.
+    ///
+    /// Converted to sRGB first for the same reason the other two conversions do it: the
+    /// no-theme fallback is `NSColor.black`, which lives in a generic grey colour space
+    /// where `.redComponent` traps rather than returning 0.
+    ///
+    /// Emitted WITH the leading `#`. libghostty's own shipped presets are inconsistent
+    /// about it (`TerminalTheme+Defaults.swift` mixes `"F7F7F7"` and `"#000000"`), so the
+    /// prefixed form is chosen because it is the one both spellings in that file agree is
+    /// accepted, and it round-trips through `fromHex` above.
+    var hexString: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        let r = Int((c.redComponent * 255).rounded())
+        let g = Int((c.greenComponent * 255).rounded())
+        let b = Int((c.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
+
     /// WCAG 2.1 relative luminance, 0…1. Used to decide whether the window's
     /// system chrome (sidebar, titlebar, scrollers) should render dark or light.
     ///
