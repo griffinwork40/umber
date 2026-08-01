@@ -46,6 +46,7 @@ private struct ConfigFile: Decodable {
     var shell: String?
     var optionAsMeta: Bool?
     var renderer: String?
+    var engine: String?
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
@@ -67,6 +68,14 @@ struct AppConfig {
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
     /// why the default is the conservative one.
     var renderer: Renderer
+    /// Which emulator core backs a NEW terminal document. See `TerminalEngine.swift`.
+    ///
+    /// Read once per document, at construction, and deliberately never re-read: ⌘R applies a
+    /// new config to every LIVE pane (`apply(config:)`), but a live pane cannot change engine
+    /// — rebuilding the core underneath a running shell would discard its scrollback and its
+    /// child process. So editing this and hitting ⌘R affects the next ⌘T, not the tab you are
+    /// looking at, and that is the honest behaviour rather than a limitation to work around.
+    var engine: TerminalEngine
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -165,7 +174,8 @@ struct AppConfig {
             scrollback: 1_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
             optionAsMeta: true,
-            renderer: .default
+            renderer: .default,
+            engine: .default
         )
     }
 
@@ -275,6 +285,14 @@ struct AppConfig {
                 config.warnings.append(
                     "renderer '\(raw)' unrecognised (expected one of: \(Renderer.configNames))"
                         + " — using \(config.renderer.configName)")
+            }
+        }
+        if let raw = file.engine {
+            if let e = TerminalEngine.named(raw) { config.engine = e }
+            else {
+                config.warnings.append(
+                    "engine '\(raw)' unrecognised (expected one of: \(TerminalEngine.configNames))"
+                        + " — using \(config.engine.configName)")
             }
         }
 

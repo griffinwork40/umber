@@ -290,6 +290,15 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
     func windowWillClose(_ notification: Notification) {
         Self.open.removeAll { $0 === self }
+        // `windowShouldClose` only asked permission; this is where the close commits, so it is
+        // where every document's unmanaged state is released. Safe to run on the ⌘Q path too
+        // even though AppKit "generally does not" send this on quit (see the note at the top of
+        // this file): `documentWillClose()` is required to be idempotent, and app termination
+        // needs no teardown of its own — the process is exiting, the pty master closes with it,
+        // and the child gets SIGHUP. So a missed call here costs nothing and a doubled one is
+        // harmless, which is the only reason it is safe to have exactly one call site for a
+        // path AppKit will not promise to deliver.
+        space.tearDownAllDocuments()
         // Closing a Space is the user saying they are done with that project, so it
         // has to come back out of the restore list — otherwise ⌘⇧W would be
         // undoable only until the next launch, which resurrected it. Gated on

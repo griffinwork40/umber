@@ -164,6 +164,42 @@ harness measuring the wrong thing cannot return a verdict.
 
 ---
 
+## 2b. Step 0 result — RUN 2026-08-01. `SCROLLBACK-READABLE`. D4 is settled.
+
+The probe was written and executed. `GHOSTTY_POINT_SCREEN` **does** span scrollback, so
+`check-reflow-ghostty.sh` is buildable and close to a transliteration of `check-reflow.sh`.
+Decisive output, from a 12-row grid fed 200 lines:
+
+```
+VIEWPORT (TOP_LEFT..BOTTOM_RIGHT): rows=11  first="T0192"
+SCREEN   (TOP_LEFT..BOTTOM_RIGHT): rows=205 first="Last login: Sat Aug  1 1"
+SURFACE  (TOP_LEFT..BOTTOM_RIGHT): rows=194 first="Last login: ..." last="T0191"
+ACTIVE   (TOP_LEFT..BOTTOM_RIGHT): rows=11  first="T0192"
+```
+
+Four things to carry into Commit 3, all measured rather than inferred:
+
+1. **`SCREEN` = scrollback + viewport** (205 rows, from the session's first line). This is the
+   analogue of SwiftTerm's `getBufferAsData(kind: .normal)` and the read-back the 8 cases need.
+2. **`SURFACE` = scrollback WITHOUT the viewport** (194 rows, ending at `T0191`, exactly one row
+   before the viewport's first). Useful, and not what the name suggests — worth a comment in the
+   gate so nobody "fixes" `SCREEN` to `SURFACE`.
+3. **`EXACT`-coordinate selections do NOT behave as guessed** — `(SCREEN, EXACT, y=0)` to
+   `(SCREEN, EXACT, y=100000)` returned only 9 rows ending at `T0006`, not the whole buffer. Use
+   `TOP_LEFT`/`BOTTOM_RIGHT`, not hand-computed rows.
+4. **No headless path, confirmed by falsification.** A bare `NSView()` with no window produced
+   **no surface at all**; the offscreen accessory `NSWindow` produced one. So the gate is an
+   offscreen-GUI gate in `check-ghostty-pane.sh`'s mould, exactly as assumed — not a
+   `swiftc`-only harness.
+5. **Resize is pixels AND lossy.** Asking for 80×12 (via `cell_width_px`/`cell_height_px` from
+   `ghostty_surface_size`) yielded **79×11**. A reflow harness must therefore read the ACHIEVED
+   grid back after every resize and assert against that, never against what it requested.
+
+Harness kept at `/tmp/step0-probe/main.swift`; it is throwaway, but Commit 3 should start from it
+rather than from scratch.
+
+---
+
 ## 3. Sequence
 
 - **Step 0 — read-back probe (no commit).** ~30 minutes, throwaway harness. Decides D4's shape.
