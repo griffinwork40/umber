@@ -222,18 +222,30 @@ extension GhosttyPane:
     /// that would be written twice, so the presentation was built and the signal was left for
     /// the engine that already emits it.
     ///
-    /// Still not wired here, and that is a scope decision rather than an oversight. Setting
-    /// `.succeeded`/`.failed` correctly needs a policy this probe has not settled: how long a
-    /// finished command's status should persist, whether a fast command should register at
-    /// all, and what happens when the user is already looking at the tab. Guessing now would
-    /// put a half-considered behaviour in front of the operator during the exact stretch of
-    /// daily use that is supposed to be evaluating the engine. Phase 4 wires it deliberately;
-    /// today it proves the signal ARRIVES, which is what the probe needs to know.
+    /// **Now wired, and the three questions Phase 3 left open are answered in
+    /// `CommandOutcome.swift`** — how long a success must run to be worth marking (10s, a
+    /// constant and not a config knob), whether a fast command registers at all (no), and what
+    /// happens when the user is already looking (nothing). The decision lives there because it
+    /// is a pure function of its inputs and therefore gateable headlessly
+    /// (`check-command-outcome.sh`); this method only routes.
+    ///
+    /// The status is cleared on read, in `documentDidBecomeActive()` → `clearAttention()` →
+    /// `resetStatus()`. That completes the contract the marker implies: it labels a tab you are
+    /// not looking at, so looking at the tab is what retires it. No timer, and deliberately so —
+    /// a status that expires on its own would vanish while the user was in another app, which is
+    /// exactly the stretch of time it exists to cover.
+    ///
+    /// Nothing here distinguishes a command from the shell's own exit; that is
+    /// `terminalDidClose` above, which does NOT set `.failed` because a status on a tab that is
+    /// about to vanish is a status nobody reads.
     func terminalDidFinishCommand(exitCode: Int?, durationNanos: UInt64) {
+        let outcome = CommandOutcome.of(
+            exitCode: exitCode, durationNanos: durationNanos, isActiveDocument: isActiveDocument)
+        recordCommandOutcome(outcome)
         diag("""
             OSC 133 command finished: exit=\(exitCode.map(String.init) ?? "nil") \
             in \(String(format: "%.1f", Double(durationNanos) / 1_000_000))ms \
-            — signal ARRIVES; status mapping is Phase 4
+            -> \(outcome)
             """)
     }
 }
