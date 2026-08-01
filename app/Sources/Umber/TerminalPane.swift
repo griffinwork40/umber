@@ -208,17 +208,18 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     /// Cursor style is not settable through a public initialiser, so drive it the
     /// way any program would: the DECSCUSR sequence.
-    private func applyCursorStyle(_ style: CursorStyle) {
-        let code: Int
-        switch style {
-        case .blinkBlock: code = 1
-        case .steadyBlock: code = 2
-        case .blinkUnderline: code = 3
-        case .steadyUnderline: code = 4
-        case .blinkBar: code = 5
-        case .steadyBar: code = 6
-        }
-        view.feed(text: "\u{1b}[\(code) q")
+    ///
+    /// The style→code mapping moved to `CursorStyle.decscusrCode` when the enum stopped
+    /// being SwiftTerm's and became this project's own — it is the same table, and it now
+    /// lives beside the cases it enumerates rather than in the one pane that happened to
+    /// need it first.
+    /// Module-qualified deliberately: this file imports SwiftTerm, which exports its own
+    /// `public enum CursorStyle` (`vendor/SwiftTerm/Sources/SwiftTerm/TerminalOptions.swift:13`).
+    /// Bare `CursorStyle` resolves correctly only by same-module shadowing, and
+    /// `check-cursor-style.sh` compiles the enum standalone so it cannot see this collision at
+    /// all. Spelling the module is what makes the right one an assertion rather than a default.
+    private func applyCursorStyle(_ style: Umber.CursorStyle) {
+        view.feed(text: "\u{1b}[\(style.decscusrCode) q")
     }
 
     // MARK: - Font sizing

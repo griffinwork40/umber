@@ -18,7 +18,9 @@
 //
 
 import AppKit
-import SwiftTerm
+// No `import SwiftTerm`. It was here for exactly one symbol, `CursorStyle`, which is
+// now this project's own type in CursorStyle.swift — see that file's header for why an
+// app-wide config type must not name the emulator.
 
 // MARK: - Config file shape
 
@@ -148,7 +150,7 @@ struct AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: defaultFontSize).font,
             theme: nil,
-            cursorStyle: .blinkBlock,
+            cursorStyle: .default,
             // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
             // thumb as `max(rows / lines.count, 0.01)`
             // (`AppleTerminalView.swift:2002`), so past ~3,500 lines the thumb
@@ -244,15 +246,11 @@ struct AppConfig {
         }
 
         if let raw = file.cursor {
-            switch raw.lowercased() {
-            case "block": config.cursorStyle = .blinkBlock
-            case "block-steady", "steady-block": config.cursorStyle = .steadyBlock
-            case "bar", "underline-bar": config.cursorStyle = .blinkBar
-            case "bar-steady", "steady-bar": config.cursorStyle = .steadyBar
-            case "underline": config.cursorStyle = .blinkUnderline
-            case "underline-steady", "steady-underline": config.cursorStyle = .steadyUnderline
-            default: config.warnings.append("cursor '\(raw)' unrecognised — using block")
-            }
+            // Same fail-soft shape as `renderer` below: an unrecognised value degrades to
+            // the default and says so, rather than throwing. The spellings themselves moved
+            // to `CursorStyle.named(_:)` so the mapping is compilable without AppKit.
+            if let style = CursorStyle.named(raw) { config.cursorStyle = style }
+            else { config.warnings.append("cursor '\(raw)' unrecognised — using block") }
         }
 
         if let sb = file.scrollback {
@@ -260,7 +258,14 @@ struct AppConfig {
             else { config.warnings.append("scrollback must be >= 0 — using \(config.scrollback)") }
         }
         if let sh = file.shell {
-            if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
+            // A newline is rejected as well as a non-executable, because `shell` is not only
+            // exec'd. `GhosttyPane+Appearance.swift` renders it into a `key = value` line of a
+            // ghostty config whose lines are joined with "\n", so a legal macOS filename
+            // containing one would inject arbitrary further config keys. Caught here so the
+            // result is one fail-soft warning rather than engine-specific silent corruption.
+            if sh.contains(where: \.isNewline) {
+                config.warnings.append("shell path contains a newline — using \(config.shell)")
+            } else if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
             else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
         }
         if let meta = file.optionAsMeta { config.optionAsMeta = meta }
