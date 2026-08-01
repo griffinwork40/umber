@@ -32,11 +32,11 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are eight scripts and a diagnostic
-env var, each aimed at something that has really gone wrong:
+of pure logic would have caught. So the checks are ten `check-*.sh` scripts, a vendor
+verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all three patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all four patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
@@ -44,6 +44,8 @@ env var, each aimed at something that has really gone wrong:
 ./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
+./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
+./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
@@ -174,6 +176,50 @@ path specifically. The gate was then validated the same way `check-reflow.sh` wa
 falsification, not by passing: reverting `0003` fails exactly cases 1 and 2 and keeps 3 and 4
 green. A gate that has never been observed to fail for the right reason is not evidence.
 
+`check-metal-renderer.sh` is the gate for local patch `0001` and for SwiftTerm's
+`setUseMetal`/`isUsingMetalRenderer` contract — the `renderer` config *string*, and whether it
+maps to the case it names, is `check-renderer-config.sh`'s job below — and it guards a failure
+that is invisible by construction: a config that says
+`"renderer": "metal"` while the app quietly draws with Core Text. That is not hypothetical —
+it was this project's actual state until 2026-07-31, because `0001` used to `exclude:` the
+Metal shader rather than ship it, and `MetalTerminalRenderer` needs the `.metal` source in the
+resource bundle so it can compile it at runtime. Six cases: two static (the shader is in the
+SwiftPM resource bundle, **and** in `Umber.app/Contents/Resources` — different lookup paths,
+so one proves nothing about the other), three behavioural (asking for `metal` yields metal;
+asking for `coretext` yields coretext; and asking for `metal` *then* `coretext` in one process
+still yields coretext), and one falsification. Only the third behavioural case is a real
+control. A freshly built view already has `useMetalRenderer == false`, so `setUseMetal(false)`
+on its own early-returns (`Mac/MacTerminalView.swift:379-381`) and the case passes without any
+teardown running — it would still pass if `setUseMetal` were a no-op. The metal-then-coretext
+case is the one that removes the `MTKView` and restores the caret view, which is what a ⌘R
+after editing `renderer` back to `coretext` actually does. The falsification case is the
+load-bearing one: it hides
+`Shaders.metal`, re-runs, and *requires* the request to fail. If Metal still came up with the
+shader hidden, the gate would be passing for some reason other than our packaging and its
+other cases would mean nothing — so that case exits `1` saying the gate is BLIND rather than
+reporting success. Like the two gates above it separates `1` (a real failure) from `2` (no
+Metal device, no window server, build broken) — and a harness process that dies is `2`, not a
+wrong-renderer `1`, because a crash is a statement about the machine.
+
+`check-renderer-config.sh` is that gate's necessary sibling, and the reason it is a separate
+script is the reason it is worth having. Every behavioural case above calls SwiftTerm's
+`setUseMetal` directly, which means all of them bypass `Renderer.named` — the hand-maintained
+table that turns a string in `config.json` into a case. So a typo there would ship with
+`check-metal-renderer.sh` still green, and the symptom would be the quietest one available: a
+config line that reads correctly, parses without a warning, and does nothing. That is the same
+class of silent failure patch `0001` caused for the life of the project. It compiles the
+shipped `Renderer.swift` standalone — that file is Foundation-only *by design*, the same trick
+`check-keybindings.sh` plays on `KeyBindings.swift` and `check-cwd-follow.sh` plays on
+`ShellDirectory.swift` — and so needs swiftc and one source file, no GPU, no window server, no
+`swift build`. Folding it into the expensive gate would have made the cheap half unavailable on
+exactly the machines where the other half cannot run. It asserts all thirteen accepted
+spellings, that unknown values and a trailing space map to `nil` (which is what lets
+`AppConfig.load()` warn and degrade instead of silently switching renderer), that `configName`
+round-trips for every case — driven off `allCases`, so adding a case cannot leave the assertion
+behind — and that the default is still `coretext`. It was validated by falsification like its
+siblings: breaking one alias, flipping the default, and making unknown values resolve each make
+it fail with the specific case named.
+
 `check-find-menu.sh` covers the three Edit-menu items with **no Umber code behind them** —
 Undo, Redo, and Find and Replace are AppKit responder actions reached with `target = nil`,
 so all three are correct only as long as an assumption about the SDK holds. It checks that
@@ -249,6 +295,7 @@ working terminal.
   "cursor": "block",
   "scrollback": 1000,
   "optionAsMeta": true,
+  "renderer": "coretext",
   "theme": { "preset": "afk-dark", "cursor": "#E67E4C" }
 }
 ```
@@ -260,9 +307,10 @@ Omit `theme` entirely — the default — and no colours are installed at all.
 | `font.family` | Any installed monospaced family. Omitted, or set to `SF Mono`/`system`, gives the system monospaced face (SF Mono) — the default. An unavailable family warns and falls back to it. Note `NSFont(name: "SF Mono")` returns nil, so SF Mono is only reachable via that alias, never by name |
 | `font.size` | Points, **6–48**, default **14**. Out of range warns and uses the default rather than silently clamping. ⌘+ / ⌘- zoom on top of this and persist; ⌘0 clears the zoom so this value applies again |
 | `cursor` | `block`, `steady-block`, `bar`, `steady-bar`, `underline`, `steady-underline` |
-| `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line three times on each window resize |
+| `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
+| `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `theme` | **Omitted by default.** Present at all ⇒ colours get installed, which regenerates ANSI 16–255 out of your bg/fg. See the note above |
 | `theme.preset` | `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
@@ -278,13 +326,21 @@ installs a full palette, with the 256-colour trade-off described above.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **three** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **four** local patches:
 
-1. `0001-exclude-metal-shader-from-target.patch` — the optional Metal GPU shader is
-   excluded from the build, because Xcode 26.6 moved the Metal toolchain to a separate
-   downloadable component that is not installed here. The Core Text renderer is used
-   instead; `MetalTerminalRenderer` probes for the shader bundle at runtime and returns
-   nil when absent, so nothing traps.
+1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
+   shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
+   offline Metal compiler at build time, which cannot work here (Xcode 26.6 moved the
+   toolchain to `xcodebuild -downloadComponent MetalToolchain`, and this machine has Command
+   Line Tools only — the build dies at `unable to spawn process 'metal'`). `.copy` ships the
+   raw `.metal` source instead, and `MetalTerminalRenderer.makeLibrary`
+   (`MetalTerminalRenderer.swift:2746`) compiles it at **runtime** via
+   `device.makeLibrary(source:)` (`:2765`), which needs no toolchain — measured at 173ms on
+   the first call and ~0ms after, on an M4 Pro. Until 2026-07-31 this patch used `exclude:`
+   instead, which kept the shader out of the bundle and so made the vendored GPU renderer
+   permanently unreachable, silently: avoiding the build-time compiler required dropping
+   `.process`, but it never required dropping the file. `check-metal-renderer.sh` is the
+   gate; `../.afk/research/performance-audit-2026-07-31.md` §1 is the argument.
 2. `0002-index-iswrapped-buffer-absolute.patch` — fixes SwiftTerm
    [#494](https://github.com/migueldeicaza/SwiftTerm/issues/494) by indexing the
    wrapped-line flag buffer-absolute (`_lines[_y + _yBase]`) at `Buffer.swift:1171` and
@@ -300,9 +356,20 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **three** local p
    only deltas — that is content bleeding across pane and window boundaries. The loop must
    stay **after** `reflow`, which rewraps from the old width. Diagnosis:
    `../.afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md`.
+4. `0004-gate-resize-post-condition-behind-debug.patch` — wraps the `// DEBUG:
+   Post-condition` block at `Buffer.swift:544` in `#if DEBUG`. Upstream ships it ungated
+   while gating this file's five other debug blocks correctly, so it reads as a leftover: it
+   walks the viewport **plus the entire scrollback** on every `resize` — the third such walk
+   in that function, and every live-window-drag frame reaches it — and ends in `abort()`, a
+   hard crash in release builds raised from inside a drag. Kept as `abort()` inside the guard
+   so debug builds still fail as loudly as upstream intended. Unlike `0002`/`0003` it has no
+   behavioural gate, deliberately: its whole effect is deleting work and deleting a crash
+   path, so a passing check would only prove the compiler honours `#if DEBUG`. What guards it
+   is the combined `Buffer.swift` hash plus both existing Buffer gates still passing with it
+   applied.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`../patches/swiftterm/0001-exclude-metal-shader-from-target.patch`,
+`../patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch`,
 `../patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch` and
 `../patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
@@ -311,18 +378,20 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **three** local p
 git clone --depth 1 --branch v1.15.0 \
     https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
 chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-exclude-metal-shader-from-target.patch
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all three patches)
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all four patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
+(cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
 ```
 
-All three patches are required. `verify-vendor.sh` exits `2` naming the specific file if
-one is missing. Note that `0002` and `0003` patch the **same file**, so the pin carries a
-single combined `Buffer.swift` hash: a tree with only one of them matches neither the
-patched nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
+All four patches are required. `verify-vendor.sh` exits `2` naming the specific file if one
+is missing. Note that `0002`, `0003` and `0004` patch the **same file**, so the pin carries a
+single combined `Buffer.swift` hash: a tree with only some of them matches neither the patched
+nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
 deliberate — half-patched is not a state this project supports, and it is louder than a
 hash that quietly tolerated either.
 

@@ -177,6 +177,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         }
         view.optionAsMetaKey = config.optionAsMeta
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
+        applyRenderer(config.renderer)  // must precede the font — see applyRenderer(_:)
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R actually changes the size. A live ⌘+ zoom still outranks the
         // file — ⌘0 drops it and hands control back to the config.

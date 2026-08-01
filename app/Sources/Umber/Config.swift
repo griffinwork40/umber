@@ -43,6 +43,7 @@ private struct ConfigFile: Decodable {
     var scrollback: Int?
     var shell: String?
     var optionAsMeta: Bool?
+    var renderer: String?
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
@@ -61,6 +62,9 @@ struct AppConfig {
     var scrollback: Int
     var shell: String
     var optionAsMeta: Bool
+    /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
+    /// why the default is the conservative one.
+    var renderer: Renderer
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -149,12 +153,17 @@ struct AppConfig {
             // thumb as `max(rows / lines.count, 0.01)`
             // (`AppleTerminalView.swift:2002`), so past ~3,500 lines the thumb
             // hits the 1% floor and degenerates into a fixed hairline that no
-            // longer tracks position. `Buffer.resize` also walks every line three
-            // times per resize, so a 10k buffer made window resizing ~20x more
-            // expensive than it needed to be. Raise it if you want; know the cost.
+            // longer tracks position. `Buffer.resize` also walks every line TWICE
+            // per resize — reflow, then the narrowing trim (vendor patch 0003) — so
+            // a 10k buffer made window resizing far more expensive than it needed
+            // to be. It was THREE walks until 2026-07-31: vendor patch 0004 removed
+            // the third, an ungated upstream debug assertion that walked the whole
+            // scrollback and called abort() in release builds.
+            // Raise it if you want; know the cost.
             scrollback: 1_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
-            optionAsMeta: true
+            optionAsMeta: true,
+            renderer: .default
         )
     }
 
@@ -255,6 +264,14 @@ struct AppConfig {
             else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
         }
         if let meta = file.optionAsMeta { config.optionAsMeta = meta }
+        if let raw = file.renderer {
+            if let r = Renderer.named(raw) { config.renderer = r }
+            else {
+                config.warnings.append(
+                    "renderer '\(raw)' unrecognised (expected one of: \(Renderer.configNames))"
+                        + " — using \(config.renderer.configName)")
+            }
+        }
 
         return config
     }
