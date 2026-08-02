@@ -54,12 +54,12 @@ private struct ConfigFile: Decodable {
 /// and the reasons are surfaced in `warnings` rather than thrown.
 struct AppConfig {
     var font: NSFont
-    /// `nil` means "do not install any colours" — SwiftTerm's own defaults stand.
-    /// That is the default, and it is not laziness: installing a background or
-    /// foreground makes SwiftTerm regenerate ANSI indices 16–255 by interpolating
-    /// them out of your bg/fg (`Terminal.swift:513-542` → `rebuildAnsiPalette`),
-    /// so a custom theme silently replaces the standard 256-colour cube with
-    /// synthesised approximations. See `TerminalPane.apply(config:)`.
+    /// `nil` means "do not install any colours" — SwiftTerm's own defaults stand,
+    /// and that is the default. NOT because a theme regenerates ANSI 16–255: that
+    /// claim is stale. `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy`
+    /// to `.xterm` first (`:165`) and `Terminal.swift:523,538` then skip
+    /// `rebuildAnsiPalette` entirely, so a theme moves 0–15 and the standard cube
+    /// survives. The default is "install nothing" because the defaults render well.
     var theme: Theme?
     var cursorStyle: CursorStyle
     var scrollback: Int

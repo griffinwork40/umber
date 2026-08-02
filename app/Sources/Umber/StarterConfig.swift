@@ -43,7 +43,7 @@ enum StarterConfig {
       "// engine-caveat": "renderer above applies to swiftterm only; libghostty draws with its own renderer and ignores it.",
       "engine": "swiftterm",
 
-      "// theme": "OMITTED ON PURPOSE. With no theme, SwiftTerm's own colours stand and ANSI 16-255 keep the standard xterm values. Setting a background or foreground makes SwiftTerm regenerate indices 16-255 by interpolating them out of your bg/fg, so 256-colour programs render against synthesised approximations. Uncomment below only if you want that trade.",
+      "// theme": "OMITTED ON PURPOSE — SwiftTerm's own colours are good and stand by default. A theme moves ANSI 0-15, the background, foreground and cursor; indices 16-255 keep the standard xterm cube either way, because Umber pins ansi256PaletteStrategy to .xterm. Uncomment below to install a palette.",
       "// theme-example": {
         "preset": "afk-dark",
         "// preset-values": "afk-dark | tokyo-night | classic",
