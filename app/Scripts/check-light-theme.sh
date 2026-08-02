@@ -15,10 +15,10 @@
 # and nothing in it has ever been gateable. That is why the palettes and the luminance
 # formula were moved out — the split is what created something checkable.
 #
-# WHY IT EXISTS AT ALL. `AppConfig.appearance` (`Config.swift:141`) derives the window's
+# WHY IT EXISTS AT ALL. `AppConfig.appearance` (`Config.swift:149`) derives the window's
 # light/dark chrome from the theme background's relative luminance:
 #
-#     NSAppearance(named: effectiveBackground.relativeLuminance > lightChromeCutoff
+#     NSAppearance(named: Double(effectiveBackground.relativeLuminance) > ThemeCatalog.lightChromeCutoff
 #                        ? .aqua : .darkAqua)
 #
 # So a "light" preset whose background lands at or below that cutoff installs its
@@ -28,6 +28,12 @@
 # Nothing else in this repo can catch it, because the deciding comparison lives in a
 # file that imports AppKit. Case 2 below is that assertion, and it is why this script
 # exists; the other six are there to stop case 2 passing for the wrong reason.
+#
+# `lightChromeCutoff` itself is declared in `ThemeCatalog.swift`, the file THIS script
+# compiles, and `Config.swift:149` reads that exact symbol rather than a second literal —
+# there used to be two independent `0.179`s, one production read and one this gate read,
+# and nothing tied them together (PR #24 review, item 1). Cases 2–3 below now constrain
+# the same constant `AppConfig.appearance` compares against.
 #
 # WHAT THIS CANNOT SEE, stated plainly the way check-cwd-follow.sh states its blindness:
 # it never renders a pixel. It cannot tell you the sidebar's vibrant material actually
@@ -92,11 +98,13 @@ for t in ThemeCatalog.all {
 }
 
 // ---- 2. THE KILL CRITERION. ----
-// `AppConfig.appearance` (`Config.swift:140-142`) picks .aqua only when
+// `AppConfig.appearance` (`Config.swift:149-150`) picks .aqua only when
 // background.relativeLuminance > lightChromeCutoff. A "light" preset whose background
 // lands at or below that cutoff installs its colours and leaves the sidebar, titlebar
 // and scrollers dark — a config line that parses, warns about nothing, and half-works.
-// This is the assertion the whole feature rests on.
+// This is the assertion the whole feature rests on, and `cutoff` below is read off
+// `ThemeCatalog.lightChromeCutoff` — the SAME symbol `Config.swift:149` compares
+// against, not a restated literal — so this case constrains the value production reads.
 let cutoff = ThemeCatalog.lightChromeCutoff
 func assertSide(_ name: String, wantLight: Bool) {
     guard let t = ThemeCatalog.named(name), let l = ThemeCatalog.luminance(hex: t.background) else {
@@ -135,6 +143,11 @@ for t in ThemeCatalog.all where ThemeCatalog.named(t.configName)?.configName != 
 }
 if ThemeCatalog.named("afklight")?.configName != "afk-light" { fail("'afklight' should fold to afk-light") }
 if ThemeCatalog.named("AFK-Light")?.configName != "afk-light" { fail("case folding") }
+// `named(_:)` reads `_` as `-` (`ThemeCatalog.swift`'s `raw.lowercased().replacingOccurrences(of:
+// "_", with: "-")`), which widened accepted spellings beyond the old `Theme.preset(named:)` switch
+// without a case asserting it — untested and undocumented until PR #24 review, item 4.
+if ThemeCatalog.named("afk_light")?.configName != "afk-light" { fail("'afk_light' should fold to afk-light") }
+if ThemeCatalog.named("tokyo_night")?.configName != "tokyo-night" { fail("'tokyo_night' should fold to tokyo-night") }
 // `classic` MUST stay nil — it is the one accepted value meaning "install nothing".
 // `AppConfig.load()` (`Config.swift:215-219`) distinguishes it from a typo by testing
 // the raw string BEFORE resolving, so merging the two nils in a tidy-up would turn a
@@ -153,8 +166,14 @@ func contrast(_ a: String, _ b: String) -> Double {
     guard let x = ThemeCatalog.luminance(hex: a), let y = ThemeCatalog.luminance(hex: b) else { return 0 }
     return (max(x, y) + 0.05) / (min(x, y) + 0.05)
 }
+// `contentSlots` reaches index 14, so indexing either palette's `.ansi` below is only safe
+// when it is exactly 16 long. Case 1 already fails loudly (and non-fatally) on any other
+// length; without this guard a 15-entry palette passed case 1's non-fatal `fail()` and then
+// TRAPPED here with an index-out-of-range instead of the SOME-FAILED exit the gate exists to
+// produce (PR #24 review, item 5) — the one case where a bad palette crashes the harness
+// instead of reporting on it.
 let contentSlots = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
-if let light = ThemeCatalog.named("afk-light") {
+if let light = ThemeCatalog.named("afk-light"), light.ansi.count == 16 {
     for i in contentSlots {
         let c = contrast(light.ansi[i], light.background)
         if c < 3.0 {
@@ -172,7 +191,11 @@ if let light = ThemeCatalog.named("afk-light") {
 // reason a separate light preset is needed rather than reusing afk-dark. If a dark
 // palette read as legible on white, the contrast function is not measuring contrast and
 // every green assertion in case 6 is void.
-if let dark = ThemeCatalog.named("afk-dark"), let light = ThemeCatalog.named("afk-light") {
+//
+// Guarded the same way as case 6, and for the same reason: `dark.ansi[$0]` reaches index 14,
+// so a short `afk-dark` palette must fall through to case 1's diagnostic rather than trap here.
+if let dark = ThemeCatalog.named("afk-dark"), let light = ThemeCatalog.named("afk-light"),
+   dark.ansi.count == 16 {
     let illegible = contentSlots.filter { contrast(dark.ansi[$0], light.background) < 3.0 }
     if illegible.count < 4 {
         fail("CONTROL: only \(illegible.count) afk-dark ANSI slots are illegible on "
@@ -193,7 +216,26 @@ if ! swiftc -O -o "$TMP/lightcheck" "$SRC" "$TMP/pure/main.swift" 2>"$TMP/compil
   exit 2
 fi
 
+# `set -uo pipefail` (`:61`) has no `-e`, so this command substitution not aborting the
+# script on a nonzero exit is exactly what lets `rc` be captured below instead of the
+# script dying here with no diagnostic.
 out="$("$TMP/lightcheck" 2>&1)"
+rc=$?
+# The Swift harness always exits 0 — its LAST line is `print(bad == 0 ? "ALL-OK" :
+# "SOME-FAILED")` below, never a nonzero `exit()` — so `rc` 0 and `rc` 1 are both
+# ordinary outcomes distinguished by the stdout substring below, not by the exit code.
+# Only `rc > 1` means the process itself died — SIGABRT, a dyld failure, a codesign
+# refusal — which is an environmental failure, not "the palettes are wrong", and must
+# not fall through to the `exit 1` at the bottom (PR #24 review, item 3): this script's
+# own documented contract (`:52-59`) is 1 = real assertion failure, 2 = environmental.
+if (( rc > 1 )); then
+  echo "error: $TMP/lightcheck died (exit $rc) instead of printing ALL-OK/SOME-FAILED." >&2
+  echo "  That is a harness crash, not a palette or luminance failure — environmental," >&2
+  echo "  not a real gate failure. Output captured before it died:" >&2
+  echo "$out" | sed 's/^/    /' >&2
+  exit 2
+fi
+
 if [[ "$out" == *"ALL-OK"* ]]; then
   say "  ok  every shipped hex parses; every palette is exactly 16 colours"
   say "  ok  afk-light clears the lightChromeCutoff, so the window chrome goes .aqua"

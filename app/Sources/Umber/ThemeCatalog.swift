@@ -12,13 +12,23 @@
 //  compiled standalone and nothing in it has ever been gateable.
 //
 //  THE FORMULA LIVES HERE, NOT IN `NSColor.relativeLuminance`, and that is the
-//  point of the split. `AppConfig.appearance` (`Config.swift:140`) picks light vs
+//  point of the split. `AppConfig.appearance` (`Config.swift:149`) picks light vs
 //  dark chrome by testing that luminance against `lightChromeCutoff`. If the
 //  formula or a shipped background were ever wrong, a light theme would install
 //  its colours and leave the sidebar dark — a silent, config-shaped no-op, the
 //  exact failure class `check-renderer-config.sh` exists to prevent for `renderer`.
 //  `NSColor.relativeLuminance` now converts to sRGB and calls this, so there is one
 //  implementation of the maths and the gate compiles it.
+//
+//  `lightChromeCutoff` ALSO lives here now, not just the formula, and for the same
+//  reason: it used to be a second literal in `Config.swift` too, with a doc comment
+//  claiming this gate "asserts the two stay equal by reading the literal out of that
+//  file" — false, because `check-light-theme.sh` compiles only this file plus its own
+//  harness (`SRC` and the `swiftc` call) and never reads `Config.swift` at all. So
+//  editing the `Config.swift` copy alone left the gate green while the shipped light
+//  preset rendered dark window chrome (PR #24 review, item 1). `Config.swift:149` now
+//  reads this symbol directly — one constant, and the gate's cases 2–3 constrain the
+//  exact value production compares against, not a copy of it.
 //
 
 import Foundation
@@ -136,7 +146,7 @@ enum ThemeCatalog {
     ///
     /// The single implementation of this formula in the app. `NSColor.relativeLuminance`
     /// (`Theme.swift`) converts to sRGB and calls this; `AppConfig.appearance`
-    /// (`Config.swift:140`) compares the result to `lightChromeCutoff`.
+    /// (`Config.swift:149`) compares the result to `lightChromeCutoff`.
     static func luminance(red: Double, green: Double, blue: Double) -> Double {
         // Gamma-expand each channel before weighting — luminance is defined on
         // linear light, and skipping this misjudges mid-tones badly.
@@ -159,8 +169,18 @@ enum ThemeCatalog {
             blue: Double(v & 0xff) / 255.0)
     }
 
-    /// The cutoff `AppConfig.appearance` tests against, restated here so the gate can
-    /// compile it. `Config.swift` imports AppKit and cannot be compiled standalone;
-    /// the gate asserts the two stay equal by reading the literal out of that file.
+    /// WCAG 2.1's contrast crossover: above this luminance a background reads better
+    /// with black text than white, which is exactly the question `AppConfig.appearance`
+    /// (`Config.swift:149`) asks — "should this window's chrome be light or dark?" All
+    /// three shipped dark themes sit far below it (afk-dark ≈ 0.008, tokyo-night ≈
+    /// 0.012, black = 0), so this only starts discriminating once a light theme is
+    /// configured.
+    ///
+    /// The constant lives here, not in `Config.swift`, because THIS is the file the
+    /// gate can compile standalone — `Config.swift` imports AppKit and
+    /// `check-light-theme.sh` cannot link it — and production reads this exact
+    /// symbol (`Config.swift:149`), not a second copy of the number. One literal, one
+    /// reader in the gate, one reader in production; a change to either sees the same
+    /// value.
     static let lightChromeCutoff: Double = 0.179
 }

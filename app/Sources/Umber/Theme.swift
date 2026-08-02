@@ -123,7 +123,22 @@ struct Theme {
     /// promise is now checked — `check-light-theme.sh` case 1 parses every shipped
     /// hex and asserts every `ansi` array is exactly 16 long before this can ship,
     /// so a typo becomes a red gate rather than a launch crash.
+    ///
+    /// The `precondition` below is a second, runtime backstop for the same invariant
+    /// the gate checks at ship time, not a duplicate concern: `Theme.init` is called
+    /// ONLY from `Theme.preset(named:)` and the `afkDark`/`afkLight`/`tokyoNight`
+    /// statics below, every one of them resolving a fixed `ThemeCatalog` record — a
+    /// user's `theme.ansi` override is validated separately, in `AppConfig.load()`
+    /// (`Config.swift`), and lands here as a direct `theme?.ansi = parsed` mutation
+    /// AFTER construction, never through this initialiser. So a count violation
+    /// reaching this line can only mean `check-light-theme.sh` was not run before a
+    /// `ThemeCatalog` edit shipped — a programmer error, not user input, which is
+    /// exactly the trap/crash-not-silently-corrupt trade a `precondition` is for
+    /// (PR #24 review, item 6).
     init(_ record: ThemeRecord) {
+        precondition(record.ansi.count == 16,
+            "ThemeRecord '\(record.configName)' has \(record.ansi.count) ANSI colours, need exactly 16 — "
+                + "check-light-theme.sh case 1 should have caught this before ship")
         self.background = NSColor.fromHex(record.background)!
         self.foreground = NSColor.fromHex(record.foreground)!
         self.cursor = NSColor.fromHex(record.cursor)!
@@ -136,7 +151,7 @@ struct Theme {
     static var afkDark: Theme { Theme(ThemeCatalog.afkDark) }
 
     /// AFK Light — `"theme": {"preset": "afk-light"}`. The only light preset, and
-    /// the one that makes `AppConfig.appearance` (`Config.swift:141`) return `.aqua`,
+    /// the one that makes `AppConfig.appearance` (`Config.swift:149`) return `.aqua`,
     /// so the sidebar and titlebar follow the terminal instead of fighting it.
     static var afkLight: Theme { Theme(ThemeCatalog.afkLight) }
 

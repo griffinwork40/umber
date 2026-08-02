@@ -137,16 +137,18 @@ struct AppConfig {
     /// vibrant sidebar material samples `window.backgroundColor` — already the
     /// theme background — so the tree picks up the theme's tint for free, without
     /// hand-painting a single row.
+    ///
+    /// The comparison is spelled out as `Double` rather than leaning on
+    /// CGFloat/Double bridging: `relativeLuminance` is `CGFloat` (it feeds AppKit
+    /// APIs) and `ThemeCatalog.lightChromeCutoff` is `Double` (that file is
+    /// Foundation-only and cannot spell `CGFloat`), and an implicit conversion at
+    /// the comparison site would leave the two types silently doing the coercion
+    /// instead of the reader seeing it happen. `ThemeCatalog.swift`'s doc comment
+    /// carries the WCAG rationale for the constant itself — this is the one
+    /// call site that reads it, not a second definition of it (PR #24 review, item 1).
     var appearance: NSAppearance? {
-        NSAppearance(named: effectiveBackground.relativeLuminance > Self.lightChromeCutoff ? .aqua : .darkAqua)
+        NSAppearance(named: Double(effectiveBackground.relativeLuminance) > ThemeCatalog.lightChromeCutoff ? .aqua : .darkAqua)
     }
-
-    /// WCAG 2.1's contrast crossover: above this luminance a background reads
-    /// better with black text than white, which is exactly the question
-    /// "should this window's chrome be light or dark?" asks. All three shipped
-    /// themes sit far below it (afk-dark ≈ 0.008, tokyo-night ≈ 0.012, black = 0),
-    /// so this only starts discriminating once someone configures a light theme.
-    static let lightChromeCutoff: CGFloat = 0.179
 
     static var configURL: URL {
         FileManager.default

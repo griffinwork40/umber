@@ -29,10 +29,11 @@ reload (⌘R) and per-field soft failure · **font sizing that sticks** (⌘+/�
 zoom every tab and persist across relaunch; ⌘0 resets; 14pt default,
 `font.size` 6–48 in config) · full screen ·
 copy/paste/select-all · window position restored across launches · **no palette
-installed by default**, deliberately — SwiftTerm derives ANSI 16–255 from your
-background and foreground, so installing a theme silently replaces the standard
-256-colour cube with interpolated approximations. `afk-dark` and `tokyo-night`
-are one config line away.
+installed by default**, deliberately — SwiftTerm's own colours render well.
+Installing a theme is safe for the 256-colour cube: Umber pins the xterm ANSI
+strategy before installing anything, so a theme moves indices 0–15 only and the
+standard 256-colour cube survives (see `app/README.md` for the full story).
+`afk-dark`, `afk-light` and `tokyo-night` are one config line away.
 
 **Not built:** splits · app icon · preferences UI (config is a JSON file) · shell
 integration (OSC 7/133) · search · URL clicking · profiles.
