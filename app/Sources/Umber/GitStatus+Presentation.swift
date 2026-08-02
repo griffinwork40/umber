@@ -89,3 +89,42 @@ extension GitFileStatus {
         }
     }
 }
+
+extension GitFileEntry {
+    /// The row's status in words — the two facts a one-letter badge structurally cannot
+    /// carry, joined to the one it can.
+    ///
+    /// `GitFileStatus.accessibilityDescription` above answers for the *status*; this
+    /// answers for the whole *entry*, which is where `isStaged` (`GitStatus.swift:105`)
+    /// and `originalPath` (`:107`) live. Both were parsed from the day the feature landed
+    /// and neither reached a user: the badge column holds one character, and a rename
+    /// source is a path. So they surface here instead, in the two channels that have room
+    /// for a sentence — the tooltip and VoiceOver — rather than being encoded into more
+    /// glyph vocabulary the reader would have to learn.
+    ///
+    /// Staged-ness is deliberately a *qualifier*, not a separate status. The parser
+    /// already collapses X and Y to the more urgent of the two (`GitStatus.swift:281-287`,
+    /// which prefers the worktree change because it is the one not yet recorded), so
+    /// "modified, staged" is the honest reading of `XY = MM`: the worktree edit is what
+    /// you see, and the index also holds one.
+    var statusPhrase: String {
+        var phrase = status.accessibilityDescription
+        // Appended rather than prefixed: a screen-reader listener hears the noun they were
+        // scanning for first, and the qualifier only matters once they have it.
+        if isStaged { phrase += ", staged" }
+        // Only rename and copy records carry an origin (`GitStatus.swift:213-222`), so this
+        // is nil for every other status and costs nothing to ask.
+        if let originalPath { phrase += ", from \(originalPath)" }
+        return phrase
+    }
+
+    /// The same sentence, capitalised for a tooltip.
+    ///
+    /// Tooltips are read as prose and VoiceOver labels are read as a continuation of the
+    /// filename, so only the case differs — one string, two presentations, rather than two
+    /// strings that can drift. Only the first character is touched: `localizedCapitalized`
+    /// would title-case the path in `from Sources/Umber/Old.swift` and misreport a filename.
+    var tooltip: String {
+        statusPhrase.prefix(1).uppercased() + statusPhrase.dropFirst()
+    }
+}

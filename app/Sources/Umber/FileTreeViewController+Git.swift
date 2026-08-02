@@ -236,6 +236,21 @@ final class GitStatusFollow {
         return snapshot.status(forRelativePath: relative)
     }
 
+    /// The full entry for one *file*, or nil for a clean path, a directory, or a path
+    /// outside the repo.
+    ///
+    /// Separate from `status(for:)` rather than replacing it because the two answer for
+    /// different things. A directory's decoration is a roll-up
+    /// (`GitStatusSnapshot.directories`) synthesised from its children, so it has a status
+    /// but no entry — there is no single `isStaged` or `originalPath` for "this folder
+    /// contains changes". Only `entries` can answer those, so only files get a sentence.
+    func entry(for url: URL) -> GitFileEntry? {
+        guard let relative = repository?.relativePath(for: url), !relative.isEmpty else {
+            return nil
+        }
+        return snapshot.entries[relative]
+    }
+
     /// The branch line for the sidebar header, or nil when there is nothing to say.
     ///
     /// Ahead/behind are omitted entirely when they are nil, which is not the same as zero:
@@ -249,6 +264,18 @@ final class GitStatusFollow {
         var summary = branch
         if let ahead = snapshot.ahead, ahead > 0 { summary += "  ↑\(ahead)" }
         if let behind = snapshot.behind, behind > 0 { summary += "  ↓\(behind)" }
+        // Nil is not zero, and until this line the header rendered them identically — a
+        // branch in sync with its upstream and a branch with no upstream at all both drew
+        // a bare name. The model goes out of its way to keep them apart
+        // (`GitStatus.swift:115-122`); the one caller was throwing the distinction away.
+        //
+        // The *absence* is what gets the word, not the in-sync case: "no upstream" changes
+        // what the next command does — `git push` fails without `-u` — whereas "in sync"
+        // is the quiet default a reader already infers from bare arrows being absent.
+        // Marking the common-but-uninformative state instead would put a mark on nearly
+        // every row of this user's workflow, which is the noise failure the decorations
+        // were careful to avoid.
+        if snapshot.ahead == nil { summary += "  no upstream" }
         return summary
     }
 }
@@ -281,6 +308,12 @@ extension FileTreeViewController {
     /// The decoration for a row, asked per row at draw time.
     func gitStatus(for node: FileNode) -> GitFileStatus? {
         gitFollow?.status(for: node.url)
+    }
+
+    /// The row's full entry, for the channels that can hold more than a letter.
+    /// Nil for directories by construction — see `GitStatusFollow.entry(for:)`.
+    func gitEntry(for node: FileNode) -> GitFileEntry? {
+        gitFollow?.entry(for: node.url)
     }
 
     /// A new snapshot landed: repaint the rows that exist and update the header.
