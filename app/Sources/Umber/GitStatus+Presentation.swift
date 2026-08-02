@@ -1,6 +1,13 @@
 //
 //  GitStatus+Presentation.swift
-//  How a `GitFileStatus` looks in the sidebar: one colour, and one optional letter.
+//  How a `GitFileStatus` *looks* in the sidebar: one colour.
+//
+//  Narrowed 2026-08-02. The wording used to live here too, but `accessibilityDescription`
+//  and `GitFileEntry.statusPhrase`/`.tooltip` touch no AppKit type at all, and keeping
+//  them behind this file's `import AppKit` put deterministic string logic outside the
+//  reach of `check-git-status.sh` — the repo's only mechanical gate, which compiles
+//  Foundation-only files standalone. They now live in `GitStatus+Phrasing.swift`, where
+//  the gate can pin them. What is left here is the one thing that genuinely needs AppKit.
 //
 //  Its own file, rather than riding along in `FileTreeViewController+OutlineView.swift`,
 //  because it extends a DIFFERENT type — exactly the argument
@@ -65,66 +72,5 @@ extension GitFileStatus {
             // what the tertiary label role is defined as.
             return .tertiaryLabelColor
         }
-    }
-
-    /// What VoiceOver says instead of the badge letter.
-    ///
-    /// The letter and the colour are both glance affordances, and neither survives being
-    /// read aloud: "M" is not a word and a tint is not announced at all. Without this the
-    /// entire feature is invisible to a screen reader — which would make colour the *only*
-    /// channel carrying the status, and colour alone is also what a colour-blind user does
-    /// not get. That is the same reasoning that keeps the letter badge on by default rather
-    /// than following Zed's colour-only look.
-    var accessibilityDescription: String {
-        switch self {
-        case .conflicted: return "conflicted"
-        case .added: return "added"
-        case .modified: return "modified"
-        case .deleted: return "deleted"
-        case .renamed: return "renamed"
-        case .copied: return "copied"
-        case .typeChanged: return "type changed"
-        case .untracked: return "untracked"
-        case .ignored: return "ignored"
-        }
-    }
-}
-
-extension GitFileEntry {
-    /// The row's status in words — the two facts a one-letter badge structurally cannot
-    /// carry, joined to the one it can.
-    ///
-    /// `GitFileStatus.accessibilityDescription` above answers for the *status*; this
-    /// answers for the whole *entry*, which is where `isStaged` (`GitStatus.swift:105`)
-    /// and `originalPath` (`:107`) live. Both were parsed from the day the feature landed
-    /// and neither reached a user: the badge column holds one character, and a rename
-    /// source is a path. So they surface here instead, in the two channels that have room
-    /// for a sentence — the tooltip and VoiceOver — rather than being encoded into more
-    /// glyph vocabulary the reader would have to learn.
-    ///
-    /// Staged-ness is deliberately a *qualifier*, not a separate status. The parser
-    /// already collapses X and Y to the more urgent of the two (`GitStatus.swift:281-287`,
-    /// which prefers the worktree change because it is the one not yet recorded), so
-    /// "modified, staged" is the honest reading of `XY = MM`: the worktree edit is what
-    /// you see, and the index also holds one.
-    var statusPhrase: String {
-        var phrase = status.accessibilityDescription
-        // Appended rather than prefixed: a screen-reader listener hears the noun they were
-        // scanning for first, and the qualifier only matters once they have it.
-        if isStaged { phrase += ", staged" }
-        // Only rename and copy records carry an origin (`GitStatus.swift:213-222`), so this
-        // is nil for every other status and costs nothing to ask.
-        if let originalPath { phrase += ", from \(originalPath)" }
-        return phrase
-    }
-
-    /// The same sentence, capitalised for a tooltip.
-    ///
-    /// Tooltips are read as prose and VoiceOver labels are read as a continuation of the
-    /// filename, so only the case differs — one string, two presentations, rather than two
-    /// strings that can drift. Only the first character is touched: `localizedCapitalized`
-    /// would title-case the path in `from Sources/Umber/Old.swift` and misreport a filename.
-    var tooltip: String {
-        statusPhrase.prefix(1).uppercased() + statusPhrase.dropFirst()
     }
 }

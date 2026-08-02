@@ -266,16 +266,20 @@ final class GitStatusFollow {
         if let behind = snapshot.behind, behind > 0 { summary += "  ↓\(behind)" }
         // Nil is not zero, and until this line the header rendered them identically — a
         // branch in sync with its upstream and a branch with no upstream at all both drew
-        // a bare name. The model goes out of its way to keep them apart
-        // (`GitStatus.swift:115-122`); the one caller was throwing the distinction away.
+        // a bare name. The model keeps them apart; the one caller threw that away.
         //
-        // The *absence* is what gets the word, not the in-sync case: "no upstream" changes
-        // what the next command does — `git push` fails without `-u` — whereas "in sync"
-        // is the quiet default a reader already infers from bare arrows being absent.
-        // Marking the common-but-uninformative state instead would put a mark on nearly
-        // every row of this user's workflow, which is the noise failure the decorations
-        // were careful to avoid.
-        if snapshot.ahead == nil { summary += "  no upstream" }
+        // Gated on `hasUpstream`, never on `ahead == nil`: git omits `# branch.ab` both
+        // when no upstream exists AND when one exists whose commit is absent (a remote
+        // branch deleted and pruned), so the nil test called that second state "no
+        // upstream" while `git push` there still resolved a destination without `-u` —
+        // wrong on exactly the criterion the word is justified by. See `hasUpstream`.
+        //
+        // The *absence* earns the word, not the in-sync case: it changes what the next
+        // command does, whereas "in sync" is the quiet default a reader already infers
+        // from bare arrows being absent. Marking the common-but-uninformative state
+        // instead would put a mark on nearly every row of this user's workflow, which is
+        // the noise failure the decorations were careful to avoid.
+        if !snapshot.hasUpstream { summary += "  no upstream" }
         return summary
     }
 }

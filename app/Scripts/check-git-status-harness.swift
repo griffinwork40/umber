@@ -124,6 +124,81 @@ if let (_, detached) = snapshot("detached") {
     print("  ✗ detached fixture unreadable"); failures += 1
 }
 
+// UPSTREAM PRESENCE is a different question from ahead/behind, and git answers the two
+// with two header lines under two conditions: `# branch.upstream` "If upstream is set",
+// `# branch.ab` only "If upstream is set AND the commit is present" (git-status(1)).
+// Reading the second as an answer to the first mislabels a branch whose remote was
+// deleted and pruned — it still HAS an upstream — as having none, which is the state
+// the sidebar header prints "no upstream" over.
+print("UPSTREAM — configured is not the same as measurable")
+check("no upstream at all -> hasUpstream is false", plain.hasUpstream == false)
+if let (_, upstream) = snapshot("upstream") {
+    check("a live upstream -> hasUpstream is true", upstream.hasUpstream == true)
+}
+if let (_, pruned) = snapshot("pruned") {
+    check("a pruned upstream is still an upstream", pruned.hasUpstream == true,
+          "hasUpstream=\(pruned.hasUpstream)")
+    check("a pruned upstream reports no ahead/behind",
+          pruned.ahead == nil && pruned.behind == nil,
+          "ahead=\(String(describing: pruned.ahead))")
+    // THE FALSIFICATION, and the only row in this gate that can catch the header
+    // regressing to `ahead == nil`. Both halves must hold at once: the old test fires
+    // (`ahead == nil`) on a branch that demonstrably HAS an upstream. Anywhere else in
+    // the suite those two agree, so anywhere else the regression is invisible. If this
+    // goes red because `hasUpstream` is false, the fixture stopped reproducing the
+    // pruned state and the case is measuring nothing — check the fixture, not the parser.
+    check("...so the old `ahead == nil` test would have called this 'no upstream'",
+          pruned.ahead == nil && pruned.hasUpstream)
+} else {
+    print("  ✗ pruned fixture unreadable"); failures += 1
+}
+
+// PHRASING — the sentence the tooltip and VoiceOver both read, and the one place
+// `isStaged` and `originalPath` reach a user. Gateable at all only since 2026-08-02:
+// this logic touches no AppKit type but used to live behind an `import AppKit`, which
+// is the only reason it was ever untested.
+print("PHRASING — what a row says")
+check("a worktree-only edit reads as one word",
+      plain.entries["control-mod.txt"]?.statusPhrase == "modified",
+      plain.entries["control-mod.txt"]?.statusPhrase ?? "nil")
+check("staged is a qualifier appended after the noun, not a status of its own",
+      plain.entries["staged-add.txt"]?.statusPhrase == "added, staged",
+      plain.entries["staged-add.txt"]?.statusPhrase ?? "nil")
+check("a rename names where it came from",
+      plain.entries["rename-dst.txt"]?.statusPhrase == "renamed, staged, from rename-src.txt",
+      plain.entries["rename-dst.txt"]?.statusPhrase ?? "nil")
+check("an untracked row is never called staged",
+      plain.entries["control-new.txt"]?.statusPhrase == "untracked",
+      plain.entries["control-new.txt"]?.statusPhrase ?? "nil")
+// The RM row. Its status is .modified, yet it carries an origin — which is why the
+// comment on `originalPath` says "record", not "status".
+check("a renamed-then-edited row is .modified but still names its origin",
+      plain.entries["readd-dst.txt"]?.status == .modified
+      && plain.entries["readd-dst.txt"]?.originalPath == "readd-src.txt",
+      "\(String(describing: plain.entries["readd-dst.txt"]?.status)) "
+      + "from=\(plain.entries["readd-dst.txt"]?.originalPath ?? "nil")")
+check("...and reads as one honest sentence",
+      plain.entries["readd-dst.txt"]?.statusPhrase == "modified, staged, from readd-src.txt",
+      plain.entries["readd-dst.txt"]?.statusPhrase ?? "nil")
+check("the tooltip capitalises the first character only, never the path",
+      plain.entries["rename-dst.txt"]?.tooltip == "Renamed, staged, from rename-src.txt",
+      plain.entries["rename-dst.txt"]?.tooltip ?? "nil")
+// Listed here rather than by making GitFileStatus CaseIterable: the app never needs to
+// enumerate them, and production surface added only for a gate is surface all the same.
+// A case added upstream without a line here silently escapes this check — which the
+// `letter` assertion below is the backstop for.
+let everyStatus: [GitFileStatus] = [
+    .conflicted, .added, .modified, .deleted, .renamed, .copied, .typeChanged,
+    .untracked, .ignored,
+]
+check("every status word starts lower-case, so a tooltip cannot double-capitalise",
+      everyStatus.allSatisfy { $0.accessibilityDescription.first?.isUppercase == false },
+      everyStatus.map(\.accessibilityDescription).filter { $0.first?.isUppercase == true }
+          .joined(separator: ","))
+check("every status has a distinct one-character letter",
+      Set(everyStatus.map(\.letter)).count == everyStatus.count
+      && everyStatus.allSatisfy { $0.letter.count == 1 })
+
 // UNMERGED RECORDS have a different field count than ordinary ones (three stage modes
 // and three stage hashes, so the path is token 10 not 8). A parser reusing the ordinary
 // layout silently drops every conflicted file — at the single moment a git sidebar's

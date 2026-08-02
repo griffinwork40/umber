@@ -97,19 +97,33 @@ private final class FileCellView: NSTableCellView {
         // background, and then "staged" would be carrying two changes at once (a box AND a
         // recoloured letter) to say one thing.
         //
-        // Derived from the same system colour as the text, so it follows the window's
-        // appearance and Increase Contrast for free — the argument `decorationColour`
-        // already makes against hex literals applies just as much to a background.
+        // Derived from the same system colour as the text so it tracks the window's
+        // appearance and Increase Contrast — but only because of the override below. A
+        // `CGColor` is a colour already *resolved* against one appearance, unlike the
+        // three `NSColor`s above, which AppKit re-resolves on every draw. Assigned and
+        // then left alone, the chip would keep its old fill while the letter inside it
+        // recoloured, and nothing else would come along to fix it: the poller repaints
+        // only when the snapshot *changes* (`FileTreeViewController+Git.swift`, `guard
+        // changed else { return }`), so a quiet repo holds the stale fill indefinitely.
         //
         // KNOWN GAP, matching the one the tint already has: the chip is dropped inside the
         // selection pill, because a tinted box on saturated blue is the least legible thing
         // in the window. Only one row is selected at a time, and that row's tooltip and
         // VoiceOver label both still say "staged", so the fact is reachable — it is the
         // *glance* that is unavailable, for the one row the user is already looking at.
-        badge.wantsLayer = true
         let chip = (isStaged && !selected) ? decorationColour : nil
         badge.layer?.backgroundColor = chip?.withAlphaComponent(0.18).cgColor ?? NSColor.clear.cgColor
-        badge.layer?.cornerRadius = 3
+    }
+
+    /// Re-derive the chip when the window's appearance changes.
+    ///
+    /// This is what makes the "follows the appearance for free" claim above true. The
+    /// text and glyph colours need no help — they hold their `NSColor`. The chip is a
+    /// `CGColor` on a layer and is therefore the one mark in this cell that a Dark Mode
+    /// or Increase Contrast switch would otherwise leave behind.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTint()
     }
 }
 
@@ -236,6 +250,11 @@ extension FileTreeViewController: NSOutlineViewDelegate {
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.font = .boldSystemFont(ofSize: 11)
         badge.alignment = .center
+        // The chip's frame, set once. Only its *fill* is per-row, and that is
+        // `applyTint`'s job — these two never change, so re-assigning them on every
+        // selection change and every decoration pass was work with no output.
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 3
 
         cell.addSubview(imageView)
         cell.addSubview(textField)
@@ -265,7 +284,9 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             badge.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         // Enough width for the staged chip to sit around a single character instead of
-        // hugging it. Deliberately created inactive and switched on per row by
+        // hugging it — and switched on for *every* decorated row, not only staged ones,
+        // so the letter column holds one width instead of jittering by 8pt as a staged
+        // file scrolls past. Deliberately created inactive and toggled per row by
         // `applyGitDecoration`: active here it would reserve the width on clean rows too,
         // undoing the zero-intrinsic-width property the constraint above depends on.
         cell.badgeMinWidth = badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 16)
