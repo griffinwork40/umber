@@ -143,11 +143,41 @@ protocol SpaceDocument: AnyObject {
     /// status enum shaped around SwiftTerm's callbacks would be rewritten with it.
     var documentStatus: DocumentStatus { get }
 
+    /// Retire whatever `documentStatus` was trying to say — the user is looking now.
+    ///
+    /// On the protocol so the container can retire a mark without naming a pane type. It
+    /// needs to since PR #21 review item 1 made `isActiveDocument` window-aware: a mark can
+    /// now be raised while the whole app is in the background, including on the tab the user
+    /// returns to, and `windowDidBecomeKey()` is the only hook that sees that return.
+    func clearAttention()
+
     /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
     /// Implementors that can hold unsaved work MUST prompt here — every close path
     /// in the app funnels through it, so this is the single choke point between a
     /// dirty buffer and silent data loss.
     func documentShouldClose() -> Bool
+
+    /// The close is committed: release anything ARC will not.
+    ///
+    /// The pair to `documentShouldClose()` above — that one *asks*, this one *commits*.
+    /// Called from `closeDocument(at:)` (⌘W, the tab's ×, a shell that exited) and from
+    /// `tearDownAllDocuments()` (⌘⇧W). MUST be idempotent: those two paths do not
+    /// overlap today, but the second exists precisely because AppKit will not promise
+    /// which of them fires on quit.
+    ///
+    /// A hard requirement with **no default implementation**, and that is the whole
+    /// design. A default no-op would let a future conformer that holds a manually-freed
+    /// resource compile, run, and leak — which is exactly what happened here: nothing
+    /// freed a `GhosttyPane`'s surface, because libghostty deliberately removed its own
+    /// deinit safety net (`Surface/TerminalSurface.swift:405-410`: *"Surface should be
+    /// freed explicitly via free() before deinit. The deinit safety net is intentionally
+    /// removed"*) and this seam had nowhere to say so. `deinit` cannot substitute: these
+    /// are `@MainActor` types, and Swift 6 does not let a `deinit` reach MainActor state.
+    ///
+    /// Requiring it also forces the question to be answered in each conformer's own file,
+    /// where the answer belongs — including the two conformers whose honest answer is
+    /// "nothing", which is worth one line of *why* rather than silence.
+    func documentWillClose()
 
     /// ⌘S. Returns false if the save failed or the user cancelled.
     func saveDocument() -> Bool
@@ -233,6 +263,10 @@ extension SpaceDocument {
     /// is why this one gets a default while the zoom members do not: a conformer that
     /// never has anything urgent to say is correctly silent, not silently broken.
     var documentStatus: DocumentStatus { .idle }
+
+    /// Paired with that default: a document with nothing to say has nothing to retire.
+    /// `TerminalPane` and `GhosttyPane` both override with `status = .idle`.
+    func clearAttention() {}
 }
 
 /// The stored `documentDelegate` property on `TerminalPane` is the whole witness, so this
@@ -261,5 +295,48 @@ extension TerminalPane: SpaceDocument {
         // Here rather than in a focus notification because this is the one call that
         // means "this document is the visible one" — see `clearAttention()`.
         clearAttention()
+    }
+
+    /// Hang up the shell, then let SwiftTerm clean up its pty plumbing.
+    ///
+    /// **SwiftTerm's own `terminate()` does not end an interactive shell, and that is measured
+    /// rather than suspected.** `check-pane-teardown.sh` was written expecting `view.terminate()`
+    /// to be sufficient; it failed on the first run, and the shell was still alive **25 seconds**
+    /// after the call — so this is "never", not "slow". Both halves of `terminate()` come up
+    /// short against a login zsh:
+    ///
+    /// * `kill(shellPid, SIGTERM)` (`LocalProcess.swift:568`) — an interactive shell **ignores
+    ///   SIGTERM by design**, which is the entire reason SIGHUP exists as the terminal's hangup
+    ///   signal. Measured against `/bin/zsh -l` under a `pty.fork()`: after SIGTERM the shell sat
+    ///   in state `Ss+`, alive; after SIGHUP it was gone.
+    /// * `io?.close()` on the pty master (`:563`) — the real `close(fd)` is deferred to the
+    ///   `DispatchIO` cleanup handler (`:530-534`), and a plain `close()` lets pending operations
+    ///   finish first. The read on a live pty is a long-lived streaming read that never finishes,
+    ///   so the descriptor is not closed and the shell never sees EOF. (`.stop` is the flag that
+    ///   would make it prompt; that is upstream's call, not a local patch's.)
+    ///
+    /// Hence SIGHUP, explicitly, first. It is also the semantically exact thing to send: closing
+    /// a terminal *is* a hangup, which is why `nohup` is named as it is. Sent to `shellPid` alone
+    /// rather than the process group, deliberately — zsh HUPs its own jobs on receiving HUP, so
+    /// the shell does its own cleanup, and signalling the group directly would take background
+    /// jobs with it under a policy this app has never stated.
+    ///
+    /// `terminate()` still runs after it, for the DispatchIO teardown and the `running` flag; its
+    /// comment about avoiding an `EV_VANISHED` crash by ordering the descriptor close correctly
+    /// (`:558-561`) is worth keeping rather than reimplementing.
+    ///
+    /// The `running` guard is load-bearing and NOT defensive bookkeeping. `terminate()` gates its
+    /// signal on `shellPid != 0` (`:567`), and `shellPid` is assigned exactly once at spawn
+    /// (`:527`) and never cleared — `childStopped()` only sets `running = false` (`:269-277`). So
+    /// a second call after the child was reaped (`waitpid`, `:368`) would signal a pid the OS is
+    /// free to have reused, and that now applies to the SIGHUP above as much as to SwiftTerm's
+    /// SIGTERM. `running` is the property that actually tracks liveness, it is flipped
+    /// synchronously by `terminate()`, and guarding on it is what the vendor itself does before
+    /// touching the pty (`Mac/MacLocalTerminalView.swift:98`). `check-pane-teardown.sh` case 4
+    /// is what keeps this honest.
+    func documentWillClose() {
+        guard view.process.running else { return }
+        kill(view.process.shellPid, SIGHUP)
+        view.terminate()
     }
 }

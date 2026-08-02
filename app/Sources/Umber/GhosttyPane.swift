@@ -247,6 +247,20 @@ final class GhosttyPane: NSObject {
         status = .attention
     }
 
+    /// A command finished in a tab the user is not watching. `CommandOutcome` decided what it
+    /// means (and, importantly, decided `.ignore` for most commands); this only applies it.
+    ///
+    /// The switch is exhaustive with no `default`, so adding a `CommandOutcome` case becomes a
+    /// build error here rather than a silently unhandled outcome — the same reason the config
+    /// enums derive their user-facing strings from `allCases`.
+    func recordCommandOutcome(_ outcome: CommandOutcome) {
+        switch outcome {
+        case .failed: status = .failed
+        case .succeeded: status = .succeeded
+        case .ignore: break
+        }
+    }
+
     // MARK: - Diagnostics
 
     /// `UMBER_DIAG=1` only, stderr, same `[diag]` prefix the rest of the app uses. This is the

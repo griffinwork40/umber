@@ -35,7 +35,12 @@ final class SpaceViewController: NSSplitViewController {
 
     weak var spaceDelegate: SpaceViewControllerDelegate?
 
-    private var config: AppConfig
+    /// `private(set)`, not `private`, for the same file-scope reason as `documents` below:
+    /// `addTerminalDocument` moved to `SpaceViewController+DocumentConstruction.swift` when
+    /// this file reached the 350-line ceiling, and it must read `config.engine` to know which
+    /// pane to build. Reads cross the file boundary; writes do not — `config` is still
+    /// assigned only by `init` and `apply(config:)`, both here.
+    private(set) var config: AppConfig
 
     // Why the two below are `private(set)` and not `private`: the four delegate
     // conformances live in `+Delegates` and Swift's `private` is file-scoped, so
@@ -62,7 +67,11 @@ final class SpaceViewController: NSSplitViewController {
     /// extensions cannot add stored properties — created lazily by
     /// `startDirectoryFollow()`, so a Space that is never made key never builds one.
     var directoryFollow: DirectoryFollow?
-    private let documentArea: DocumentAreaViewController
+
+    /// Internal for the same reason `config` above is: document construction lives in
+    /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
+    /// new pane. `let`, so the promotion grants read access only.
+    let documentArea: DocumentAreaViewController
 
     /// Default sidebar width. Bounds are Terax's: it caps its own sidebar at
     /// `SIDEBAR_MAX_WIDTH` = 480 (`terax-ai/src/app/App.tsx:1120`).
@@ -121,40 +130,6 @@ final class SpaceViewController: NSSplitViewController {
 
     var activeDocument: SpaceDocument? {
         documents.indices.contains(activeIndex) ? documents[activeIndex] : nil
-    }
-
-    /// Add a terminal document rooted at `workingDirectory`, defaulting to the Space's
-    /// own `root`.
-    ///
-    /// The default is the point. A Space *is* a project root (plan §12.4 item 1) and
-    /// every terminal in it inherited `$HOME` instead, because this function created
-    /// the pane without ever mentioning `root` — so ⌘T in a Space opened on a project
-    /// landed outside that project and the first thing you typed was a `cd`. The root
-    /// was already right here, one property away, which is exactly why it went
-    /// unnoticed.
-    ///
-    /// `workingDirectory` is an override rather than a replacement so the tree's
-    /// "New Terminal Here" can pass a subdirectory
-    /// (`fileTree(_:didRequestNewTerminalAt:)`) without every other caller — first
-    /// launch, ⌘T, the strip's `+` — having to restate the root it already implies.
-    @discardableResult
-    func addTerminalDocument(start: Bool = true, workingDirectory: URL? = nil) -> TerminalPane {
-        let pane = TerminalPane(
-            config: config, frame: documentArea.container.bounds,
-            workingDirectory: workingDirectory ?? root)
-        // `beforeActivating`, not after, and this ordering is load-bearing rather than
-        // stylistic — it is what makes routing ⌘T through `add(document:)` a pure
-        // refactor. `start()` hands the pty its initial `winsize` from the view's
-        // *current* geometry (`MacLocalTerminalView.swift:204-209` builds it from
-        // `terminal.rows`/`cols`), while activation is what makes the tab strip appear at
-        // the second document — costing the container ~30pt, i.e. about two rows
-        // (`DocumentAreaViewController.viewDidLayout`). Starting after activation would
-        // therefore hand a *different* initial row count to every terminal but the first
-        // and add a SIGWINCH before the first prompt. Both are reflow inputs, and reflow
-        // is the one area of this app with a known open defect (SwiftTerm #494), so the
-        // original sequence — append, start, select — is reproduced exactly.
-        add(document: pane, beforeActivating: { if start { pane.start() } })
-        return pane
     }
 
     /// Install a document this container did not construct, and make it active.
@@ -261,6 +236,13 @@ final class SpaceViewController: NSSplitViewController {
         // dirty buffer has to be able to say no.
         guard documents[index].documentShouldClose() else { return }
         let document = documents.remove(at: index)
+        // The veto is settled, so this close is really happening: release whatever the
+        // document holds that ARC cannot. Dropping the reference and removing the view is
+        // NOT sufficient for a `GhosttyPane` — libghostty deliberately removed its own
+        // deinit safety net (`Surface/TerminalSurface.swift:405-410`), so a surface that is
+        // never explicitly freed leaks along with the shell it spawned. See
+        // `SpaceDocument.documentWillClose()`.
+        document.documentWillClose()
         document.documentView.removeFromSuperview()
 
         guard !documents.isEmpty else {
@@ -270,8 +252,6 @@ final class SpaceViewController: NSSplitViewController {
         // Land on the neighbour to the left, which is where the eye already is.
         selectDocument(at: min(index, documents.count - 1))
     }
-
-    func closeActiveDocument() { closeDocument(at: activeIndex) }
 
     /// Fan document state out to every piece of chrome that displays it: the tab
     /// strip, and the window's own unsaved marker.
@@ -328,18 +308,16 @@ final class SpaceViewController: NSSplitViewController {
         // Space polling a pty is pure cost. See `SpaceViewController+DirectoryFollow.swift`.
         startDirectoryFollow()
         for document in documents { document.documentWindowDidBecomeKey() }
+        // Retire the active document's mark, because coming back to the window IS looking
+        // at it. Reachable only since PR #21 review item 1 made `isActiveDocument` test
+        // `isKeyWindow` too: a mark can now be raised while the whole app is in the
+        // background, and without this the tab you return to would keep staring until you
+        // switched away and back. The other documents keep theirs — the marker's contract is
+        // "looking at the tab retires it", and only one tab is being looked at.
+        activeDocument?.clearAttention()
         // A document may have picked up an external change; the strip does not show
-        // that today, but the dot state is cheap to keep honest.
+        // that today, but the dot state is cheap to keep honest. After the line above, so
+        // the cleared status is what gets drawn rather than the stale one.
         syncDocumentChrome()
     }
-
-    /// Can this whole Space go away? Asks each document in turn and stops at the
-    /// first refusal, so closing a window with three dirty files prompts three times
-    /// rather than discarding the other two behind one answer.
-    func spaceShouldClose() -> Bool {
-        for document in documents where !document.documentShouldClose() { return false }
-        return true
-    }
-
-    var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
 }

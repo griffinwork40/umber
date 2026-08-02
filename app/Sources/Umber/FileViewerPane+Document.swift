@@ -109,4 +109,18 @@ extension FileViewerPane: SpaceDocument {
     }
 
     func saveDocument() -> Bool { write() }
+
+    /// Nothing to release, and this empty body is the answer rather than a stub.
+    ///
+    /// This pane holds an `NSScrollView`, an `NSTextView` and a `String` — all ARC's. It
+    /// owns no process, no file handle (the file is read into memory and closed) and no
+    /// manually-freed resource. The protocol requires this member with no default
+    /// precisely so that claim is written down by whoever knows it, rather than inferred
+    /// later from an absence.
+    ///
+    /// Note what does NOT belong here: unsaved work is `documentShouldClose()`'s job,
+    /// above, which prompts and can still veto. By the time this runs the user has already
+    /// been asked, so saving here would either double-prompt or silently overwrite a file
+    /// the user just chose to discard.
+    func documentWillClose() {}
 }

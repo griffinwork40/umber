@@ -303,23 +303,31 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 extension TerminalPane {
     /// The user is looking at this pane, so whatever it wanted to tell them has landed.
     ///
-    /// Called from `documentDidBecomeActive()` (the `SpaceDocument` conformance) rather
-    /// than from a window/focus notification: becoming the visible document is exactly
-    /// the moment the signal has been consumed, and it is the same hook that already
-    /// takes first responder.
+    /// Called from `documentDidBecomeActive()` (the `SpaceDocument` conformance), because
+    /// becoming the visible document is exactly the moment the signal is consumed, and it
+    /// is the same hook that already takes first responder. Also from the Space's
+    /// `windowDidBecomeKey()`, which PR #21 review item 1 made reachable — see there.
     func clearAttention() {
         status = .idle
     }
 
-    /// Is this the document currently on screen in its Space?
+    /// Is this the document the user is actually looking at? Two halves, both required.
     ///
-    /// Derived from the view hierarchy rather than tracked with a flag, because the
-    /// container already maintains exactly this invariant: `present(documentView:)`
-    /// removes every other document's view from the container and adds the new one
-    /// (`DocumentAreaViewController.swift`, `DocumentAreaViewController.present`), so having a
-    /// superview *is* being the presented document. A cached flag would be a second
-    /// copy of that fact with no "did become inactive" callback to keep it honest.
-    fileprivate var isActiveDocument: Bool { view.superview != nil }
+    /// **Superview** — is this the presented document *in its Space*? Read from the view
+    /// hierarchy rather than a flag, because the container already maintains that invariant:
+    /// `present(documentView:)` removes every other document's view and adds the new one
+    /// (`DocumentAreaViewController.present`), so having a superview *is* being presented. A
+    /// cached flag would be a second copy of that fact with no "did become inactive" callback.
+    ///
+    /// **`isKeyWindow`** — and is that Space the one on screen? Spaces are native macOS window
+    /// tabs, so one window of a tab group is visible at a time and superview alone is only an
+    /// *intra-Space* test: it stayed true for the selected tab of a **background** Space, which
+    /// then took `.ignore` from `CommandOutcome.of` (`CommandOutcome.swift:60`) and was never
+    /// marked — the marker silently off in the app's primary multi-project workflow. With this
+    /// half a background Space's selected tab marks correctly (PR #21 review, item 1).
+    fileprivate var isActiveDocument: Bool {
+        view.superview != nil && view.window?.isKeyWindow == true
+    }
 }
 
 // MARK: - UmberTerminalViewDelegate

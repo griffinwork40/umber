@@ -48,6 +48,47 @@ extension GhosttyPane: SpaceDocument {
         view.window?.makeFirstResponder(view)
         clearAttention()
     }
+
+    /// Free the surface, which also kills the shell it spawned.
+    ///
+    /// Nilling `controller` is the whole mechanism, and it is the only route the module's
+    /// access control leaves open: `AppTerminalView.controller` forwards to the coordinator
+    /// (`Platform/AppKit/AppTerminalView.swift:28-31`), whose `didSet` calls
+    /// `rebuildIfReady(removingBridgeFrom: oldValue)`
+    /// (`Surface/TerminalSurfaceCoordinator.swift:23-28`), which calls `tearDownSurface`
+    /// **first** and then bails on the `guard let controller` (`:98-101`) — so a nil
+    /// assignment is a pure teardown with no rebuild. `tearDownSurface` is what does the
+    /// work: `surface?.setFocus(false)`, `surface?.free()`, `surface = nil`, and it drops the
+    /// callback bridge (`:311-325`). `freeSurface()` (`:294-297`) would say this more
+    /// directly but is module-internal and unreachable from here.
+    ///
+    /// Idempotent for free: the second assignment hits `guard controller !== oldValue`
+    /// (`:25`) with both sides nil and returns without touching anything.
+    ///
+    /// **On why this is needed at all — the risk register overstated the bug, and the real
+    /// reason is better.** `AFK.md` and this pane's own header said "nothing frees the
+    /// surface", reasoning from libghostty having removed `TerminalSurface`'s deinit safety
+    /// net (`Surface/TerminalSurface.swift:405-410`). That is true of `TerminalSurface` and
+    /// false of the layer above it: `TerminalSurfaceCoordinator` has a `deinit` that calls
+    /// the same `tearDownSurface` (`:299-309`), and the delegate back-reference is `weak` at
+    /// both levels (`AppTerminalView.swift:23`, `TerminalSurfaceCoordinator.swift:19`), so
+    /// there is no retain cycle and a released pane *would* eventually free its surface.
+    /// Explicit teardown still earns its place, for two reasons that survive that correction:
+    ///
+    /// 1. **Determinism.** "Eventually" is doing a lot of work in a sentence about a live
+    ///    shell. The pane is referenced by the `documents` array, by the view hierarchy, and
+    ///    transiently by whatever is mid-callback; releasing at *close* means the child
+    ///    process dies when the user closes the tab, not whenever the last reference happens
+    ///    to drop. A closed tab still running a build is a bug the user would find first.
+    /// 2. **That deinit is the riskier path.** It reaches main-actor state from a nonisolated
+    ///    `deinit` via `MainActor.assumeIsolated`, which *traps* rather than degrades if the
+    ///    final release ever lands off the main actor. Tearing down here, on the main actor,
+    ///    at a known moment, means the deinit later finds `surface == nil` and does nothing —
+    ///    so the fragile path stops being load-bearing instead of being relied upon.
+    func documentWillClose() {
+        diag("document closing — freeing surface and its shell")
+        view.controller = nil
+    }
 }
 
 // MARK: - Attention state
@@ -59,13 +100,24 @@ extension GhosttyPane {
         resetStatus()
     }
 
-    /// Is this the document currently on screen in its Space?
+    /// Is this the document the user is actually looking at? Two halves, both required.
     ///
-    /// Derived from the view hierarchy rather than tracked with a flag, for the reason
-    /// `TerminalPane.isActiveDocument` documents in full: `DocumentAreaViewController.present`
-    /// maintains exactly this invariant already, and a cached flag would be a second copy of
-    /// that fact with no "did become inactive" callback to keep it honest.
-    fileprivate var isActiveDocument: Bool { view.superview != nil }
+    /// **Superview** — is this the presented document *in its Space*? Read from the view
+    /// hierarchy rather than tracked with a flag, for the reason `TerminalPane.isActiveDocument`
+    /// documents in full: `DocumentAreaViewController.present` maintains exactly that invariant
+    /// already, and a cached flag would be a second copy of it with no "did become inactive"
+    /// callback to keep it honest.
+    ///
+    /// **`isKeyWindow`** — and is that Space the one on screen? Spaces are native macOS window
+    /// tabs, one project root per window, so only one window of a tab group is visible at a
+    /// time and the superview test alone is *intra-Space*: it stayed true for the selected tab
+    /// of a **background** Space, whose finished command then took `.ignore` from
+    /// `CommandOutcome.of` (`CommandOutcome.swift:60`) and never marked the tab — this pane's
+    /// headline signal silently off in the app's primary multi-project workflow. With this half
+    /// a background Space's selected tab marks correctly (PR #21 review, item 1).
+    fileprivate var isActiveDocument: Bool {
+        view.superview != nil && view.window?.isKeyWindow == true
+    }
 }
 
 // MARK: - ShellHosting
@@ -119,21 +171,28 @@ extension GhosttyPane:
     /// kernel every 750ms instead (`SpaceViewController+DirectoryFollow.swift`). Under this
     /// engine the shell just says so, and the poller would be redundant for this pane.
     ///
-    /// **NOT YET OBSERVED IN THIS APP, and that correction matters.** The spike saw OSC 7 by
-    /// transcript (§6.2 Q1) and this callback is wired for it, but `check-ghostty-pane.sh`'s
-    /// kill-criterion run reports `pwd=-`: within 12 seconds the shell sent a TITLE carrying
-    /// the path and no OSC 7. So what is proven today is that the surface spawns a shell that
-    /// talks; that ghostty's shell integration injects OSC 7 under Umber specifically is still
-    /// inherited from the spike rather than re-confirmed here. Phase 4 must verify it before
-    /// the 750ms kernel poller is retired for this engine — retiring a working mechanism on an
-    /// unconfirmed replacement is how the sidebar silently stops following.
+    /// **OBSERVED, 3/3 runs.** This comment previously said "NOT YET OBSERVED IN THIS APP"
+    /// and cited `check-ghostty-pane.sh` reporting `pwd=-`; both the claim and the citation
+    /// were wrong, and how they were wrong is worth keeping. That gate waited
+    /// `until title || OSC 7`, and its `pump` returns the moment its condition holds — a zsh
+    /// sends the title first, so the wait ended a beat before the OSC 7 sequence landed and
+    /// the harness printed `pwd=-` on every run. A disjunction in a *wait* silently truncates
+    /// the slower signal. Split into cases 5a/5b with the reported path asserted against this
+    /// pane's own root, OSC 7 arrives every run. The lesson generalised: a gate that cannot
+    /// notice good news cannot notice the bad news sharing its channel.
     ///
-    /// Deliberately only RECORDS it rather than driving the file tree. Moving the tree is
-    /// `followDirectory(_:)`'s job and it has exactly one caller by design ("the only place in
-    /// the app that moves the tree"); adding a second entry point from here, while the poller
-    /// is still live for `TerminalPane`, would give the tree two masters that disagree. Wiring
-    /// this through properly is Phase 4, and it is the point at which the poller can become
-    /// per-engine rather than always-on.
+    /// Deliberately only RECORDS it rather than driving the file tree — and after Phase 4 that
+    /// is a *sufficient* implementation rather than a placeholder. `currentDirectory` below
+    /// answers from `reportedDirectory`, and the 750ms poller reads exactly that property
+    /// through `focusedShellHost` (`ShellHosting.swift:166-168`, a protocol lookup that never
+    /// names a concrete pane). So the sidebar already follows this engine, driven by OSC 7,
+    /// with `followDirectory(_:)` keeping the single caller its own header insists on ("the
+    /// only place in the app that moves the tree").
+    ///
+    /// Calling `followDirectory` from here would therefore buy ≤750ms of latency and cost the
+    /// invariant — two writers moving the tree, one per engine. If that latency ever grates,
+    /// the fix that keeps one writer is to nudge the existing poller
+    /// (`directoryFollowPollNow()`), so the *trigger* moves and the writer does not.
     func terminalDidChangeWorkingDirectory(_ path: String) {
         recordDirectory(path)
         diag("OSC 7 pwd -> \(path)")
@@ -174,18 +233,30 @@ extension GhosttyPane:
     /// that would be written twice, so the presentation was built and the signal was left for
     /// the engine that already emits it.
     ///
-    /// Still not wired here, and that is a scope decision rather than an oversight. Setting
-    /// `.succeeded`/`.failed` correctly needs a policy this probe has not settled: how long a
-    /// finished command's status should persist, whether a fast command should register at
-    /// all, and what happens when the user is already looking at the tab. Guessing now would
-    /// put a half-considered behaviour in front of the operator during the exact stretch of
-    /// daily use that is supposed to be evaluating the engine. Phase 4 wires it deliberately;
-    /// today it proves the signal ARRIVES, which is what the probe needs to know.
+    /// **Now wired, and the three questions Phase 3 left open are answered in
+    /// `CommandOutcome.swift`** — how long a success must run to be worth marking (10s, a
+    /// constant and not a config knob), whether a fast command registers at all (no), and what
+    /// happens when the user is already looking (nothing). The decision lives there because it
+    /// is a pure function of its inputs and therefore gateable headlessly
+    /// (`check-command-outcome.sh`); this method only routes.
+    ///
+    /// The status is cleared on read, in `documentDidBecomeActive()` → `clearAttention()` →
+    /// `resetStatus()`. That completes the contract the marker implies: it labels a tab you are
+    /// not looking at, so looking at the tab is what retires it. No timer, and deliberately so —
+    /// a status that expires on its own would vanish while the user was in another app, which is
+    /// exactly the stretch of time it exists to cover.
+    ///
+    /// Nothing here distinguishes a command from the shell's own exit; that is
+    /// `terminalDidClose` above, which does NOT set `.failed` because a status on a tab that is
+    /// about to vanish is a status nobody reads.
     func terminalDidFinishCommand(exitCode: Int?, durationNanos: UInt64) {
+        let outcome = CommandOutcome.of(
+            exitCode: exitCode, durationNanos: durationNanos, isActiveDocument: isActiveDocument)
+        recordCommandOutcome(outcome)
         diag("""
             OSC 133 command finished: exit=\(exitCode.map(String.init) ?? "nil") \
             in \(String(format: "%.1f", Double(durationNanos) / 1_000_000))ms \
-            — signal ARRIVES; status mapping is Phase 4
+            -> \(outcome)
             """)
     }
 }
