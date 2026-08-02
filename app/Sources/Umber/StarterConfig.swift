@@ -46,7 +46,8 @@ enum StarterConfig {
       "// theme": "OMITTED ON PURPOSE — SwiftTerm's own colours are good and stand by default. A theme moves ANSI 0-15, the background, foreground and cursor; indices 16-255 keep the standard xterm cube either way, because Umber pins ansi256PaletteStrategy to .xterm. Uncomment below to install a palette.",
       "// theme-example": {
         "preset": "afk-dark",
-        "// preset-values": "afk-dark | tokyo-night | classic",
+        "// preset-values": "afk-dark | afk-light | tokyo-night | classic",
+        "// preset-light": "afk-light is the light one (GitHub Light Default). Its white background also flips the window chrome — sidebar, titlebar and scrollers go light — because appearance is derived from the theme's background luminance rather than configured separately.",
         "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
         "cursor": "#E67E4C"
       }

@@ -1,9 +1,19 @@
 //
 //  Theme.swift
-//  Hex colour parsing and the shipped `Theme` presets.
+//  Hex colour parsing, and the AppKit half of a theme.
+//
+//  The palettes themselves are NOT here any more — they are pure data in
+//  `ThemeCatalog.swift`, along with the name resolver and the WCAG luminance
+//  formula. This file is what turns that data into live `NSColor` and
+//  `SwiftTerm.Color`. The split is forced by verification: this file imports
+//  AppKit *and* SwiftTerm, so `swiftc Sources/Umber/Theme.swift` alone exits 1 on
+//  `no such module 'SwiftTerm'` and nothing in it has ever been gateable, while
+//  `ThemeCatalog.swift` is Foundation-only and `check-light-theme.sh` compiles it.
+//  Same decision as `Renderer.swift` / `TerminalPane+Renderer.swift`: the pure
+//  decision is checkable, the live action is not, so they live apart.
 //
 //  Its own file because this is the only *pure value* layer in the config path:
-//  `NSColor.fromHex` and the two presets have no UserDefaults, no filesystem and
+//  `NSColor.fromHex` and the presets have no UserDefaults, no filesystem and
 //  no AppConfig behind them, so they are the one part of theming that can be read
 //  and judged without holding the loader in context. `relativeLuminance` and
 //  `asSwiftTermColor` live here rather than next to their callers because they are
@@ -70,16 +80,16 @@ extension NSColor {
     /// no-theme fallback is `NSColor.black`, which lives in a generic *grey* colour
     /// space, and asking a grey colour for `.redComponent` traps rather than
     /// returning 0.
+    ///
+    /// The maths itself is `ThemeCatalog.luminance` and not inlined here, so there is
+    /// exactly one implementation of the formula and `check-light-theme.sh` can
+    /// compile it. This wrapper is the sRGB conversion and nothing else.
     var relativeLuminance: CGFloat {
         let c = usingColorSpace(.sRGB) ?? self
-        // Gamma-expand each channel before weighting — luminance is defined on
-        // linear light, and skipping this misjudges mid-tones badly.
-        func linear(_ channel: CGFloat) -> CGFloat {
-            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * linear(c.redComponent)
-            + 0.7152 * linear(c.greenComponent)
-            + 0.0722 * linear(c.blueComponent)
+        return CGFloat(ThemeCatalog.luminance(
+            red: Double(c.redComponent),
+            green: Double(c.greenComponent),
+            blue: Double(c.blueComponent)))
     }
 
     /// SwiftTerm's palette type wants 16-bit components.
@@ -105,46 +115,42 @@ struct Theme {
     /// at construction rather than trusted.
     var ansi: [NSColor]
 
-    /// AFK Dark — a preset, selected with `"theme": {"preset": "afk-dark"}`.
-    /// It was briefly the default; it is not any more, because SwiftTerm's own
-    /// defaults (see `AppConfig.theme == nil`) measurably render better and were
-    /// what the Step 0 spike showed. Taken verbatim from the `terminal` block of
-    /// `themes/terax/afk-dark.terax-theme` in the agent-afk repo, which is
-    /// itself a 1:1 port of that project's Cursor/VS Code and Ghostty themes:
-    /// a GitHub-Dark skeleton with the AFK warm-orange accent (#E67E4C) — which
-    /// is also the caret here, matching afk's brand tone.
-    static let afkDark = Theme(
-        background: NSColor.fromHex("#0D1117")!,
-        foreground: NSColor.fromHex("#C9D1D9")!,
-        cursor: NSColor.fromHex("#E67E4C")!,
-        ansi: [
-            "#161B22", "#F85149", "#9CB04A", "#E5C07B",
-            "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
-            "#484F58", "#F85149", "#A8E060", "#E67E4C",
-            "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4",
-        ].map { NSColor.fromHex($0)! }
-    )
+    /// Build a live `Theme` from a `ThemeRecord`'s hex strings.
+    ///
+    /// Force-unwrapped, and safe here in the one way this repo allows: the strings
+    /// are compile-time-known literals in `ThemeCatalog`, which is exactly the
+    /// "literal hex palettes" carve-out (`AFK.md:152`). What is new is that the
+    /// promise is now checked — `check-light-theme.sh` case 1 parses every shipped
+    /// hex and asserts every `ansi` array is exactly 16 long before this can ship,
+    /// so a typo becomes a red gate rather than a launch crash.
+    init(_ record: ThemeRecord) {
+        self.background = NSColor.fromHex(record.background)!
+        self.foreground = NSColor.fromHex(record.foreground)!
+        self.cursor = NSColor.fromHex(record.cursor)!
+        self.ansi = record.ansi.map { NSColor.fromHex($0)! }
+    }
+
+    /// AFK Dark — `"theme": {"preset": "afk-dark"}`. Briefly the default; it is not
+    /// any more, because SwiftTerm's own defaults (see `AppConfig.theme == nil`)
+    /// measurably render better and were what the Step 0 spike showed.
+    static var afkDark: Theme { Theme(ThemeCatalog.afkDark) }
+
+    /// AFK Light — `"theme": {"preset": "afk-light"}`. The only light preset, and
+    /// the one that makes `AppConfig.appearance` (`Config.swift:141`) return `.aqua`,
+    /// so the sidebar and titlebar follow the terminal instead of fighting it.
+    static var afkLight: Theme { Theme(ThemeCatalog.afkLight) }
 
     /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
-    static let tokyoNight = Theme(
-        background: NSColor.fromHex("#1A1B26")!,
-        foreground: NSColor.fromHex("#C0CAF5")!,
-        cursor: NSColor.fromHex("#C0CAF5")!,
-        ansi: [
-            "#15161E", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#A9B1D6",
-            "#414868", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#C0CAF5",
-        ].map { NSColor.fromHex($0)! }
-    )
+    static var tokyoNight: Theme { Theme(ThemeCatalog.tokyoNight) }
 
     /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
     /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
+    ///
+    /// The spellings live in `ThemeCatalog.named(_:)` rather than in a switch here,
+    /// so the mapping compiles without AppKit and `check-light-theme.sh` can assert
+    /// it — including that `classic` and a typo BOTH stay nil, which is the
+    /// distinction `AppConfig.load()` (`Config.swift:215-219`) is built on.
     static func preset(named name: String) -> Theme? {
-        switch name.lowercased() {
-        case "afk-dark", "afkdark": return .afkDark
-        case "tokyo-night", "tokyonight": return .tokyoNight
-        default: return nil
-        }
+        ThemeCatalog.named(name).map(Theme.init)
     }
 }

@@ -215,7 +215,7 @@ struct AppConfig {
             let wantsClassic = t.preset?.lowercased() == "classic"
             var theme: Theme? = wantsClassic ? nil : (t.preset.flatMap(Theme.preset(named:)) ?? .afkDark)
             if let raw = t.preset, !wantsClassic, Theme.preset(named: raw) == nil {
-                config.warnings.append("theme.preset '\(raw)' unrecognised — using afk-dark")
+                config.warnings.append("theme.preset '\(raw)' unrecognised (expected one of: \(ThemeCatalog.configNames)) — using \(ThemeCatalog.afkDark.configName)")
             }
             // Any explicit colour needs a full palette to sit on; classic + an
             // override cannot stay nil, so promote it to afk-dark first.
