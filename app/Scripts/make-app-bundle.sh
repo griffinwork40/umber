@@ -85,6 +85,10 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>$VERSION</string>
 	<key>CFBundleVersion</key>
 	<string>$VERSION</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within Umber would like to use your microphone.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within Umber would like to control another application.</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
