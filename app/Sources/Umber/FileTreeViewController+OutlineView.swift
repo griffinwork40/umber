@@ -68,6 +68,18 @@ private final class FileCellView: NSTableCellView {
         didSet { applyTint() }
     }
 
+    /// Whether the index holds this change too — `GitFileEntry.isStaged`.
+    ///
+    /// Stored beside `decorationColour` and for the same reason: the selection pill can
+    /// arrive at any time and `applyTint()` has to be able to re-derive the whole look
+    /// from inputs rather than from whatever it drew last.
+    var isStaged = false
+
+    /// Held so the decoration can switch it on and off. An always-active minimum would
+    /// reserve badge width on every clean row, which is exactly what `makeCell`'s layout
+    /// comment says must not happen.
+    var badgeMinWidth: NSLayoutConstraint?
+
     func applyTint() {
         let selected = backgroundStyle == .emphasized
         imageView?.contentTintColor =
@@ -78,6 +90,40 @@ private final class FileCellView: NSTableCellView {
             selected ? .alternateSelectedControlTextColor : (decorationColour ?? .labelColor)
         badge.textColor =
             selected ? .alternateSelectedControlTextColor : (decorationColour ?? .clear)
+
+        // Staged rows get the letter in a soft chip of its own colour. A *translucent* fill
+        // rather than a solid one so the letter can stay in the decoration colour and keep
+        // its meaning: a solid fill would force the glyph to invert to the window
+        // background, and then "staged" would be carrying two changes at once (a box AND a
+        // recoloured letter) to say one thing.
+        //
+        // Derived from the same system colour as the text so it tracks the window's
+        // appearance and Increase Contrast — but only because of the override below. A
+        // `CGColor` is a colour already *resolved* against one appearance, unlike the
+        // three `NSColor`s above, which AppKit re-resolves on every draw. Assigned and
+        // then left alone, the chip would keep its old fill while the letter inside it
+        // recoloured, and nothing else would come along to fix it: the poller repaints
+        // only when the snapshot *changes* (`FileTreeViewController+Git.swift`, `guard
+        // changed else { return }`), so a quiet repo holds the stale fill indefinitely.
+        //
+        // KNOWN GAP, matching the one the tint already has: the chip is dropped inside the
+        // selection pill, because a tinted box on saturated blue is the least legible thing
+        // in the window. Only one row is selected at a time, and that row's tooltip and
+        // VoiceOver label both still say "staged", so the fact is reachable — it is the
+        // *glance* that is unavailable, for the one row the user is already looking at.
+        let chip = (isStaged && !selected) ? decorationColour : nil
+        badge.layer?.backgroundColor = chip?.withAlphaComponent(0.18).cgColor ?? NSColor.clear.cgColor
+    }
+
+    /// Re-derive the chip when the window's appearance changes.
+    ///
+    /// This is what makes the "follows the appearance for free" claim above true. The
+    /// text and glyph colours need no help — they hold their `NSColor`. The chip is a
+    /// `CGColor` on a layer and is therefore the one mark in this cell that a Dark Mode
+    /// or Increase Contrast switch would otherwise leave behind.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTint()
     }
 }
 
@@ -112,16 +158,29 @@ extension FileTreeViewController: NSOutlineViewDelegate {
     /// and it is invisible until you scroll.
     func applyGitDecoration(to cell: NSTableCellView, for node: FileNode) {
         let status = gitStatus(for: node)
+        // Nil for a clean row and for every directory — a roll-up has no single entry to
+        // describe, so folders keep the plain status wording they already had.
+        let entry = gitEntry(for: node)
         if let view = cell as? FileCellView {
             view.decorationColour = status?.decorationColour
             view.badge.stringValue = status?.letter ?? ""
+            view.isStaged = entry?.isStaged ?? false
+            // Only widen the badge when it has something in it: the empty badge's
+            // zero intrinsic width is what lets a clean row's name run the full width of
+            // the sidebar, which the layout comment in `makeCell` is explicit about.
+            view.badgeMinWidth?.isActive = status != nil
             view.applyTint()
         }
+        // The tooltip is the only channel with room for a rename's origin, and it is
+        // written on every pass — including the nil case — for the same reason the tint is:
+        // cells are recycled, so a clean file scrolling into a renamed file's cell would
+        // otherwise inherit "Renamed, from …" and describe the wrong file.
+        cell.toolTip = entry?.tooltip
         // VoiceOver reads the cell, not its subviews, so the status has to join the name
-        // here or it is announced as a bare letter after it — or not at all.
-        cell.setAccessibilityLabel(
-            status.map { "\(node.name), \($0.accessibilityDescription)" } ?? node.name)
-
+        // here or it is announced as a bare letter after it — or not at all. A file uses
+        // the entry's fuller sentence; a directory falls back to its rolled-up status.
+        let phrase = entry?.statusPhrase ?? status?.accessibilityDescription
+        cell.setAccessibilityLabel(phrase.map { "\(node.name), \($0)" } ?? node.name)
     }
 
     /// SF Symbols rather than `NSWorkspace.icon(forFile:)`.
@@ -191,6 +250,11 @@ extension FileTreeViewController: NSOutlineViewDelegate {
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.font = .boldSystemFont(ofSize: 11)
         badge.alignment = .center
+        // The chip's frame, set once. Only its *fill* is per-row, and that is
+        // `applyTint`'s job — these two never change, so re-assigning them on every
+        // selection change and every decoration pass was work with no output.
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 3
 
         cell.addSubview(imageView)
         cell.addSubview(textField)
@@ -219,6 +283,13 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             badge.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
             badge.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
+        // Enough width for the staged chip to sit around a single character instead of
+        // hugging it — and switched on for *every* decorated row, not only staged ones,
+        // so the letter column holds one width instead of jittering by 8pt as a staged
+        // file scrolls past. Deliberately created inactive and toggled per row by
+        // `applyGitDecoration`: active here it would reserve the width on clean rows too,
+        // undoing the zero-intrinsic-width property the constraint above depends on.
+        cell.badgeMinWidth = badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 16)
         // Seed the tint: `backgroundStyle` only fires its observer on a *change*,
         // so an unselected row built fresh would otherwise draw an untinted glyph.
         cell.applyTint()

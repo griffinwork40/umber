@@ -1,6 +1,6 @@
 # Git in the sidebar, like VS Code — decision brief
 
-**Date:** 2026-07-31 · **Branch:** `afk/add-git-sidebar` · **Status:** research complete, nothing implemented
+**Date:** 2026-07-31 · **Branch:** `afk/add-git-sidebar` · **Status:** **Phases 0, 1 and 2 SHIPPED** (`66eab87`, 2026-07-31). Phase 1 was completed on 2026-08-01 — `isStaged` and `originalPath` had been parsed since day one but reached no user; they now surface as a staged chip plus a row tooltip, and the header distinguishes "no upstream" from "in sync". Phases 3 and 4 remain unbuilt and remain **optional**. The §7 falsifier below has NOT yet run its week.
 **Question asked:** *"i want to add git to the sidebar like vs code / research the best way to do this"*
 
 **Answer: build the read-only half and refuse the other half. Decorate the file tree that already

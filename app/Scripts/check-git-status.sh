@@ -54,11 +54,20 @@ set -euo pipefail
 # time the harness needs to be compiled.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# Every unit under test, and the reason each one qualifies: all four import Foundation
+# and nothing else, so swiftc can build them without a window server. `GitStatus.swift`
+# is the grammar; `+Rollup` is what a folder inherits from its children; `+Phrasing` is
+# what a row says in words. `+Phrasing` in particular is here because it MUST be — its
+# string logic is deterministic and therefore gateable, and the only thing that ever kept
+# it ungated was living beside an `import AppKit` it never used.
 PARSER="Sources/Umber/GitStatus.swift"
+ROLLUP="Sources/Umber/GitStatus+Rollup.swift"
+PHRASING="Sources/Umber/GitStatus+Phrasing.swift"
 READER="Sources/Umber/GitStatusReader.swift"
 
-[ -f "$PARSER" ] || { echo "ENV: $PARSER not found (run from app/ or app/Scripts/)"; exit 2; }
-[ -f "$READER" ] || { echo "ENV: $READER not found (run from app/ or app/Scripts/)"; exit 2; }
+for unit in "$PARSER" "$ROLLUP" "$PHRASING" "$READER"; do
+    [ -f "$unit" ] || { echo "ENV: $unit not found (run from app/ or app/Scripts/)"; exit 2; }
+done
 command -v swiftc >/dev/null 2>&1 || { echo "ENV: no swiftc on PATH"; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "ENV: no git on PATH"; exit 2; }
 [ -x /usr/bin/git ] || { echo "ENV: /usr/bin/git missing (GitStatusReader.gitPath)"; exit 2; }
@@ -97,6 +106,7 @@ build_fixtures() {
     printf 'mod\n' > control-mod.txt
     printf 'del\n' > control-del.txt
     printf 'src\n' > rename-src.txt
+    printf 'edited\n' > readd-src.txt
     printf 'weird\n' > "$WEIRD"
     printf 'emoji\n' > "$EMOJI"
     mkdir -p nested/deep
@@ -111,6 +121,12 @@ build_fixtures() {
     printf 'staged\n' > staged-add.txt
     git add staged-add.txt                         # A.  index-added
     git mv rename-src.txt rename-dst.txt           # 2   R. rename, TWO -z tokens
+    # RM — renamed in the index, then edited again in the worktree. Still a "2" record,
+    # so it carries an origin, but ordinaryEntry collapses XY to the worktree side and
+    # the status comes out .modified. The one case that proves "only renames carry an
+    # origin" is true of RECORDS and false of STATUSES.
+    git mv readd-src.txt readd-dst.txt
+    printf 'AGAIN\n' >> readd-dst.txt              # 2   RM  rename + worktree edit
     printf 'CHANGED\n' >> "$WEIRD"
     printf 'CHANGED\n' >> "$EMOJI"
     printf 'CHANGED\n' >> nested/deep/buried.txt   # rollup source
@@ -137,6 +153,24 @@ build_fixtures() {
     git push -q -u origin HEAD
     printf 'b\n' > b.txt && git add -A && git commit -qm two
     printf 'c\n' > c.txt && git add -A && git commit -qm three   # now 2 ahead, 0 behind
+
+    # --- pruned: an upstream that is CONFIGURED but whose commit is not present ---
+    # What `git fetch --prune` leaves behind once the remote branch is deleted: the
+    # branch.<name>.remote/.merge config survives, the remote-tracking ref does not. git
+    # then emits `# branch.upstream` and omits `# branch.ab`, so a caller reading
+    # `ahead == nil` as "no upstream" is wrong about a branch that has one. Pushed under
+    # its own name rather than HEAD's so the delete never touches the bare repo's HEAD.
+    git init -q --bare "$WORK/remote-gone.git"
+    git init -q "$WORK/pruned"
+    cd "$WORK/pruned"
+    printf 'p\n' > p.txt && git add -A && git commit -qm one
+    git remote add origin "$WORK/remote-gone.git"
+    git push -q origin HEAD:refs/heads/keepme
+    git push -q -u origin HEAD:refs/heads/gate-pruned
+    git push -q origin --delete gate-pruned
+    git fetch -q --prune origin
+    git config --get branch."$(git rev-parse --abbrev-ref HEAD)".merge >/dev/null \
+        || { echo "ENV: pruned fixture lost its upstream config"; return 1; }
 
     # --- detached: HEAD pointing at a commit, not a branch ---
     git init -q "$WORK/detached"
@@ -189,8 +223,9 @@ HARNESS="Scripts/check-git-status-harness.swift"
 [ -f "$HARNESS" ] || { echo "ENV: $HARNESS not found (run from app/ or app/Scripts/)"; exit 2; }
 cp "$HARNESS" "$WORK/main.swift"
 
-if ! swiftc -O "$PARSER" "$READER" "$WORK/main.swift" -o "$WORK/run" 2>"$WORK/build.log"; then
-    echo "ENV: the harness would not compile against $PARSER + $READER"
+if ! swiftc -O "$PARSER" "$ROLLUP" "$PHRASING" "$READER" "$WORK/main.swift" \
+    -o "$WORK/run" 2>"$WORK/build.log"; then
+    echo "ENV: the harness would not compile against the four Foundation-only units"
     grep -E "error:" "$WORK/build.log" | head -10 || true
     exit 2
 fi

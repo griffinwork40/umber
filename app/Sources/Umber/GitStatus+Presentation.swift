@@ -1,6 +1,13 @@
 //
 //  GitStatus+Presentation.swift
-//  How a `GitFileStatus` looks in the sidebar: one colour, and one optional letter.
+//  How a `GitFileStatus` *looks* in the sidebar: one colour.
+//
+//  Narrowed 2026-08-02. The wording used to live here too, but `accessibilityDescription`
+//  and `GitFileEntry.statusPhrase`/`.tooltip` touch no AppKit type at all, and keeping
+//  them behind this file's `import AppKit` put deterministic string logic outside the
+//  reach of `check-git-status.sh` — the repo's only mechanical gate, which compiles
+//  Foundation-only files standalone. They now live in `GitStatus+Phrasing.swift`, where
+//  the gate can pin them. What is left here is the one thing that genuinely needs AppKit.
 //
 //  Its own file, rather than riding along in `FileTreeViewController+OutlineView.swift`,
 //  because it extends a DIFFERENT type — exactly the argument
@@ -64,28 +71,6 @@ extension GitFileStatus {
             // "de-emphasised text" means in the current appearance, which is precisely
             // what the tertiary label role is defined as.
             return .tertiaryLabelColor
-        }
-    }
-
-    /// What VoiceOver says instead of the badge letter.
-    ///
-    /// The letter and the colour are both glance affordances, and neither survives being
-    /// read aloud: "M" is not a word and a tint is not announced at all. Without this the
-    /// entire feature is invisible to a screen reader — which would make colour the *only*
-    /// channel carrying the status, and colour alone is also what a colour-blind user does
-    /// not get. That is the same reasoning that keeps the letter badge on by default rather
-    /// than following Zed's colour-only look.
-    var accessibilityDescription: String {
-        switch self {
-        case .conflicted: return "conflicted"
-        case .added: return "added"
-        case .modified: return "modified"
-        case .deleted: return "deleted"
-        case .renamed: return "renamed"
-        case .copied: return "copied"
-        case .typeChanged: return "type changed"
-        case .untracked: return "untracked"
-        case .ignored: return "ignored"
         }
     }
 }

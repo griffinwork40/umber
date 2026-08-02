@@ -65,33 +65,9 @@ enum GitFileStatus: Equatable {
         }
     }
 
-    /// Which status wins when a directory rolls up several children, lower first.
-    ///
-    /// A conflict outranks everything because it is the one state where continuing to
-    /// work without noticing actively destroys information. Untracked and ignored sort
-    /// last so that a folder holding one edited file and forty new ones still reads as
-    /// edited, which is the question a user is usually asking of a parent row.
-    var rollupPrecedence: Int {
-        switch self {
-        case .conflicted: return 0
-        case .added: return 1
-        case .modified: return 2
-        case .typeChanged: return 3
-        case .renamed: return 4
-        case .copied: return 5
-        case .deleted: return 6
-        case .untracked: return 7
-        case .ignored: return 8
-        }
-    }
-
-    /// Whether this status propagates from a file up to its ancestor directories.
-    ///
-    /// Deleted does not, matching VS Code (`DELETED`/`INDEX_DELETED` are excluded from
-    /// its folder rollup). The reason is that a deleted file's row is itself gone from
-    /// the tree, so tinting the surviving parent "deleted" would claim the *directory*
-    /// was removed — the one reading a user would act on and the one that is wrong.
-    var propagatesToParent: Bool { self != .deleted }
+    // The two members that answer *only* for a directory roll-up — `rollupPrecedence`
+    // and `propagatesToParent` — live in `GitStatus+Rollup.swift` beside the function
+    // that is their sole caller. See that file's header.
 }
 
 /// One changed path, as git spelled it.
@@ -112,15 +88,29 @@ struct GitStatusSnapshot: Equatable {
     /// The branch name, or nil when HEAD is detached or the repo has no commits yet.
     let branch: String?
     let isDetached: Bool
-    /// Commits ahead of / behind the upstream, or **nil when there is no upstream**.
+    /// Commits ahead of / behind the upstream, or **nil when git did not report them**.
     ///
     /// Nil is not an error and not zero. `# branch.ab` is absent from the output
     /// entirely on a branch that was never pushed — which is the normal state of every
     /// branch an agent workflow creates, including the one this file was written on. A
     /// caller that renders nil as "0/0" tells the user they are in sync with something
     /// that does not exist.
+    ///
+    /// Nil is **not** a synonym for "no upstream" either — see `hasUpstream`.
     let ahead: Int?
     let behind: Int?
+    /// Whether `# branch.upstream` was present, i.e. whether an upstream is configured
+    /// at all.
+    ///
+    /// Tracked separately from `ahead`/`behind` because git emits the two header lines
+    /// under *different* conditions: `# branch.upstream` "If upstream is set", but
+    /// `# branch.ab` only "If upstream is set **and the commit is present**"
+    /// (`git-status(1)`, porcelain v2 header table, verified against git 2.53.0). A
+    /// branch whose remote was deleted and then pruned keeps its upstream config while
+    /// reporting no ahead/behind, so a caller reading `ahead == nil` as "no upstream"
+    /// mislabels precisely that state — and mislabels it in the direction that matters,
+    /// since `git push` there still resolves a destination without `-u`.
+    let hasUpstream: Bool
     /// Changed paths keyed by their repo-relative spelling.
     let entries: [String: GitFileEntry]
     /// Ancestor directories that contain a change, keyed the same way, rolled up once
@@ -130,7 +120,7 @@ struct GitStatusSnapshot: Equatable {
     let directories: [String: GitFileStatus]
 
     static let empty = GitStatusSnapshot(
-        branch: nil, isDetached: false, ahead: nil, behind: nil,
+        branch: nil, isDetached: false, ahead: nil, behind: nil, hasUpstream: false,
         entries: [:], directories: [:])
 
     /// The decoration for one repo-relative path, file or directory, or nil for clean.
@@ -170,6 +160,7 @@ enum GitStatus {
         var isDetached = false
         var ahead: Int?
         var behind: Int?
+        var hasUpstream = false
         var entries: [String: GitFileEntry] = [:]
 
         // Split on NUL over BYTES, not over a decoded String. Decoding the whole blob
@@ -196,6 +187,13 @@ enum GitStatus {
                     // way, and git documents the spelling.
                     isDetached = value == "(detached)"
                     branch = isDetached ? nil : value
+                } else if record.hasPrefix("# branch.upstream ") {
+                    // Presence is the entire signal. The upstream's *name* is never
+                    // displayed, so parsing it would be dead data — but the line's
+                    // presence is the only thing that distinguishes "never pushed" from
+                    // "pushed, then the remote branch was deleted and pruned", which
+                    // `# branch.ab` cannot, because it is absent in both.
+                    hasUpstream = true
                 } else if let value = record.dropPrefixIfPresent("# branch.ab ") {
                     let parts = value.split(separator: " ")
                     for part in parts {
@@ -252,7 +250,7 @@ enum GitStatus {
 
         return GitStatusSnapshot(
             branch: branch, isDetached: isDetached, ahead: ahead, behind: behind,
-            entries: entries, directories: rollUp(entries))
+            hasUpstream: hasUpstream, entries: entries, directories: rollUp(entries))
     }
 
     /// Convenience for callers holding `Data` — the reader's pipe hands back `Data`, and
@@ -301,32 +299,7 @@ enum GitStatus {
         }
     }
 
-    /// Every ancestor directory of every changed path, carrying the highest-precedence
-    /// status among its descendants.
-    ///
-    /// Built eagerly and completely on each snapshot rather than patched incrementally.
-    /// That is a decision, not an oversight: all five of VS Code's separately
-    /// root-caused stale-decoration bugs came from clever incremental invalidation
-    /// (`.afk/research/git-sidebar-decision-2026-07-31.md` §5), and this map is small —
-    /// bounded by changed paths times their depth, not by repo size.
-    private static func rollUp(_ entries: [String: GitFileEntry]) -> [String: GitFileStatus] {
-        var directories: [String: GitFileStatus] = [:]
-        for entry in entries.values where entry.status.propagatesToParent {
-            var components = entry.path.split(separator: "/")
-            components.removeLast()  // the file itself is in `entries`, not here
-            var prefix = ""
-            for component in components {
-                prefix = prefix.isEmpty ? String(component) : prefix + "/" + component
-                if let existing = directories[prefix],
-                    existing.rollupPrecedence <= entry.status.rollupPrecedence
-                {
-                    continue
-                }
-                directories[prefix] = entry.status
-            }
-        }
-        return directories
-    }
+    // `rollUp(_:)`, the last step of `parse`, lives in `GitStatus+Rollup.swift`.
 }
 
 extension String {
