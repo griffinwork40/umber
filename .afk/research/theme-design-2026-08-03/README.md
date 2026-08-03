@@ -255,7 +255,71 @@ construct, not the vocabulary.
 
 Re-run everything: `python3 final.py` (exits 0), then `cd app && ./Scripts/check-theme-contrast.sh`.
 
-## 9. Runtime verification
+## 9. Devil's-advocate pass — what the critique changed
+
+Run 2026-08-03 after the work was committed. Three critics (cheapest-path, safest-path,
+right-abstraction) each invented an alternative; a synthesis agent ranked all four. Every
+checkable claim they made was verified on the main path and **all of them were true**.
+
+**The finding that inverts §7.** `theme == nil` — the shipped default, which §7 defended as
+the conservative choice pending daily use — is not a neutral baseline. It installs SwiftTerm's
+`Color.terminalAppColors` (`Colors.swift:91-108`) on black, and measured against this
+project's own floors it fails **7 of 8**:
+
+| slot | value | APCA Lc | floor | |
+|---|---|---|---|---|
+| ANSI 4 blue | `#492EE1` | **16.9** | 48 | fail |
+| ANSI 1 red | `#C23621` | 25.8 | 50 | fail |
+| ANSI 5 magenta | `#D338D3` | 35.9 | 56 | fail |
+| ANSI 8 comments | `#818383` | 36.0 | 48 | fail |
+| ANSI 2 green | `#25BC24` | 53.0 | 60 | fail |
+| ANSI 3 yellow | `#ADAD27` | 55.1 | 58 | fail |
+| ANSI 6 cyan | `#33BBC8` | 56.9 | 60 | fail |
+| ANSI 7 white | `#CBCCCD` | 75.6 | 74 | pass |
+
+Normal-ring mean Lc 40.6; ring separation 0.054 against a 0.085 floor. The gate's own
+falsification case asserts xterm's `#0000EE` at **Lc 14.0** must be rejected as the canonical
+unreadable blue — the default's blue sits 2.9 points from it. §7's reasoning treated `nil` as
+conservative when it is merely *unmeasured*: "daily-drive before flipping" is the right bar for
+choosing between two good palettes, not for keeping a measurably bad one. Flipping the default
+remains the operator's call (a written convention says to leave it alone unless deliberate, and
+their config overrides it regardless) but it is now an open recommendation rather than a
+settled decision.
+
+**Fixed in response.**
+
+1. *Verified blind spot* — all ten `APCA.lc` call sites passed a dark background, so the
+   opposite-polarity branch was never executed. Added external reference fixtures: Ottosson's
+   published sRGB→Oklab values (matching to 4 decimals, pinning all nine matrix coefficients
+   against a third party), APCA's canonical extremes in **both** polarities, and structural
+   dichromacy invariants. Validated by six mutations of `ThemeContrast.swift` — all caught,
+   including the APCA swap that previously was not. 135 → 152 assertions.
+2. *Fallback defect* — a typo'd preset landed on `afk-dark`, the one palette the harness
+   deliberately exempts from every floor. Now lands on `umber` (`Config.swift`), confirmed at
+   runtime.
+3. *Overclaim removed* — the harness section titled "the two luminance models agree" never
+   linked `NSColor.relativeLuminance` at all (it imports AppKit). Retitled to what it proves,
+   with the remaining gap stated.
+4. *Claim reframed* — the gate certifies **the `umber` preset**, not the app.
+5. *Two ungated dependencies named* in Known Risks: the tab strip alpha-blends the theme
+   foreground at 0.10–0.12 and nothing measures it; and `ThemeContrast.swift` has zero call
+   sites in the app, making it the first gate here whose subject is not live code.
+
+**Rejected, with reasons.** The cheapest-path alternative (hand-patch `afk-dark`, replace the
+maths with a 20-line pinned-hex check) was rejected because it spends effort to delete
+falsification-validated code in favour of "checked once by eye", in a repo whose Known Risks
+already records a gate producing a confident false negative — and its own evidence conceded the
+gate is *smaller* than several siblings (354 lines vs `check-git-status`'s 546). The
+safest-path alternative (demote APCA to advisory, keep only WCAG as blocking) was rejected on
+its own admitted tradeoff: WCAG rates the field's invisible comment colours "AA pass", so
+demoting APCA reopens the exact defect the work fixed — but its reference-vector proposal was
+adopted wholesale and was the single most valuable thing the pass produced. The
+right-abstraction alternative (a runtime minimum-contrast clamp) was the strongest and is
+**deferred, not refused** — recorded in Known Risks as the un-taken option, since it would
+reach the `nil` default, both verbatim presets and any pasted third-party hex, and would give
+`ThemeContrast.swift` a caller inside the app.
+
+## 10. Runtime verification
 
 The gate is headless and cannot prove the preset reaches the app. Checked separately, and
 falsified rather than assumed — `~/.config/umber/config.json` was backed up, swapped, and
