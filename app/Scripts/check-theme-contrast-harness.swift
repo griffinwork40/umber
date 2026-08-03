@@ -164,9 +164,11 @@ guard let bg = RGB(hex: u.background), let fg = RGB(hex: u.foreground),
 let a = u.ansi.compactMap { RGB(hex: $0) }
 guard a.count == 16 else { print("FAIL: Umber ansi did not parse to 16"); exit(1) }
 
-// 5a. Background must keep the window's chrome DARK. Config.lightChromeCutoff is 0.179.
-expect(WCAG.luminance(bg) <= 0.179, "Umber background",
-       "luminance \(WCAG.luminance(bg)) is above Config.lightChromeCutoff 0.179, so the "
+// 5a. Background must keep the window's chrome DARK, checked against the live symbol —
+// not a restated literal — so this assertion cannot silently drift from what
+// AppConfig.appearance (Config.swift) actually compares against if the cutoff ever changes.
+expect(WCAG.luminance(bg) <= WCAG.lightChromeCutoff, "Umber background",
+       "luminance \(WCAG.luminance(bg)) is above WCAG.lightChromeCutoff \(WCAG.lightChromeCutoff), so the "
        + "window would adopt LIGHT chrome against a dark terminal")
 
 // 5b. Background must actually be WARM — this is the design thesis, so it is asserted, not
