@@ -246,12 +246,15 @@ for (x, y, floor, why) in cvdFloors {
 }
 
 // 5h. Selection must be visible as a lift of the background without swallowing text.
+// Umber's design floor only; the all-palette and user-override cases are §5l. The threshold
+// is read from `SelectionPairing` rather than written here — see that type on why.
 let dSel = OKLab.distance(sel, bg)
 expect(dSel >= 0.08 && dSel <= 0.22, "Umber selection",
        "dE-OK \(String(format: "%.3f", dSel)) from background is outside 0.08…0.22")
-expect(APCA.lc(text: fg, background: sel) >= 60, "Umber foreground on selection",
-       "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) < 60 — "
-       + "selected text would be hard to read")
+expect(APCA.lc(text: fg, background: sel) >= SelectionPairing.readableFloor,
+       "Umber foreground on selection",
+       "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) < "
+       + "\(Int(SelectionPairing.readableFloor)) — selected text would be hard to read")
 
 // 5i. The cursor must be visible against the background it sits on.
 expect(APCA.lc(text: cur, background: bg) >= 45, "Umber cursor",
@@ -306,6 +309,11 @@ for p in ThemePalette.all {
 // Extracted to Scripts/check-theme-contrast-syntax.swift — see that file's header.
 // The call stays here so the section order a reader follows is still 1…6.
 checkSyntaxRoles(expect)
+
+// ------------------------------------- 5l. the editor's SELECTION pair, all palettes
+// Also in Scripts/check-theme-contrast-syntax.swift — the app-policy half of §5h, which a
+// config file can break without touching a palette at all.
+checkSelectionPairing(expect)
 
 // ------------------------------------------------------------------- 6. falsification
 // A gate that cannot fail proves nothing. Feed it a palette known to be bad — the xterm

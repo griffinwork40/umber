@@ -42,23 +42,49 @@ extension FileViewerPane: SpaceDocument {
         // warm umber background.
         //
         // Only the BACKGROUND is set. Overriding the selected text's foreground would be the
-        // obvious next line and it is deliberately absent: `check-theme-contrast-harness.swift`
-        // §5h already asserts the normal foreground stays readable *on* the selection
-        // (APCA Lc >= 60), so a second colour here would replace a measured pair with an
-        // unmeasured one.
+        // obvious next line and it is deliberately absent — the normal foreground is meant to
+        // show through, which is the same trick iTerm2 plays in `TextViewPorthole.swift`.
+        // `selectedTextAttributes` REPLACES rather than merges, so omitting `.foregroundColor`
+        // is what makes that happen; AppKit does not substitute `.selectedTextColor` back in.
         //
-        // Falls back to the SYSTEM selection colour rather than to a hardcoded default — the
-        // one place this pane's fallback should differ from `effectiveBackground`'s. With no
-        // theme (`"preset": "classic"`) there is no measured value to install, and the system
-        // colour is then the right answer for the same reason the file tree uses system parts:
-        // it tracks Increase Contrast and the window's appearance for free.
+        // That is precisely why the pair has to be MEASURED here rather than asserted once in
+        // the harness. §5h checks `umber`'s foreground on `umber`'s selection; a config file
+        // can pair a user's foreground with a preset's selection, because `selection` is the
+        // one `ThemePalette` field with no override (#29). See `SelectionPairing` for the
+        // configuration that reaches APCA Lc 0.0 that way.
+        //
+        // Falls back to the SYSTEM selection colour in BOTH failing cases — no theme
+        // (`"preset": "classic"`), and a theme whose selection this foreground cannot be read
+        // on. It is the right fallback for the same reason the file tree uses system parts: it
+        // tracks Increase Contrast and the window's appearance for free, and AppKit pairs it
+        // with `.selectedTextColor` when we install no background of our own.
         textView.selectedTextAttributes = [
-            .backgroundColor: config.theme?.selection ?? .selectedTextBackgroundColor
+            .backgroundColor: Self.readableSelection(for: config) ?? .selectedTextBackgroundColor
         ]
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R changes the size here exactly as it does in a terminal
         // (`TerminalPane.apply(config:)`). A live ⌘+ zoom still outranks the file.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+    }
+
+    /// The theme's selection background, or nil when AppKit's system pair should stand.
+    ///
+    /// The AppKit half of `SelectionPairing`, kept to a lookup: cross the two colours into
+    /// hex (`NSColor.hexString` converts to sRGB first, so a catalog colour like the
+    /// no-theme `.white` cannot trap here) and ask the pure rule. Everything decidable is
+    /// decided there, where `check-theme-contrast.sh` can compile it standalone.
+    ///
+    /// Deliberately NOT on `AppConfig` beside `effectiveBackground`/`effectiveForeground`,
+    /// though that is where it will belong: those exist because four call sites were
+    /// open-coding the same fallback, and selection has exactly ONE consumer today. Promote
+    /// it when the terminals are told too (#31) — and by then `Config.swift` is at 327/350,
+    /// so that promotion is the `Config+Chrome.swift` extraction #29 already prescribes,
+    /// rather than three more lines squeezed under the ceiling.
+    static func readableSelection(for config: AppConfig) -> NSColor? {
+        guard let selection = config.theme?.selection,
+              let sel = RGB(hex: selection.hexString),
+              let fg = RGB(hex: config.effectiveForeground.hexString) else { return nil }
+        return SelectionPairing.isReadable(foreground: fg, on: sel) ? selection : nil
     }
 
     var currentFontSize: CGFloat { fontSize }

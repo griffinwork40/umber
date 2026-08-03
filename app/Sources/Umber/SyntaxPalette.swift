@@ -16,10 +16,11 @@
 //  file never lands, this one should be deleted rather than left as decoration.
 //
 //  Side effect worth naming: this is the FIRST caller of `ThemeContrast` inside
-//  `Sources/Umber`. Until now that file was 205 lines of measurement compiled into the
+//  `Sources/Umber`. Until now that file was 204 lines of measurement compiled into the
 //  shipping binary with every call site in the harness — recorded in AFK.md as an accepted
 //  gap whose honest fix was "a runtime minimum-contrast clamp… which would give the maths a
-//  caller inside the app". `commentColour` below is a narrow instance of exactly that.
+//  caller inside the app". `commentColour` below is a narrow instance of exactly that, and
+//  `SelectionPairing` (added alongside it) is the second.
 //
 //  Derivation, the exhaustive search and the rejected alternatives:
 //  `.afk/research/editor-syntax-2026-08-03/`.
@@ -48,9 +49,14 @@ enum SyntaxRole: String, CaseIterable {
 /// ports, and `ThemeValues.swift` states the contract they are held to: *"a preset's job is
 /// to be the thing it claims to be — silently 'fixing' a port makes it a different theme
 /// wearing the same name."* Inventing ten syntax colours for `afk-dark` and `tokyo-night`
-/// would break precisely that. A mapping invents nothing, works unchanged for hex a user
-/// typed into their own config, and inherits whatever legibility the palette was already
-/// measured for. It is also what the surrounding ecosystem does: base16, every 16-colour vim
+/// would break precisely that. A mapping invents nothing and inherits whatever legibility
+/// the palette was already measured for. Note the limit, because the obvious next sentence
+/// is false today: this does NOT yet work for hex a user typed. Overrides are applied to
+/// `Theme` (NSColor) by `Config+Theme.swift` after `Theme.init(_:)` has run, and there is no
+/// `Theme`→`ThemePalette` conversion, so `colour(_:in:)` below is reachable only from the
+/// three shipped presets. Whoever writes the highlighter (#28) needs that bridge first, or
+/// the config's colours and the editor's will disagree. It is also what the surrounding
+/// ecosystem does: base16, every 16-colour vim
 /// scheme, `bat --theme=ansi` and `delta` all express syntax as ANSI roles, so the editor
 /// ends up agreeing with the tools running in the terminal beside it.
 ///
@@ -123,9 +129,10 @@ enum SyntaxPalette {
     /// nobody can read is the worst outcome available here.
     ///
     /// So: use ANSI 8 when it is legible, and otherwise fall back to the foreground drawn at
-    /// `commentAlpha`, which de-emphasises without going invisible. Measured across the three
-    /// shipped palettes the fallback lands at Lc 46.4…57.0, clearing the floor while staying
-    /// 27–35 Lc below body text, so a comment still reads as secondary rather than as code.
+    /// `commentAlpha`, which de-emphasises without going invisible. The clamp fires for two of
+    /// the three shipped palettes and lands them at Lc 46.3 (tokyo-night) and 47.4 (afk-dark);
+    /// umber takes the raw path at 51.5. All three stay 27.5…35.5 Lc below body text, so a
+    /// comment still reads as secondary rather than as code.
     ///
     /// This is a *clamp*, and clamps hide things, so note exactly what it does not do: it
     /// never touches hue and never nudges gamut, which is the harder unbuilt version AFK.md

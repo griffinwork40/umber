@@ -177,6 +177,22 @@ grep -qE 'selection = NSColor\.fromHex\(palette\.selection\)' "$STRIP_THEME" \
   || drift+=("Theme no longer builds .selection from the palette — the measured value has stopped crossing the AppKit bridge, which is exactly how it went unused before")
 grep -qE 'selectedTextAttributes' "$STRIP_VIEWER" \
   || drift+=("FileViewerPane no longer sets selectedTextAttributes — the editor has stopped consuming theme.selection and nothing else does")
+# The greps below are NOT redundant with it, and it alone was BLIND. It matches the
+# identifier, so it survives any mutation that keeps the assignment and changes what is
+# assigned — including `= [.backgroundColor: NSColor.selectedTextBackgroundColor]`, the
+# ORIGINAL BUG restored verbatim: the measured colour reaches nothing and the gate stays
+# green. That is this script's own stated lesson (match the CONSTRUCT, not the vocabulary —
+# see the preset check above) applied to the check that documents it.
+#
+# Anchored to the CALL SITE, not to the helper. Grepping the file for `config.theme?.selection`
+# was tried first and is ALSO blind, for a subtler reason worth keeping: once the lookup moved
+# into `readableSelection(for:)`, those strings survive in the helper even when the assignment
+# stops calling it, so a file-scope grep passes while the wiring is severed. Both blind
+# versions were probed against a mutated copy rather than reasoned about.
+grep -qE '\.backgroundColor: Self\.readableSelection\(for: config\)' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer installs Self.readableSelection(for:) as the selection background — selectedTextAttributes is being set from something other than the measured palette, which is the bug the identifier grep above cannot see")
+grep -qE 'SelectionPairing\.isReadable' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer measures the selection pair — a user override can pair a dark foreground with a preset's dark selection at APCA Lc 0.0 (invisible selected text)")
 if (( ${#drift[@]} )); then
   echo "✗ FAIL: the harness's assumptions have drifted from the shipped code:" >&2
   for d in "${drift[@]}"; do echo "    - $d" >&2; done
@@ -195,6 +211,7 @@ say "  ok  every shipped preset is reachable from config"
 say "  ok  tab-strip chrome measured for all 3 palettes; harness constants match the shipped ones"
 say "  ok  syntax roles: distinct non-surface slots, readable in all 3 palettes, comments dimmer"
 say "  ok  syntax clamp: both branches reachable (umber raw, tokyo-night clamped) and it raises Lc"
+say "  ok  selection pair readable in all 3 palettes; the Lc 0.0 user override is REJECTED"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"

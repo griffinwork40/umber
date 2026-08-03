@@ -130,6 +130,48 @@ func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
     }
 }
 
+/// §5l — the editor's SELECTION pair, for ALL palettes and for the override that breaks it.
+///
+/// §5h holds umber's selection to its design floor. This is the other question, and it is app
+/// policy rather than a palette's property: a selection background is never seen alone, so the
+/// only thing worth asserting is the PAIR — and a config file can build a pair whose halves
+/// come from different places, because `Config+Theme.swift` overrides `background` and
+/// `foreground` and gives the user no way to override `selection` (#29).
+func checkSelectionPairing(_ expect: (Bool, String, String) -> Void) {
+    // 5l-i. Every shipped palette's own pair must clear the floor. Asserted for all three for
+    // the same reason §5k is: the editor installs `theme.selection` whichever preset is live,
+    // so a failure is the app's, not a port's. (Measured: umber 81.3, afk-dark 63.7,
+    // tokyo-night 68.8 — afk-dark clears by 3.7, which is exactly why it is pinned.)
+    for p in ThemePalette.all {
+        guard let fg = RGB(hex: p.foreground), let sel = RGB(hex: p.selection) else { continue }
+        expect(SelectionPairing.isReadable(foreground: fg, on: sel),
+               "\(p.name) foreground on selection",
+               "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) < "
+               + "\(Int(SelectionPairing.readableFloor)) — selected text is hard to read")
+    }
+    // 5l-ii. THE FALSIFICATION, and the reason this section exists. A user may set a light
+    // background and a dark foreground; `selection` stays whatever the base preset shipped.
+    // That pair measured APCA Lc 0.0 — invisible selected text — and every assertion above
+    // passed while it did, because none of them crosses a user's colour with a preset's.
+    // The rule must REJECT it, or `readableSelection(for:)` is decorative.
+    if let userFG = RGB(hex: "#1A1A1A"), let presetSel = RGB(hex: ThemePalette.umber.selection) {
+        expect(!SelectionPairing.isReadable(foreground: userFG, on: presetSel),
+               "falsification (selection pairing)",
+               "a #1A1A1A foreground on umber's #453021 selection measures APCA Lc "
+               + "\(String(format: "%.1f", APCA.lc(text: userFG, background: presetSel)))"
+               + " and was ACCEPTED — the rule cannot see the case it was written for")
+    }
+    // 5l-iii. And it must not reject the good case, or the pane would fall back to the system
+    // colour always and the measured palettes would reach nothing — the original bug, again.
+    if let uFG = RGB(hex: ThemePalette.umber.foreground),
+       let uSel = RGB(hex: ThemePalette.umber.selection) {
+        expect(SelectionPairing.isReadable(foreground: uFG, on: uSel),
+               "falsification (selection pairing, control)",
+               "umber's own designed pair was rejected — the floor is too strict and the "
+               + "editor would never install a theme selection at all")
+    }
+}
+
 /// §6, the syntax half — the rules above must be able to FAIL.
 func checkSyntaxFalsification(_ expect: (Bool, String, String) -> Void) {
     // The syntax rules need their own falsification, because §5k's per-palette floors are the
