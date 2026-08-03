@@ -257,6 +257,51 @@ expect(APCA.lc(text: fg, background: sel) >= 60, "Umber foreground on selection"
 expect(APCA.lc(text: cur, background: bg) >= 45, "Umber cursor",
        "APCA Lc \(String(format: "%.1f", APCA.lc(text: cur, background: bg))) < 45")
 
+// ------------------------------------- 5j. the tab strip's DERIVED chrome, all palettes
+// The document tab strip does not use theme colours directly — it derives them:
+// `railBackground` is the terminal background lifted 7% toward white, and tab labels are
+// the theme foreground drawn at an alpha. Until now that was the one theme-derived surface
+// the gate could not reach, because `DocumentTabStrip+Drawing.swift` imports AppKit. It is
+// reachable after all: alpha compositing over an opaque backdrop is arithmetic, so
+// `RGB.blended`/`RGB.composited` reproduce it exactly and the result can be measured here.
+//
+// Asserted for ALL THREE palettes, not just umber, because this is APP CHROME — the same
+// constants apply whichever theme is installed, so a failure here is the strip's fault and
+// not the palette's. That is how the 0.55 inactive alpha was caught: it put inactive tab
+// text at APCA Lc 37.3 under umber, 33.0 under afk-dark and 32.1 under tokyo-night — the
+// least legible text anywhere in the app, and below APCA's Lc 45 floor for ANY readable
+// text in all three cases. The constants below must stay in step with the shipped ones;
+// `check-theme-contrast.sh` greps the drawing file to enforce that, because a harness
+// testing a stale constant is worse than no harness at all.
+let RAIL_LIFT = 0.07          // DocumentTabStrip+Drawing.swift railBackground
+let ALPHA_ACTIVE = 0.95       // DocumentTabStrip+Drawing.swift textAlpha, active
+let ALPHA_INACTIVE = 0.72     // DocumentTabStrip+Drawing.swift textAlpha, inactive
+for p in ThemePalette.all {
+    guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.foreground) else { continue }
+    let rail = pbg.blended(withFraction: RAIL_LIFT, toward: .white)
+    // The rail must read as a shade of the terminal, not as separate chrome bolted on.
+    let railRatio = WCAG.ratio(rail, pbg)
+    expect(railRatio > 1.05 && railRatio < 1.45, "\(p.name) tab rail",
+           "contrast vs background is \(String(format: "%.3f", railRatio)):1 — outside "
+           + "1.05…1.45, so the rail reads either invisible or as a separate surface")
+    // Active label: this is the tab you are reading.
+    let active = pfg.composited(over: pbg, alpha: ALPHA_ACTIVE)
+    expect(APCA.lc(text: active, background: pbg) >= 65, "\(p.name) active tab label",
+           "APCA Lc \(String(format: "%.1f", APCA.lc(text: active, background: pbg))) < 65")
+    // Inactive label: deliberately de-emphasised, but APCA's Lc 45 is the floor below
+    // which text is not readable at any size, and these are 11pt labels.
+    let inactive = pfg.composited(over: rail, alpha: ALPHA_INACTIVE)
+    let inLc = APCA.lc(text: inactive, background: rail)
+    expect(inLc >= 45, "\(p.name) inactive tab label",
+           "APCA Lc \(String(format: "%.1f", inLc)) < 45 — the least legible text in the app")
+    // ...and it must still be clearly weaker than the active one, or the strip stops
+    // telling you which document you are looking at.
+    expect(APCA.lc(text: active, background: pbg) - inLc >= 12,
+           "\(p.name) active/inactive tab separation",
+           "only \(String(format: "%.1f", APCA.lc(text: active, background: pbg) - inLc)) Lc "
+           + "apart — the active tab is no longer distinguishable by its label")
+}
+
 // ------------------------------------------------------------------- 6. falsification
 // A gate that cannot fail proves nothing. Feed it a palette known to be bad — the xterm
 // default 16 on pure black, whose ANSI 4 (#0000EE) is the canonical unreadable blue — and

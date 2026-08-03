@@ -129,6 +129,34 @@ if (( ${#missing[@]} )); then
   exit 1
 fi
 
+# CONSTANT-DRIFT GUARD. The harness measures the tab strip's derived colours from its own
+# copies of three constants, and asserts the app's DEFAULT palette. If either file drifts,
+# the harness keeps passing while testing numbers the app no longer draws — which is worse
+# than having no harness, because it reads as a green gate.
+#
+# Comments are stripped before matching, for the same reason as the preset check below and
+# with a sharper edge here: the rationale comment beside `textAlpha` names the OLD value
+# (0.55) and the new one, so a naive grep would match prose and pass whatever the code said.
+DRAW="Sources/Umber/DocumentTabStrip+Drawing.swift"
+[[ -f "$DRAW" ]] || { echo "error: $DRAW not found." >&2; exit 2; }
+STRIP_DRAW="$TMP/draw-nocomments.swift"
+STRIP_CFG="$TMP/config-nocomments.swift"
+sed -e 's|//.*$||' "$DRAW" > "$STRIP_DRAW"
+sed -e 's|//.*$||' "Sources/Umber/Config.swift" > "$STRIP_CFG"
+
+drift=()
+grep -qE 'isActive \? 0\.95 : 0\.72' "$STRIP_DRAW" \
+  || drift+=("tab label alpha is no longer 'isActive ? 0.95 : 0.72' — update ALPHA_ACTIVE/ALPHA_INACTIVE in the harness")
+grep -qE 'blended\(withFraction: 0\.07' "$STRIP_DRAW" \
+  || drift+=("railBackground no longer lifts by 0.07 — update RAIL_LIFT in the harness")
+grep -qE '^[[:space:]]*theme: \.umber,' "$STRIP_CFG" \
+  || drift+=("AppConfig.defaults() no longer installs .umber — the gate's floors no longer describe what the app ships by default")
+if (( ${#drift[@]} )); then
+  echo "✗ FAIL: the harness's assumptions have drifted from the shipped code:" >&2
+  for d in "${drift[@]}"; do echo "    - $d" >&2; done
+  exit 1
+fi
+
 say "  ok  all 3 shipped palettes parse; 16 ANSI entries each"
 say "  ok  WCAG luminance agrees with the WCAG 2.1 definition on a fixed vector"
 say "  ok  APCA loClip confirmed, so ANSI 0 is judged by OKLab distance not by APCA"
@@ -138,6 +166,7 @@ say "  ok  umber: all 8 normal->bright pairs separated and correctly ordered"
 say "  ok  umber: colour-vision floors met, incl. tier-1 red/green >= 0.105"
 say "  ok  falsification: xterm's #0000EE on black is correctly REJECTED"
 say "  ok  every shipped preset is reachable from config"
+say "  ok  tab-strip chrome measured for all 3 palettes; harness constants match the shipped ones"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"

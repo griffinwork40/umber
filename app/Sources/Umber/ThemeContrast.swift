@@ -50,6 +50,24 @@ struct RGB {
 
     init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
 
+    /// `NSColor.blended(withFraction:of:)`, reproduced in pure arithmetic.
+    ///
+    /// Interpolates the GAMMA-ENCODED components, not linear light — that is what AppKit
+    /// does, and matching it is the whole point: this exists so the tab strip's derived
+    /// colours can be measured without linking AppKit. Getting the colour space wrong here
+    /// would make the gate test a colour the app never draws.
+    func blended(withFraction f: Double, toward other: RGB) -> RGB {
+        RGB(r: r + (other.r - r) * f, g: g + (other.g - g) * f, b: b + (other.b - b) * f)
+    }
+
+    /// This colour drawn at `alpha` over an opaque `backdrop`. Source-over compositing,
+    /// again on the encoded components, for the same reason as `blended`.
+    func composited(over backdrop: RGB, alpha: Double) -> RGB {
+        backdrop.blended(withFraction: alpha, toward: self)
+    }
+
+    static let white = RGB(r: 1, g: 1, b: 1)
+
     /// Gamma-expanded channels. Luminance is defined on linear light; skipping this
     /// misjudges mid-tones badly, which is the same note `NSColor.relativeLuminance`
     /// carries in `Theme.swift`.

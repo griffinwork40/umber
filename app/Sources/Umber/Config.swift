@@ -70,11 +70,22 @@ struct AppConfig {
     /// standard cube and never reads bg/fg. **A custom palette is free of that
     /// defect**; installing one is now only a question of taste.
     ///
-    /// So `nil` remains the default for a smaller and more honest reason: no shipped
-    /// palette has been daily-driven long enough to earn the default, and SwiftTerm's
-    /// own colours are what the Step 0 spike measured. `"preset": "umber"` selects the
-    /// palette designed and measured for this app — see `ThemeValues.swift` and
-    /// `.afk/research/theme-design-2026-08-03/`.
+    /// **The default is `.umber` as of 2026-08-03**, and the reasoning that kept it `nil`
+    /// was wrong in a specific way worth recording. It treated "install nothing" as the
+    /// conservative choice pending real use. It is not conservative — it is unmeasured.
+    /// `nil` renders SwiftTerm's `Color.terminalAppColors` (`Colors.swift:91-108`) on
+    /// black, which fails **7 of the 8** slots `check-theme-contrast.sh` has floors for:
+    /// ANSI 4 blue `#492EE1` at APCA Lc 16.9, ANSI 1 red at 25.8, ANSI 8 — the colour
+    /// nearly every tool uses for de-emphasised output — at 36.0 against a floor of 48,
+    /// and a normal→bright ring separation of 0.054 against 0.085. For scale, that gate's
+    /// own falsification case asserts xterm's `#0000EE` at Lc 14.0 must be REJECTED as the
+    /// canonical unreadable blue; the old default's blue sat 2.9 points from it.
+    /// "Daily-drive it first" is the right bar for choosing between two *good* palettes,
+    /// not for keeping a measurably bad incumbent.
+    ///
+    /// `"preset": "classic"` still selects `nil` — install nothing — for anyone who wants
+    /// the engine's own colours. See `ThemeValues.swift` for what `umber` is and
+    /// `.afk/research/theme-design-2026-08-03/` for how it was derived.
     var theme: Theme?
     var cursorStyle: CursorStyle
     var scrollback: Int
@@ -173,7 +184,7 @@ struct AppConfig {
     static func defaults() -> AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: defaultFontSize).font,
-            theme: nil,
+            theme: .umber,
             cursorStyle: .default,
             // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
             // thumb as `max(rows / lines.count, 0.01)`
