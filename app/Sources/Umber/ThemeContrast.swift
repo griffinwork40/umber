@@ -50,6 +50,18 @@ struct RGB {
 
     init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
 
+    /// The inverse of `init?(hex:)`, mirroring `NSColor.hexString` in `Theme.swift`.
+    ///
+    /// Exists for *derived* colours — a composited comment colour or a lifted rail has no hex
+    /// literal anywhere to name it, so a gate failure would otherwise have to report three
+    /// Doubles. Clamped rather than trusted: compositing keeps values in 0…1, but a future
+    /// caller doing arithmetic outside that range should produce a wrong colour name, not a
+    /// crash inside a failure message.
+    var hex: String {
+        func channel(_ c: Double) -> Int { Int((min(max(c, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", channel(r), channel(g), channel(b))
+    }
+
     /// `NSColor.blended(withFraction:of:)`, reproduced in pure arithmetic.
     ///
     /// Interpolates the GAMMA-ENCODED components, not linear light — that is what AppKit

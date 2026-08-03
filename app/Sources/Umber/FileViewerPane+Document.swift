@@ -35,6 +35,26 @@ extension FileViewerPane: SpaceDocument {
         scrollView.backgroundColor = config.effectiveBackground
         textView.backgroundColor = config.effectiveBackground
         textView.textColor = config.effectiveForeground
+        // The theme's selection colour, which until 2026-08-03 nothing in the app consumed:
+        // it was measured with the rest of the palette and then dropped at the AppKit bridge
+        // (`Theme.swift` had no such field), so no consumer could have read it. Against an
+        // unthemed editor the stock highlight is a system blue that has no relationship to a
+        // warm umber background.
+        //
+        // Only the BACKGROUND is set. Overriding the selected text's foreground would be the
+        // obvious next line and it is deliberately absent: `check-theme-contrast-harness.swift`
+        // §5h already asserts the normal foreground stays readable *on* the selection
+        // (APCA Lc >= 60), so a second colour here would replace a measured pair with an
+        // unmeasured one.
+        //
+        // Falls back to the SYSTEM selection colour rather than to a hardcoded default — the
+        // one place this pane's fallback should differ from `effectiveBackground`'s. With no
+        // theme (`"preset": "classic"`) there is no measured value to install, and the system
+        // colour is then the right answer for the same reason the file tree uses system parts:
+        // it tracks Increase Contrast and the window's appearance for free.
+        textView.selectedTextAttributes = [
+            .backgroundColor: config.theme?.selection ?? .selectedTextBackgroundColor
+        ]
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R changes the size here exactly as it does in a terminal
         // (`TerminalPane.apply(config:)`). A live ⌘+ zoom still outranks the file.

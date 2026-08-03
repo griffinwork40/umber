@@ -34,10 +34,13 @@ struct ThemePalette {
     let background: String
     let foreground: String
     let cursor: String
-    /// The selection background. Not yet wired to either engine — both can express it
-    /// (`TerminalView.selectedTextBackgroundColor`; libghostty's `.selectionBackground`)
-    /// and neither is told, which is a real gap recorded in the design doc rather than
-    /// quietly omitted. Carried here so the value exists when the wiring lands.
+    /// The selection background. Consumed by the **editor** since 2026-08-03
+    /// (`FileViewerPane+Document.swift`), and still not by either terminal engine — both can
+    /// express it (`TerminalView.selectedTextBackgroundColor`; libghostty's
+    /// `.selectionBackground`) and neither is told. That half of the gap stands, and the
+    /// reason it went unnoticed for so long is worth keeping: the value was measured here from
+    /// the start but `Theme` had no matching field, so it never crossed the AppKit bridge and
+    /// no consumer could have read it even if one had tried.
     let selection: String
     /// Exactly 16: 8 normal then 8 bright. SwiftTerm's `installColors` silently does
     /// nothing if the array is not 16 long, so `Config` validates before `Theme` builds.

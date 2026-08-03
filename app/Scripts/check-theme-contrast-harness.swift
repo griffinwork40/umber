@@ -302,6 +302,11 @@ for p in ThemePalette.all {
            + "apart — the active tab is no longer distinguishable by its label")
 }
 
+// ----------------------------------------- 5k. the editor's SYNTAX roles
+// Extracted to Scripts/check-theme-contrast-syntax.swift — see that file's header.
+// The call stays here so the section order a reader follows is still 1…6.
+checkSyntaxRoles(expect)
+
 // ------------------------------------------------------------------- 6. falsification
 // A gate that cannot fail proves nothing. Feed it a palette known to be bad — the xterm
 // default 16 on pure black, whose ANSI 4 (#0000EE) is the canonical unreadable blue — and
@@ -318,6 +323,9 @@ if let c = RGB(hex: "#F7768E") {
     expect(OKLab.distance(c, c) < 0.085, "falsification (ring)",
            "an identical normal/bright pair was not rejected by the 0.085 rule")
 }
+// The syntax rules' own falsification lives beside them, in
+// Scripts/check-theme-contrast-syntax.swift.
+checkSyntaxFalsification(expect)
 
 // ---------------------------------------------------------------------------- verdict
 if failures.isEmpty {
