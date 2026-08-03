@@ -301,11 +301,21 @@ working terminal.
   "scrollback": 1000,
   "optionAsMeta": true,
   "renderer": "coretext",
-  "theme": { "preset": "afk-dark", "cursor": "#E67E4C" }
+  "theme": { "preset": "umber" }
 }
 ```
 
 Omit `theme` entirely — the default — and no colours are installed at all.
+
+`"preset": "umber"` is the palette designed *for* this app rather than ported into it, and the
+only one here whose claims are measured: a warm umber-black base (every widely-used dark theme
+measured sits cold, hue 219–291°, or at zero chroma), dim text that is actually legible (APCA
+Lc 51.5, against 0.0–34.3 for the nine reference palettes — Solarized Dark's is literally
+invisible), bright colours genuinely distinguishable from their normal counterparts (Tokyo
+Night, Catppuccin, Nord and Rosé Pine all ship *identical* values there, so bold text is
+indistinguishable from plain), and red/green that stays separable for a red-green colour-blind
+reader. `./Scripts/check-theme-contrast.sh` is the gate; the derivation, the measurement
+tooling, and four documented wrong answers are in `.afk/research/theme-design-2026-08-03/`.
 
 | Field | Notes |
 |---|---|
@@ -317,8 +327,8 @@ Omit `theme` entirely — the default — and no colours are installed at all.
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
 | `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `engine` | `swiftterm` (default) or `ghostty`. Which terminal core backs a **new** tab. `swiftterm` is the vendored SwiftTerm this app was built on; `ghostty` is libghostty, which is actively maintained and supplies shell integration SwiftTerm structurally cannot — OSC 7 (the shell reports its working directory, so the sidebar follows it without polling the kernel) and OSC 133 (command boundaries and exit status). **Read once, when a tab is created.** Edit it, hit ⌘R, and the next ⌘T uses the new core while the tab in front of you keeps its own — swapping a core under a live shell would discard its scrollback and its process. That is deliberate: it means both cores can run side by side in one window, which is the only honest way to compare them on the same work. **Opt-in**, because the one bug class that matters most here — buffer reflow when a window is narrowed — is gated for SwiftTerm (`check-reflow.sh`) and not yet for libghostty. `renderer` above applies to `swiftterm` only; libghostty draws with its own renderer and ignores it. Accepted spellings, case-insensitive with `_` read as `-`: `swiftterm`/`swift-term`/`swift`/`legacy`, and `ghostty`/`libghostty`/`lib-ghostty`. Anything else is rejected with a warning naming the valid values — `./Scripts/check-engine-config.sh` is the gate for that mapping |
-| `theme` | **Omitted by default.** Present at all ⇒ colours get installed, which regenerates ANSI 16–255 out of your bg/fg. See the note above |
-| `theme.preset` | `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
+| `theme` | **Omitted by default**, which leaves SwiftTerm's own colours in place. Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
+| `theme.preset` | `umber`, `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
 Both former defaults survive as presets — no hex-pasting required:

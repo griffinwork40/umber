@@ -1,0 +1,42 @@
+{
+  "_source": "optimize_umber3.py",
+  "background": "#1A140F",
+  "foreground": "#F8F3EA",
+  "cursor": "#FF9855",
+  "selection": "#473121",
+  "ansi": [
+    "#3C332E",
+    "#F48B81",
+    "#9DDDA1",
+    "#DA9E00",
+    "#73A4FF",
+    "#F5A8DB",
+    "#00E1F5",
+    "#D1CBC4",
+    "#B2A9A3",
+    "#FFB3AA",
+    "#ACFFB1",
+    "#FFBA00",
+    "#A8C7FF",
+    "#FFE4F5",
+    "#B5F7FF",
+    "#FFFDFB"
+  ],
+  "score": -0.14866415036405148,
+  "unmet": [
+    "ANSI0 not a 2nd bg dE<=0.115",
+    "ANSI7 Lc>=76",
+    "normal red Lc>=55",
+    "ring 1/9 dE",
+    "ring 2/10 dE",
+    "normal yellow Lc>=60",
+    "bright yellow Lc>=76",
+    "ring 3/11 dE",
+    "normal ring Lc spread",
+    "bright ring Lc spread",
+    "cvd deutan normal red/green",
+    "cvd deutan bright red/green",
+    "cvd deutan normal red/yellow",
+    "cvd protan normal blue/magenta"
+  ]
+}

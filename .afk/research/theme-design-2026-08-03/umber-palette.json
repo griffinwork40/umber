@@ -1,0 +1,126 @@
+{
+  "_source": "final.py \u2014 searched then eye-corrected then re-verified",
+  "background": "#19120D",
+  "foreground": "#E5DFD6",
+  "cursor": "#FF9B5A",
+  "selection": "#453021",
+  "ansi": [
+    "#342C26",
+    "#EF7F74",
+    "#8AE49E",
+    "#D7AA32",
+    "#739EF0",
+    "#FFACE9",
+    "#42CBC8",
+    "#D3CDC5",
+    "#AAA19B",
+    "#FDAAA0",
+    "#B4FCC3",
+    "#F7D179",
+    "#9DBEFC",
+    "#FFD2F2",
+    "#80E5E2",
+    "#F9F6F2"
+  ],
+  "ansi_names": [
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "bright black",
+    "bright red",
+    "bright green",
+    "bright yellow",
+    "bright blue",
+    "bright magenta",
+    "bright cyan",
+    "bright white"
+  ],
+  "oklch": {
+    "black": [
+      0.3,
+      0.016,
+      56.0
+    ],
+    "red": [
+      0.72,
+      0.14,
+      27.0
+    ],
+    "green": [
+      0.845,
+      0.131,
+      150.0
+    ],
+    "yellow": [
+      0.759,
+      0.14,
+      87.0
+    ],
+    "blue": [
+      0.702,
+      0.13,
+      262.5
+    ],
+    "magenta": [
+      0.842,
+      0.129,
+      337.0
+    ],
+    "cyan": [
+      0.77,
+      0.115,
+      192.9
+    ],
+    "white": [
+      0.851,
+      0.013,
+      74.0
+    ],
+    "bright black": [
+      0.715,
+      0.014,
+      56.0
+    ],
+    "bright red": [
+      0.816,
+      0.1,
+      27.0
+    ],
+    "bright green": [
+      0.93,
+      0.106,
+      150.0
+    ],
+    "bright yellow": [
+      0.875,
+      0.115,
+      87.0
+    ],
+    "bright blue": [
+      0.8,
+      0.096,
+      262.5
+    ],
+    "bright magenta": [
+      0.912,
+      0.078,
+      337.0
+    ],
+    "bright cyan": [
+      0.86,
+      0.095,
+      192.9
+    ],
+    "bright white": [
+      0.974,
+      0.006,
+      74.0
+    ]
+  },
+  "failures": []
+}

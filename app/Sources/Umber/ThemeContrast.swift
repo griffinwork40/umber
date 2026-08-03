@@ -1,0 +1,186 @@
+//
+//  ThemeContrast.swift
+//  Measuring a palette: WCAG 2.1, APCA, OKLab distance, and dichromacy simulation.
+//
+//  **Pure and view-free — Foundation only, on purpose**, so `check-theme-contrast.sh`
+//  can compile it beside `ThemeValues.swift` with no UI framework linked. That gate is
+//  the only reason a theme in this repo can claim to be legible: there is no test target
+//  and no CI, so an unmeasured palette is an opinion.
+//
+//  Separate from `Theme.swift` because that file is the AppKit *bridge* (it turns hex
+//  into `NSColor` and hands it to two engines) and separate from `ThemeValues.swift`
+//  because that file is data. One concern each — the split the repo asks for.
+//
+//  Why both WCAG and APCA, when they disagree:
+//
+//  WCAG 2.1's contrast ratio is the accessibility standard people cite and the one
+//  `Config.lightChromeCutoff` is built on, so it stays. But it materially OVERSTATES
+//  contrast on dark backgrounds — its own successor documentation says so — and every
+//  colour in this app sits on a near-black background. Measured on the shipped palettes,
+//  WCAG rates Tokyo Night's normal ANSI slots a comfortable 4.9–9.2:1 (all "AA pass")
+//  while APCA puts the worst of them at Lc 49, below the readable floor. The APCA number
+//  is the one that matched what the rendered previews actually looked like, so it is the
+//  one the thresholds are written against. WCAG is reported alongside, not trusted alone.
+//
+//  APCA is implemented here as 0.98G-4g. It is a draft model, not a normative standard;
+//  it is used as an internal design instrument, never as an accessibility claim.
+//
+
+import Foundation
+
+// MARK: - sRGB
+
+/// A colour as three sRGB channels in 0…1. Not `NSColor`: this file must not import
+/// AppKit, and the parsing that produces one of these must be assertable by the gate.
+struct RGB {
+    let r: Double, g: Double, b: Double
+
+    /// Parse `#rrggbb` / `rrggbb`, and the 3-digit shorthand. Returns nil on anything
+    /// unparseable, mirroring `NSColor.fromHex` in `Theme.swift` so that a hex string
+    /// accepted by one is accepted by the other — the gate asserts that agreement.
+    init?(hex raw: String) {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        r = Double((v >> 16) & 0xff) / 255
+        g = Double((v >> 8) & 0xff) / 255
+        b = Double(v & 0xff) / 255
+    }
+
+    init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
+
+    /// Gamma-expanded channels. Luminance is defined on linear light; skipping this
+    /// misjudges mid-tones badly, which is the same note `NSColor.relativeLuminance`
+    /// carries in `Theme.swift`.
+    var linear: (Double, Double, Double) {
+        func f(_ c: Double) -> Double {
+            c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return (f(r), f(g), f(b))
+    }
+}
+
+// MARK: - WCAG 2.1
+
+enum WCAG {
+    /// Relative luminance, 0…1. Must agree with `NSColor.relativeLuminance`
+    /// (`Theme.swift`) — the gate asserts it, because `Config.appearance` derives the
+    /// window's light/dark chrome from that one and the thresholds here from this one.
+    static func luminance(_ c: RGB) -> Double {
+        let (r, g, b) = c.linear
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    /// Contrast ratio, 1…21. AA wants 4.5:1 for body text, 3:1 for large.
+    static func ratio(_ a: RGB, _ b: RGB) -> Double {
+        let la = luminance(a), lb = luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+}
+
+// MARK: - APCA 0.98G-4g
+
+/// Lightness contrast, reported as absolute Lc 0…~108.
+///
+/// Thresholds used by the gate, from APCA's own guidance: 90 preferred body text,
+/// 75 minimum body text, 60 minimum readable non-body, 45 large/headline minimum,
+/// 30 absolute floor, 15 the invisibility threshold for non-text.
+///
+/// Note the `loClip`: below roughly Lc 10 the model deliberately reports exactly 0,
+/// because it is a *text readability* model and there is no meaningful readability left.
+/// That is why ANSI 0 must never be judged by this function — it is a surface a hair
+/// above the background, so its Lc is 0 by construction and a threshold on it is
+/// unsatisfiable. It is judged by `OKLab.distance` from the background instead. This
+/// exact mistake silently flattened the first palette search; see the design doc.
+enum APCA {
+    private static let trc = 2.4, blkThrs = 0.022, blkClmp = 1.414
+    private static let normBG = 0.56, normTXT = 0.57, revTXT = 0.62, revBG = 0.65
+    private static let scale = 1.14, offset = 0.027, loClip = 0.1, deltaYmin = 0.0005
+
+    private static func y(_ c: RGB) -> Double {
+        // APCA uses a simple power curve, NOT the sRGB piecewise transfer function.
+        let v = 0.2126729 * pow(c.r, trc) + 0.7151522 * pow(c.g, trc) + 0.0721750 * pow(c.b, trc)
+        return v < blkThrs ? v + pow(blkThrs - v, blkClmp) : v
+    }
+
+    static func lc(text: RGB, background: RGB) -> Double {
+        let yt = y(text), yb = y(background)
+        guard abs(yb - yt) >= deltaYmin else { return 0 }
+        let out: Double
+        if yb > yt {                                    // dark text on a light background
+            let s = (pow(yb, normBG) - pow(yt, normTXT)) * scale
+            out = s < loClip ? 0 : s - offset
+        } else {                                        // light text on a dark background
+            let s = (pow(yb, revBG) - pow(yt, revTXT)) * scale
+            out = s > -loClip ? 0 : s + offset
+        }
+        return abs(out * 100)
+    }
+}
+
+// MARK: - OKLab
+
+/// Perceptual distance and lightness. Used for three questions WCAG and APCA cannot
+/// answer: is ANSI 0 visible against the background without becoming a second
+/// background; is a bright slot actually distinguishable from its normal counterpart;
+/// and do two colours still differ once a colour-blind reader's cones have collapsed
+/// them. Matrices are Ottosson's (bottosson.github.io/posts/oklab).
+enum OKLab {
+    static func from(_ c: RGB) -> (L: Double, a: Double, b: Double) {
+        let (r, g, bl) = c.linear
+        let l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl
+        let m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl
+        let s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl
+        let l_ = cbrt(l), m_ = cbrt(m), s_ = cbrt(s)
+        return (0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+                1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+                0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_)
+    }
+
+    /// dE-OK. Read as: ≥ 0.10 clearly different, 0.05–0.10 marginal, < 0.05 a collision.
+    static func distance(_ x: RGB, _ y: RGB) -> Double {
+        let a = from(x), b = from(y)
+        return sqrt(pow(a.L - b.L, 2) + pow(a.a - b.a, 2) + pow(a.b - b.b, 2))
+    }
+
+    static func lightness(_ c: RGB) -> Double { from(c).L }
+}
+
+// MARK: - Colour-vision deficiency
+
+/// Dichromacy simulation, Viénot–Brettel–Mollon (1999) via an LMS projection.
+///
+/// This matters more for a terminal than for most apps: red–green deficiency affects
+/// roughly 8% of men, and red-versus-green is the exact axis `git diff`, test results
+/// and error-versus-success output ride on. Protanopia and deuteranopia both collapse
+/// that axis, which is why the shipped palette staggers lightness across the ring —
+/// lightness is the only channel that survives, so it has to carry the signal.
+enum CVD {
+    enum Kind: String, CaseIterable { case protanopia, deuteranopia }
+
+    static func simulate(_ c: RGB, _ kind: Kind) -> RGB {
+        let (r, g, b) = c.linear
+        var l = 17.8824 * r + 43.5161 * g + 4.11935 * b
+        var m = 3.45565 * r + 27.1554 * g + 3.86714 * b
+        let s = 0.0299566 * r + 0.184309 * g + 1.46709 * b
+        switch kind {
+        case .protanopia:   l = 2.02344 * m - 2.52581 * s
+        case .deuteranopia: m = 0.494207 * l + 1.24827 * s
+        }
+        let lr =  0.080944 * l - 0.130504 * m + 0.116721 * s
+        let lg = -0.0102485 * l + 0.0540194 * m - 0.113615 * s
+        let lb = -0.000365294 * l - 0.00412163 * m + 0.693513 * s
+        func enc(_ v: Double) -> Double {
+            let c = min(max(v, 0), 1)
+            return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055
+        }
+        return RGB(r: enc(lr), g: enc(lg), b: enc(lb))
+    }
+
+    /// The worst separation across both dichromacies — the number a threshold is set
+    /// against, since a palette is only as safe as its weaker case.
+    static func worstDistance(_ x: RGB, _ y: RGB) -> Double {
+        Kind.allCases.map { OKLab.distance(simulate(x, $0), simulate(y, $0)) }.min() ?? 0
+    }
+}

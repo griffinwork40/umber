@@ -55,11 +55,25 @@ private struct ConfigFile: Decodable {
 struct AppConfig {
     var font: NSFont
     /// `nil` means "do not install any colours" — SwiftTerm's own defaults stand.
-    /// That is the default, and it is not laziness: installing a background or
-    /// foreground makes SwiftTerm regenerate ANSI indices 16–255 by interpolating
-    /// them out of your bg/fg (`Terminal.swift:513-542` → `rebuildAnsiPalette`),
-    /// so a custom theme silently replaces the standard 256-colour cube with
-    /// synthesised approximations. See `TerminalPane.apply(config:)`.
+    /// That is still the default, but **the reason it used to give was stale and is
+    /// corrected here** (2026-08-03).
+    ///
+    /// The old note said installing a background or foreground makes SwiftTerm
+    /// regenerate ANSI 16–255 by interpolating them out of your bg/fg, replacing the
+    /// standard 256-colour cube. That is true of SwiftTerm's *library default* and
+    /// false of this app: `TerminalPane.apply(config:)` sets
+    /// `ansi256PaletteStrategy = .xterm` unconditionally before any colour
+    /// (`TerminalPane.swift:165`), `Terminal.swift:523,538` gate the rebuild on
+    /// `!= .xterm`, and `installPalette` under `.xterm` routes to
+    /// `generateXtermPalette` (`Colors.swift:169-190`), which appends the literal
+    /// standard cube and never reads bg/fg. **A custom palette is free of that
+    /// defect**; installing one is now only a question of taste.
+    ///
+    /// So `nil` remains the default for a smaller and more honest reason: no shipped
+    /// palette has been daily-driven long enough to earn the default, and SwiftTerm's
+    /// own colours are what the Step 0 spike measured. `"preset": "umber"` selects the
+    /// palette designed and measured for this app — see `ThemeValues.swift` and
+    /// `.afk/research/theme-design-2026-08-03/`.
     var theme: Theme?
     var cursorStyle: CursorStyle
     var scrollback: Int
