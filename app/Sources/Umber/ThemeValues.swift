@@ -120,7 +120,6 @@ extension ThemePalette {
         ]
     )
 
-    /// Tokyo Night — the v0.1 default, kept as a preset. Also transcribed verbatim.
     /// **AFK Light** — `"preset": "afk-light"`, and the only light palette here.
     ///
     /// A verbatim port of GitHub's Light Default, so it is NOT held to umber's floors
@@ -130,7 +129,7 @@ extension ThemePalette {
     /// gates it on WCAG ratios (3.0/4.5), which is what its source targeted.
     ///
     /// Its real job is structural: it is the first shipped preset whose background sits
-    /// ABOVE `Config.lightChromeCutoff` (0.179), so it is the only thing that exercises
+    /// ABOVE `WCAG.lightChromeCutoff` (0.179, `ThemeContrast.swift`), so it is the only thing that exercises
     /// `AppConfig.appearance` returning `.aqua` and the whole light-chrome derivation
     /// underneath it. Before this existed that path was written but never run.
     ///
@@ -151,6 +150,7 @@ extension ThemePalette {
         ]
     )
 
+    /// Tokyo Night — the v0.1 default, kept as a preset. Also transcribed verbatim.
     static let tokyoNight = ThemePalette(
         name: "tokyo-night",
         background: "#1A1B26", foreground: "#C0CAF5", cursor: "#C0CAF5",

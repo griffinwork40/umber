@@ -15,7 +15,7 @@
 # and nothing in it has ever been gateable. That is why the palettes and the luminance
 # formula were moved out — the split is what created something checkable.
 #
-# WHY IT EXISTS AT ALL. `AppConfig.appearance` (`Config.swift:149`) derives the window's
+# WHY IT EXISTS AT ALL. `AppConfig.appearance` (`Config.swift:175-176`) derives the window's
 # light/dark chrome from the theme background's relative luminance:
 #
 #     NSAppearance(named: Double(effectiveBackground.relativeLuminance) > WCAG.lightChromeCutoff
@@ -29,8 +29,8 @@
 # file that imports AppKit. Case 2 below is that assertion, and it is why this script
 # exists; the other six are there to stop case 2 passing for the wrong reason.
 #
-# `lightChromeCutoff` itself is declared in `ThemeValues.swift`, the file THIS script
-# compiles, and `Config.swift:149` reads that exact symbol rather than a second literal —
+# `lightChromeCutoff` itself is declared in `ThemeContrast.swift`, one of the two files THIS
+# script compiles, and `Config.swift:176` reads that exact symbol rather than a second literal —
 # there used to be two independent `0.179`s, one production read and one this gate read,
 # and nothing tied them together (PR #24 review, item 1). Cases 2–3 below now constrain
 # the same constant `AppConfig.appearance` compares against.
@@ -101,12 +101,12 @@ for t in ThemePalette.all {
 }
 
 // ---- 2. THE KILL CRITERION. ----
-// `AppConfig.appearance` (`Config.swift:149-150`) picks .aqua only when
+// `AppConfig.appearance` (`Config.swift:175-176`) picks .aqua only when
 // background.relativeLuminance > lightChromeCutoff. A "light" preset whose background
 // lands at or below that cutoff installs its colours and leaves the sidebar, titlebar
 // and scrollers dark — a config line that parses, warns about nothing, and half-works.
 // This is the assertion the whole feature rests on, and `cutoff` below is read off
-// `WCAG.lightChromeCutoff` — the SAME symbol `Config.swift:149` compares
+// `WCAG.lightChromeCutoff` — the SAME symbol `Config.swift:176` compares
 // against, not a restated literal — so this case constrains the value production reads.
 let cutoff = WCAG.lightChromeCutoff
 func assertSide(_ name: String, wantLight: Bool) {
@@ -157,7 +157,7 @@ if ThemePalette.named("AFK-Light")?.name != "afk-light" { fail("case folding") }
 if ThemePalette.named("afk_light")?.name != "afk-light" { fail("'afk_light' should fold to afk-light") }
 if ThemePalette.named("tokyo_night")?.name != "tokyo-night" { fail("'tokyo_night' should fold to tokyo-night") }
 // `classic` MUST stay nil — it is the one accepted value meaning "install nothing".
-// `AppConfig.load()` (`Config.swift:215-219`) distinguishes it from a typo by testing
+// `AppConfig.resolveTheme` (`Config+Theme.swift:38-40`) distinguishes it from a typo by testing
 // the raw string BEFORE resolving, so merging the two nils in a tidy-up would turn a
 // mistyped preset into a silent no-theme.
 if ThemePalette.named("classic") != nil { fail("'classic' must resolve to nil, not a preset") }
@@ -257,6 +257,6 @@ if [[ "$out" == *"ALL-OK"* ]]; then
   exit 0
 fi
 
-echo "✗ FAIL: $SRC's palettes or luminance maths are wrong:" >&2
+echo "✗ FAIL: the palettes or luminance maths in $VALUES + $CONTRAST are wrong:" >&2
 echo "$out" | sed 's/^/    /' >&2
 exit 1

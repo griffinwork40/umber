@@ -108,8 +108,10 @@ enum WCAG {
     /// for one reason: `Config.swift` imports AppKit, so a cutoff declared there cannot be
     /// linked by either gate and the number the app actually branches on would go
     /// unasserted. Both `check-theme-contrast.sh` and `check-light-theme.sh` compile this
-    /// file, so both test the real symbol instead of a copy of its value. `Config` keeps a
-    /// `CGFloat` alias forwarding to this, because its callers are AppKit-typed.
+    /// file, so both test the real symbol instead of a copy of its value. `Config.swift:176`
+    /// is the sole call site and converts at the comparison — there is deliberately no
+    /// `Config`-side alias, because a second name for one number is how the two `0.179`s
+    /// this consolidation removed came to exist in the first place.
     ///
     /// 0.179 is the midpoint of the sRGB range in *perceived* terms (the luminance of
     /// 50% grey is 0.216, and #767676 — the classic "mid" web grey — is 0.179), which is
