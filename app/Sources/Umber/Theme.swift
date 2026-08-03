@@ -105,43 +105,45 @@ struct Theme {
     /// at construction rather than trusted.
     var ansi: [NSColor]
 
-    /// AFK Dark — a preset, selected with `"theme": {"preset": "afk-dark"}`.
-    /// It was briefly the default; it is not any more, because SwiftTerm's own
-    /// defaults (see `AppConfig.theme == nil`) measurably render better and were
-    /// what the Step 0 spike showed. Taken verbatim from the `terminal` block of
-    /// `themes/terax/afk-dark.terax-theme` in the agent-afk repo, which is
-    /// itself a 1:1 port of that project's Cursor/VS Code and Ghostty themes:
-    /// a GitHub-Dark skeleton with the AFK warm-orange accent (#E67E4C) — which
-    /// is also the caret here, matching afk's brand tone.
-    static let afkDark = Theme(
-        background: NSColor.fromHex("#0D1117")!,
-        foreground: NSColor.fromHex("#C9D1D9")!,
-        cursor: NSColor.fromHex("#E67E4C")!,
-        ansi: [
-            "#161B22", "#F85149", "#9CB04A", "#E5C07B",
-            "#5BA8FF", "#9F7CE0", "#56B5A8", "#C9D1D9",
-            "#484F58", "#F85149", "#A8E060", "#E67E4C",
-            "#5BA8FF", "#F08AC4", "#5FE0C0", "#ECEFF4",
-        ].map { NSColor.fromHex($0)! }
-    )
+    /// Build from a `ThemePalette` — the pure, Foundation-only hex values in
+    /// `ThemeValues.swift`.
+    ///
+    /// The hex used to live *here*, inline, which meant the palettes sat behind this
+    /// file's `import AppKit` and `import SwiftTerm` and were therefore unreachable by
+    /// any check (`check-theme-contrast.sh` compiles Foundation-only files standalone —
+    /// the same argument `GitStatus+Presentation.swift` makes about its own narrowing).
+    /// Now this file does one thing: bridge measured values into the two engines' colour
+    /// types. The force-unwraps are safe by the same rule as the rest of this file —
+    /// compile-time-known literals — and `check-theme-contrast.sh` parses every one of
+    /// them independently, so a typo fails the gate rather than trapping at launch.
+    init(_ palette: ThemePalette) {
+        background = NSColor.fromHex(palette.background)!
+        foreground = NSColor.fromHex(palette.foreground)!
+        cursor = NSColor.fromHex(palette.cursor)!
+        ansi = palette.ansi.map { NSColor.fromHex($0)! }
+    }
+
+    /// **Umber** — designed for this app and measured, not transcribed. Selected with
+    /// `"theme": {"preset": "umber"}`. Rationale and the numbers behind it are on
+    /// `ThemePalette.umber`; the derivation is in `.afk/research/theme-design-2026-08-03/`.
+    static let umber = Theme(.umber)
+
+    /// AFK Dark — `"preset": "afk-dark"`. A verbatim port; see `ThemePalette.afkDark`.
+    static let afkDark = Theme(.afkDark)
 
     /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
-    static let tokyoNight = Theme(
-        background: NSColor.fromHex("#1A1B26")!,
-        foreground: NSColor.fromHex("#C0CAF5")!,
-        cursor: NSColor.fromHex("#C0CAF5")!,
-        ansi: [
-            "#15161E", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#A9B1D6",
-            "#414868", "#F7768E", "#9ECE6A", "#E0AF68",
-            "#7AA2F7", "#BB9AF7", "#7DCFFF", "#C0CAF5",
-        ].map { NSColor.fromHex($0)! }
-    )
+    static let tokyoNight = Theme(.tokyoNight)
 
     /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
     /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
+    ///
+    /// Every name accepted here must correspond to a palette in `ThemePalette.all`, and
+    /// vice versa — `check-theme-contrast.sh` asserts the two cannot drift, because a
+    /// preset that exists but is unreachable from config is invisible, and a name that
+    /// resolves to nothing falls back to a *different* theme with only a warning.
     static func preset(named name: String) -> Theme? {
         switch name.lowercased() {
+        case "umber": return .umber
         case "afk-dark", "afkdark": return .afkDark
         case "tokyo-night", "tokyonight": return .tokyoNight
         default: return nil

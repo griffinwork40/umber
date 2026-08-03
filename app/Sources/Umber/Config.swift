@@ -31,8 +31,9 @@ private struct ConfigFile: Decodable {
         var size: Double?
     }
     struct ThemeSpec: Decodable {
-        /// "afk-dark" | "tokyo-night" | "classic". Omitted with other fields
-        /// present means "afk-dark, with my overrides on top".
+        /// "umber" | "afk-dark" | "tokyo-night" | "classic". Omitted with other
+        /// fields present means "umber, with my overrides on top" — see
+        /// `Config+Theme.swift` for why the fallback is the measured palette.
         var preset: String?
         var background: String?
         var foreground: String?
@@ -55,11 +56,36 @@ private struct ConfigFile: Decodable {
 struct AppConfig {
     var font: NSFont
     /// `nil` means "do not install any colours" — SwiftTerm's own defaults stand.
-    /// That is the default, and it is not laziness: installing a background or
-    /// foreground makes SwiftTerm regenerate ANSI indices 16–255 by interpolating
-    /// them out of your bg/fg (`Terminal.swift:513-542` → `rebuildAnsiPalette`),
-    /// so a custom theme silently replaces the standard 256-colour cube with
-    /// synthesised approximations. See `TerminalPane.apply(config:)`.
+    /// That is still the default, but **the reason it used to give was stale and is
+    /// corrected here** (2026-08-03).
+    ///
+    /// The old note said installing a background or foreground makes SwiftTerm
+    /// regenerate ANSI 16–255 by interpolating them out of your bg/fg, replacing the
+    /// standard 256-colour cube. That is true of SwiftTerm's *library default* and
+    /// false of this app: `TerminalPane.apply(config:)` sets
+    /// `ansi256PaletteStrategy = .xterm` unconditionally before any colour
+    /// (`TerminalPane.swift:165`), `Terminal.swift:523,538` gate the rebuild on
+    /// `!= .xterm`, and `installPalette` under `.xterm` routes to
+    /// `generateXtermPalette` (`Colors.swift:169-190`), which appends the literal
+    /// standard cube and never reads bg/fg. **A custom palette is free of that
+    /// defect**; installing one is now only a question of taste.
+    ///
+    /// **The default is `.umber` as of 2026-08-03**, and the reasoning that kept it `nil`
+    /// was wrong in a specific way worth recording. It treated "install nothing" as the
+    /// conservative choice pending real use. It is not conservative — it is unmeasured.
+    /// `nil` renders SwiftTerm's `Color.terminalAppColors` (`Colors.swift:91-108`) on
+    /// black, which fails **7 of the 8** slots `check-theme-contrast.sh` has floors for:
+    /// ANSI 4 blue `#492EE1` at APCA Lc 16.9, ANSI 1 red at 25.8, ANSI 8 — the colour
+    /// nearly every tool uses for de-emphasised output — at 36.0 against a floor of 48,
+    /// and a normal→bright ring separation of 0.054 against 0.085. For scale, that gate's
+    /// own falsification case asserts xterm's `#0000EE` at Lc 14.0 must be REJECTED as the
+    /// canonical unreadable blue; the old default's blue sat 2.9 points from it.
+    /// "Daily-drive it first" is the right bar for choosing between two *good* palettes,
+    /// not for keeping a measurably bad incumbent.
+    ///
+    /// `"preset": "classic"` still selects `nil` — install nothing — for anyone who wants
+    /// the engine's own colours. See `ThemeValues.swift` for what `umber` is and
+    /// `.afk/research/theme-design-2026-08-03/` for how it was derived.
     var theme: Theme?
     var cursorStyle: CursorStyle
     var scrollback: Int
@@ -158,7 +184,7 @@ struct AppConfig {
     static func defaults() -> AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: defaultFontSize).font,
-            theme: nil,
+            theme: .umber,
             cursorStyle: .default,
             // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
             // thumb as `max(rows / lines.count, 0.01)`
@@ -208,51 +234,18 @@ struct AppConfig {
         config.font = resolvedFont.font
         if let warning = resolvedFont.warning { config.warnings.append(warning) }
 
-        // Theme, field by field so one bad hex does not lose the rest.
+        // Theme. The whole per-field, fail-soft assembly lives in `Config+Theme.swift` —
+        // pulled out when this file hit the 350-line ceiling, because "which palette do we
+        // install given some optional strings a user typed" is one whole concern and needs
+        // nothing else in `AppConfig`. Primitives rather than the spec itself, so
+        // `ConfigFile` can stay `private` to this file.
         if let t = file.theme {
-            // Pick the base. "classic" (and only "classic") stays nil, which is
-            // the one setting that leaves SwiftTerm's defaults genuinely untouched.
-            let wantsClassic = t.preset?.lowercased() == "classic"
-            var theme: Theme? = wantsClassic ? nil : (t.preset.flatMap(Theme.preset(named:)) ?? .afkDark)
-            if let raw = t.preset, !wantsClassic, Theme.preset(named: raw) == nil {
-                config.warnings.append("theme.preset '\(raw)' unrecognised — using afk-dark")
-            }
-            // Any explicit colour needs a full palette to sit on; classic + an
-            // override cannot stay nil, so promote it to afk-dark first.
-            let hasOverride = t.background != nil || t.foreground != nil || t.cursor != nil || t.ansi != nil
-            if theme == nil && hasOverride {
-                config.warnings.append("theme.preset 'classic' cannot take colour overrides — using afk-dark as the base")
-                theme = .afkDark
-            }
-            // Optional-chained: if `theme` is still nil there are no overrides to
-            // apply (we just promoted the only case where both could be true).
-            if let raw = t.background {
-                if let c = NSColor.fromHex(raw) { theme?.background = c }
-                else { config.warnings.append("theme.background '\(raw)' is not a hex colour") }
-            }
-            if let raw = t.foreground {
-                if let c = NSColor.fromHex(raw) { theme?.foreground = c }
-                else { config.warnings.append("theme.foreground '\(raw)' is not a hex colour") }
-            }
-            if let raw = t.cursor {
-                if let c = NSColor.fromHex(raw) { theme?.cursor = c }
-                else { config.warnings.append("theme.cursor '\(raw)' is not a hex colour") }
-            }
-            if let rawList = t.ansi {
-                // installColors is a no-op unless there are exactly 16, so reject
-                // a wrong-sized palette loudly instead of silently ignoring it.
-                if rawList.count != 16 {
-                    config.warnings.append("theme.ansi needs exactly 16 colours, got \(rawList.count) — keeping default palette")
-                } else {
-                    let parsed = rawList.compactMap { NSColor.fromHex($0) }
-                    if parsed.count == 16 {
-                        theme?.ansi = parsed
-                    } else {
-                        config.warnings.append("theme.ansi contains \(16 - parsed.count) unparseable colour(s) — keeping default palette")
-                    }
-                }
-            }
-            config.theme = theme
+            config.theme = AppConfig.resolveTheme(preset: t.preset,
+                                                  background: t.background,
+                                                  foreground: t.foreground,
+                                                  cursor: t.cursor,
+                                                  ansi: t.ansi,
+                                                  warnings: &config.warnings)
         }
 
         if let raw = file.cursor {

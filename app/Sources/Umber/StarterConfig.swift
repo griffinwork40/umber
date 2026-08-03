@@ -43,12 +43,13 @@ enum StarterConfig {
       "// engine-caveat": "renderer above applies to swiftterm only; libghostty draws with its own renderer and ignores it.",
       "engine": "swiftterm",
 
-      "// theme": "OMITTED ON PURPOSE. With no theme, SwiftTerm's own colours stand and ANSI 16-255 keep the standard xterm values. Setting a background or foreground makes SwiftTerm regenerate indices 16-255 by interpolating them out of your bg/fg, so 256-colour programs render against synthesised approximations. Uncomment below only if you want that trade.",
+      "// theme": "OMITTED HERE, WHICH MEANS UMBER — since 2026-08-03 the built-in default is the umber palette, so leaving this out gives you a measured theme rather than the emulator's raw colours. Installing a palette does NOT harm the 256-colour cube: this app pins ansi256PaletteStrategy to .xterm before any colour, so indices 16-255 stay the standard xterm values whatever you set. Set preset to classic if you genuinely want no colours installed.",
       "// theme-example": {
-        "preset": "afk-dark",
-        "// preset-values": "afk-dark | tokyo-night | classic",
+        "preset": "umber",
+        "// preset-values": "umber | afk-dark | tokyo-night | classic",
+        "// preset-note": "umber is the DEFAULT and the palette designed and measured for this app: a warm umber-black base, legible dim text (the one colour nearly every other theme leaves unreadable), bright colours that are actually distinguishable from their normal counterparts, and red/green that stays separable for a red-green colour-blind reader. Verified by Scripts/check-theme-contrast.sh; the derivation is in .afk/research/theme-design-2026-08-03/.",
         "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
-        "cursor": "#E67E4C"
+        "cursor": "#FF9B5A"
       }
     }
 
