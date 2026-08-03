@@ -304,11 +304,21 @@ working terminal.
   "scrollback": 1000,
   "optionAsMeta": true,
   "renderer": "coretext",
-  "theme": { "preset": "afk-dark", "cursor": "#E67E4C" }
+  "theme": { "preset": "umber" }
 }
 ```
 
-Omit `theme` entirely — the default — and no colours are installed at all.
+Omit `theme` entirely and you get **umber**, the built-in default since 2026-08-03. `"preset": "classic"` is now the only way to install no colours at all.
+
+`"preset": "umber"` is the palette designed *for* this app rather than ported into it, and the
+only one here whose claims are measured: a warm umber-black base (every widely-used dark theme
+measured sits cold, hue 219–291°, or at zero chroma), dim text that is actually legible (APCA
+Lc 51.5, against 0.0–34.3 for the nine reference palettes — Solarized Dark's is literally
+invisible), bright colours genuinely distinguishable from their normal counterparts (Tokyo
+Night, Catppuccin, Nord and Rosé Pine all ship *identical* values there, so bold text is
+indistinguishable from plain), and red/green that stays separable for a red-green colour-blind
+reader. `./Scripts/check-theme-contrast.sh` is the gate; the derivation, the measurement
+tooling, and four documented wrong answers are in `.afk/research/theme-design-2026-08-03/`.
 
 | Field | Notes |
 |---|---|
@@ -320,8 +330,8 @@ Omit `theme` entirely — the default — and no colours are installed at all.
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
 | `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `engine` | `swiftterm` (default) or `ghostty`. Which terminal core backs a **new** tab. `swiftterm` is the vendored SwiftTerm this app was built on; `ghostty` is libghostty, which is actively maintained and supplies shell integration SwiftTerm structurally cannot — OSC 7 (the shell reports its working directory, so the sidebar follows it without polling the kernel) and OSC 133 (command boundaries and exit status). **Read once, when a tab is created.** Edit it, hit ⌘R, and the next ⌘T uses the new core while the tab in front of you keeps its own — swapping a core under a live shell would discard its scrollback and its process. That is deliberate: it means both cores can run side by side in one window, which is the only honest way to compare them on the same work. **Opt-in**, because the one bug class that matters most here — buffer reflow when a window is narrowed — is gated for SwiftTerm (`check-reflow.sh`) and not yet for libghostty. `renderer` above applies to `swiftterm` only; libghostty draws with its own renderer and ignores it. Accepted spellings, case-insensitive with `_` read as `-`: `swiftterm`/`swift-term`/`swift`/`legacy`, and `ghostty`/`libghostty`/`lib-ghostty`. Anything else is rejected with a warning naming the valid values — `./Scripts/check-engine-config.sh` is the gate for that mapping |
-| `theme` | **Omitted by default.** Present at all ⇒ background, foreground, cursor and ANSI 0–15 get installed. Indices 16–255 are **not** touched — Umber pins `ansi256PaletteStrategy = .xterm` first, so the standard cube survives any theme. See the note above |
-| `theme.preset` | `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark`. An unrecognised name warns, names every valid spelling, and falls back to `afk-dark` — `./Scripts/check-light-theme.sh` is the gate for the palettes and that mapping. Accepted spellings, case-insensitive with `_` read as `-` |
+| `theme` | **Defaults to `umber`** (changed 2026-08-03; it was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
+| `theme.preset` | `umber`, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic` means "install nothing" — no longer identical to omitting `theme`, which now gives you `umber`. `afk-light` is the only light palette, and its white background also flips the window chrome (sidebar, titlebar, scrollers) because appearance is derived from background luminance rather than configured separately. Other fields override the preset; supplying colours without a preset bases them on `umber`. An unrecognised name warns, lists every valid spelling, and falls back to `umber`. `./Scripts/check-theme-contrast.sh` gates the palettes and the name mapping; `./Scripts/check-light-theme.sh` gates the light/dark chrome split |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
 Both former defaults survive as presets — no hex-pasting required:

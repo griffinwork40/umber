@@ -3,12 +3,13 @@
 //  Hex colour parsing, and the AppKit half of a theme.
 //
 //  The palettes themselves are NOT here any more — they are pure data in
-//  `ThemeCatalog.swift`, along with the name resolver and the WCAG luminance
-//  formula. This file is what turns that data into live `NSColor` and
+//  `ThemeValues.swift`, along with the name resolver, while the WCAG luminance
+//  formula lives in `ThemeContrast.swift`. This file turns that data into live `NSColor` and
 //  `SwiftTerm.Color`. The split is forced by verification: this file imports
 //  AppKit *and* SwiftTerm, so `swiftc Sources/Umber/Theme.swift` alone exits 1 on
 //  `no such module 'SwiftTerm'` and nothing in it has ever been gateable, while
-//  `ThemeCatalog.swift` is Foundation-only and `check-light-theme.sh` compiles it.
+//  `ThemeValues.swift` and `ThemeContrast.swift` are Foundation-only and BOTH
+//  `check-theme-contrast.sh` and `check-light-theme.sh` compile them directly.
 //  Same decision as `Renderer.swift` / `TerminalPane+Renderer.swift`: the pure
 //  decision is checkable, the live action is not, so they live apart.
 //
@@ -81,12 +82,12 @@ extension NSColor {
     /// space, and asking a grey colour for `.redComponent` traps rather than
     /// returning 0.
     ///
-    /// The maths itself is `ThemeCatalog.luminance` and not inlined here, so there is
-    /// exactly one implementation of the formula and `check-light-theme.sh` can
-    /// compile it. This wrapper is the sRGB conversion and nothing else.
+    /// The maths itself is `WCAG.luminance` (`ThemeContrast.swift`) and not inlined here,
+    /// so there is exactly one implementation of the formula and both gates can compile
+    /// it. This wrapper is the sRGB conversion and nothing else.
     var relativeLuminance: CGFloat {
         let c = usingColorSpace(.sRGB) ?? self
-        return CGFloat(ThemeCatalog.luminance(
+        return CGFloat(WCAG.luminance(
             red: Double(c.redComponent),
             green: Double(c.greenComponent),
             blue: Double(c.blueComponent)))
@@ -115,57 +116,67 @@ struct Theme {
     /// at construction rather than trusted.
     var ansi: [NSColor]
 
-    /// Build a live `Theme` from a `ThemeRecord`'s hex strings.
+    /// Build from a `ThemePalette` — the pure, Foundation-only hex values in
+    /// `ThemeValues.swift`.
     ///
-    /// Force-unwrapped, and safe here in the one way this repo allows: the strings
-    /// are compile-time-known literals in `ThemeCatalog`, which is exactly the
-    /// "literal hex palettes" carve-out (`AFK.md:152`). What is new is that the
-    /// promise is now checked — `check-light-theme.sh` case 1 parses every shipped
-    /// hex and asserts every `ansi` array is exactly 16 long before this can ship,
-    /// so a typo becomes a red gate rather than a launch crash.
+    /// The hex used to live *here*, inline, which meant the palettes sat behind this
+    /// file's `import AppKit` and `import SwiftTerm` and were therefore unreachable by
+    /// any check (`check-theme-contrast.sh` compiles Foundation-only files standalone —
+    /// the same argument `GitStatus+Presentation.swift` makes about its own narrowing).
+    /// Now this file does one thing: bridge measured values into the two engines' colour
+    /// types. The force-unwraps are safe by the same rule as the rest of this file —
+    /// compile-time-known literals — and BOTH gates parse every one of them
+    /// independently, so a typo fails a gate rather than trapping at launch.
     ///
-    /// The `precondition` below is a second, runtime backstop for the same invariant
-    /// the gate checks at ship time, not a duplicate concern: `Theme.init` is called
-    /// ONLY from `Theme.preset(named:)` and the `afkDark`/`afkLight`/`tokyoNight`
-    /// statics below, every one of them resolving a fixed `ThemeCatalog` record — a
-    /// user's `theme.ansi` override is validated separately, in `AppConfig.load()`
-    /// (`Config.swift`), and lands here as a direct `theme?.ansi = parsed` mutation
-    /// AFTER construction, never through this initialiser. So a count violation
-    /// reaching this line can only mean `check-light-theme.sh` was not run before a
-    /// `ThemeCatalog` edit shipped — a programmer error, not user input, which is
-    /// exactly the trap/crash-not-silently-corrupt trade a `precondition` is for
-    /// (PR #24 review, item 6).
-    init(_ record: ThemeRecord) {
-        precondition(record.ansi.count == 16,
-            "ThemeRecord '\(record.configName)' has \(record.ansi.count) ANSI colours, need exactly 16 — "
-                + "check-light-theme.sh case 1 should have caught this before ship")
-        self.background = NSColor.fromHex(record.background)!
-        self.foreground = NSColor.fromHex(record.foreground)!
-        self.cursor = NSColor.fromHex(record.cursor)!
-        self.ansi = record.ansi.map { NSColor.fromHex($0)! }
+    /// The `precondition` is a runtime backstop for the same invariant the gates check
+    /// at ship time, not a duplicate concern (PR #24 review, item 6). `Theme.init` is
+    /// called ONLY from `preset(named:)` and the statics below, every one resolving a
+    /// fixed `ThemePalette`; a user's `theme.ansi` override is validated separately in
+    /// `AppConfig.load()` (`Config+Theme.swift`) and lands here as a direct mutation
+    /// AFTER construction, never through this initialiser. So a count violation reaching
+    /// this line can only mean a `ThemeValues.swift` edit shipped without running the
+    /// gates — a programmer error, not user input, which is exactly the
+    /// trap-rather-than-silently-corrupt trade a `precondition` is for.
+    init(_ palette: ThemePalette) {
+        precondition(palette.ansi.count == 16,
+            "ThemePalette '\(palette.name)' has \(palette.ansi.count) ANSI colours, need exactly 16 — "
+                + "check-theme-contrast.sh should have caught this before ship")
+        background = NSColor.fromHex(palette.background)!
+        foreground = NSColor.fromHex(palette.foreground)!
+        cursor = NSColor.fromHex(palette.cursor)!
+        ansi = palette.ansi.map { NSColor.fromHex($0)! }
     }
 
-    /// AFK Dark — `"theme": {"preset": "afk-dark"}`. Briefly the default; it is not
-    /// any more, because SwiftTerm's own defaults (see `AppConfig.theme == nil`)
-    /// measurably render better and were what the Step 0 spike showed.
-    static var afkDark: Theme { Theme(ThemeCatalog.afkDark) }
+    /// **Umber** — designed for this app and measured, not transcribed. Selected with
+    /// `"theme": {"preset": "umber"}`. Rationale and the numbers behind it are on
+    /// `ThemePalette.umber`; the derivation is in `.afk/research/theme-design-2026-08-03/`.
+    static let umber = Theme(.umber)
 
-    /// AFK Light — `"theme": {"preset": "afk-light"}`. The only light preset, and
-    /// the one that makes `AppConfig.appearance` (`Config.swift:149`) return `.aqua`,
-    /// so the sidebar and titlebar follow the terminal instead of fighting it.
-    static var afkLight: Theme { Theme(ThemeCatalog.afkLight) }
+    /// AFK Dark — `"preset": "afk-dark"`. A verbatim port; see `ThemePalette.afkDark`.
+    static let afkDark = Theme(.afkDark)
+
+    /// AFK Light — `"preset": "afk-light"`. The only light preset, and therefore the
+    /// only one that makes `AppConfig.appearance` (`Config.swift`) return `.aqua`, so
+    /// the sidebar and titlebar follow the terminal instead of fighting it.
+    static let afkLight = Theme(.afkLight)
 
     /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
-    static var tokyoNight: Theme { Theme(ThemeCatalog.tokyoNight) }
+    static let tokyoNight = Theme(.tokyoNight)
 
     /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
     /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
     ///
-    /// The spellings live in `ThemeCatalog.named(_:)` rather than in a switch here,
-    /// so the mapping compiles without AppKit and `check-light-theme.sh` can assert
-    /// it — including that `classic` and a typo BOTH stay nil, which is the
-    /// distinction `AppConfig.load()` (`Config.swift:215-219`) is built on.
+    /// Every name accepted here must correspond to a palette in `ThemePalette.all`, and
+    /// vice versa — `check-theme-contrast.sh` asserts the two cannot drift, because a
+    /// preset that exists but is unreachable from config is invisible, and a name that
+    /// resolves to nothing falls back to a *different* theme with only a warning.
+    ///
+    /// `classic` is deliberately absent: it must resolve to nil, meaning "install nothing
+    /// and let the engine's own defaults stand". A typo also returns nil, and the two are
+    /// told apart one layer up in `AppConfig.load()` (`Config+Theme.swift`) — classic
+    /// stays nil, a typo warns and falls back to umber. `check-light-theme.sh` asserts
+    /// that distinction survives.
     static func preset(named name: String) -> Theme? {
-        ThemeCatalog.named(name).map(Theme.init)
+        ThemePalette.named(name).map(Theme.init)
     }
 }

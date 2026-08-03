@@ -1,0 +1,219 @@
+<!doctype html><meta charset="utf-8">
+<style>
+ body{background:#6E6E73;font:13px -apple-system,BlinkMacSystemFont,sans-serif;
+       margin:0;padding:22px}
+ .card{margin-bottom:26px}
+ .hdr{color:#fff;margin-bottom:7px;font-size:14px}
+ .note{opacity:.72;margin-left:10px;font-size:12px}
+ .win{display:flex;border-radius:9px;overflow:hidden;
+       box-shadow:0 8px 26px rgba(0,0,0,.42);border:.5px solid rgba(255,255,255,.13)}
+ .side{width:186px;flex:none;background:rgba(255,255,255,.055);
+        border-right:.5px solid rgba(255,255,255,.10);padding:9px 0;
+        color:#E8E8ED;font-size:11.5px}
+ .sh{padding:3px 11px 8px;font-weight:600;font-size:10.5px;letter-spacing:.4px;
+      opacity:.75}
+ .row{padding:3px 11px}
+ .sel{background:#0A63CE;color:#fff;border-radius:5px;margin:0 6px;padding-left:12px}
+ pre{margin:0;padding:13px 16px;font:12.5px/1.62 "SF Mono",Menlo,monospace;
+      flex:1;white-space:pre-wrap}
+ .sw{margin-top:7px}
+</style>
+<h2 style="color:#fff;margin:0 0 16px">Umber theme candidates — realistic content</h2>
+
+    <div class="card">
+      <div class="hdr"><b>Umber A — as searched</b><span class="note">green hue 157 (pinned at bound): mint</span></div>
+      <div class="win" style="background:#19120D">
+        <div class="side">
+          <div class="sh">UMBER &nbsp;<span style="opacity:.6">main +2</span></div>
+          <div class="row">app</div>
+          <div class="row" style="padding-left:18px;color:#E8A33D">Theme.swift &nbsp;M</div>
+          <div class="row sel" style="padding-left:18px">Config.swift &nbsp;M</div>
+          <div class="row" style="padding-left:18px;color:#41A85F">check-theme.sh &nbsp;A</div>
+          <div class="row" style="opacity:.45">vendor</div>
+        </div>
+        <pre style="color:#E5DFD6"><span style="color:#42CBC8">~/Projects/umber</span> <span style="color:#FFACE9">on</span> <span style="color:#D7AA32">main</span> <span style="color:#EF7F74">[!2]</span>
+<span style="color:#8AE49E">❯</span> git status --short
+ <span style="color:#D7AA32">M</span> app/Sources/Umber/Theme.swift
+ <span style="color:#8AE49E">A</span> app/Scripts/check-theme-contrast.sh
+ <span style="color:#EF7F74">D</span> app/Sources/Umber/Legacy.swift
+<span style="color:#FFACE9">??</span> .afk/research/theme-design/
+
+<span style="color:#8AE49E">❯</span> git diff --stat
+ Theme.swift <span style="color:#AAA19B">|</span> <span style="color:#8AE49E">18 +++++++++</span><span style="color:#EF7F74">5 -----</span>
+ Config.swift <span style="color:#AAA19B">|</span> <span style="color:#8AE49E">3 ++</span><span style="color:#EF7F74">1 -</span>
+
+<span style="color:#8AE49E">❯</span> swift build
+<span style="color:#AAA19B">[1/6] Compiling Umber Theme.swift</span>
+<span style="color:#AAA19B">[4/6] Compiling Umber Config.swift</span>
+<span style="color:#EF7F74;font-weight:600">error:</span> cannot find <span style="color:#D7AA32">lightChromeCutoff</span> in scope
+  <span style="color:#AAA19B">--> Config.swift:149:23</span>
+<span style="color:#D7AA32;font-weight:600">warning:</span> unused variable <span style="color:#42CBC8">luminance</span>
+<span style="color:#8AE49E;font-weight:600">✔ Build complete</span> <span style="color:#AAA19B">(2.41s)</span>
+
+<span style="color:#8AE49E">❯</span> ls
+<span style="color:#709BED;font-weight:600">Scripts/</span>  <span style="color:#709BED;font-weight:600">Sources/</span>  <span style="color:#42CBC8">Package.swift</span>  <span style="color:#8AE49E;font-weight:600">make-app.sh</span>  <span style="color:#AAA19B">README.md</span>
+
+<span style="color:#8AE49E">❯</span> echo selected text
+<span style="background:#453021;color:#E5DFD6">selected text renders here</span>
+<span style="color:#8AE49E">❯</span> <span style="background:#FF9B5A;color:#19120D">&nbsp;</span></pre>
+      </div>
+      <div class="sw"><div style="background:#342C26;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="0: #342C26"></div><div style="background:#EF7F74;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="1: #EF7F74"></div><div style="background:#8AE49E;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="2: #8AE49E"></div><div style="background:#D7AA32;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="3: #D7AA32"></div><div style="background:#709BED;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="4: #709BED"></div><div style="background:#FFACE9;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="5: #FFACE9"></div><div style="background:#42CBC8;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="6: #42CBC8"></div><div style="background:#D3CDC5;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="7: #D3CDC5"></div><br><div style="background:#AAA19B;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="8: #AAA19B"></div><div style="background:#FDAAA0;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="9: #FDAAA0"></div><div style="background:#B4FCC3;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="10: #B4FCC3"></div><div style="background:#F7D179;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="11: #F7D179"></div><div style="background:#9BBCFA;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="12: #9BBCFA"></div><div style="background:#FFD2F2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="13: #FFD2F2"></div><div style="background:#80E5E2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="14: #80E5E2"></div><div style="background:#F9F6F2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="15: #F9F6F2"></div></div>
+    </div>
+    <div class="card">
+      <div class="hdr"><b>Umber B — green pulled back</b><span class="note">green hue 146: recognisably green, costs red/green CVD margin</span></div>
+      <div class="win" style="background:#19120D">
+        <div class="side">
+          <div class="sh">UMBER &nbsp;<span style="opacity:.6">main +2</span></div>
+          <div class="row">app</div>
+          <div class="row" style="padding-left:18px;color:#E8A33D">Theme.swift &nbsp;M</div>
+          <div class="row sel" style="padding-left:18px">Config.swift &nbsp;M</div>
+          <div class="row" style="padding-left:18px;color:#41A85F">check-theme.sh &nbsp;A</div>
+          <div class="row" style="opacity:.45">vendor</div>
+        </div>
+        <pre style="color:#E5DFD6"><span style="color:#42CBC8">~/Projects/umber</span> <span style="color:#FFACE9">on</span> <span style="color:#D7AA32">main</span> <span style="color:#EF7F74">[!2]</span>
+<span style="color:#92E398">❯</span> git status --short
+ <span style="color:#D7AA32">M</span> app/Sources/Umber/Theme.swift
+ <span style="color:#92E398">A</span> app/Scripts/check-theme-contrast.sh
+ <span style="color:#EF7F74">D</span> app/Sources/Umber/Legacy.swift
+<span style="color:#FFACE9">??</span> .afk/research/theme-design/
+
+<span style="color:#92E398">❯</span> git diff --stat
+ Theme.swift <span style="color:#AAA19B">|</span> <span style="color:#92E398">18 +++++++++</span><span style="color:#EF7F74">5 -----</span>
+ Config.swift <span style="color:#AAA19B">|</span> <span style="color:#92E398">3 ++</span><span style="color:#EF7F74">1 -</span>
+
+<span style="color:#92E398">❯</span> swift build
+<span style="color:#AAA19B">[1/6] Compiling Umber Theme.swift</span>
+<span style="color:#AAA19B">[4/6] Compiling Umber Config.swift</span>
+<span style="color:#EF7F74;font-weight:600">error:</span> cannot find <span style="color:#D7AA32">lightChromeCutoff</span> in scope
+  <span style="color:#AAA19B">--> Config.swift:149:23</span>
+<span style="color:#D7AA32;font-weight:600">warning:</span> unused variable <span style="color:#42CBC8">luminance</span>
+<span style="color:#92E398;font-weight:600">✔ Build complete</span> <span style="color:#AAA19B">(2.41s)</span>
+
+<span style="color:#92E398">❯</span> ls
+<span style="color:#709BED;font-weight:600">Scripts/</span>  <span style="color:#709BED;font-weight:600">Sources/</span>  <span style="color:#42CBC8">Package.swift</span>  <span style="color:#92E398;font-weight:600">make-app.sh</span>  <span style="color:#AAA19B">README.md</span>
+
+<span style="color:#92E398">❯</span> echo selected text
+<span style="background:#453021;color:#E5DFD6">selected text renders here</span>
+<span style="color:#92E398">❯</span> <span style="background:#FF9B5A;color:#19120D">&nbsp;</span></pre>
+      </div>
+      <div class="sw"><div style="background:#342C26;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="0: #342C26"></div><div style="background:#EF7F74;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="1: #EF7F74"></div><div style="background:#92E398;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="2: #92E398"></div><div style="background:#D7AA32;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="3: #D7AA32"></div><div style="background:#709BED;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="4: #709BED"></div><div style="background:#FFACE9;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="5: #FFACE9"></div><div style="background:#42CBC8;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="6: #42CBC8"></div><div style="background:#D3CDC5;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="7: #D3CDC5"></div><br><div style="background:#AAA19B;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="8: #AAA19B"></div><div style="background:#FDAAA0;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="9: #FDAAA0"></div><div style="background:#BAFBBD;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="10: #BAFBBD"></div><div style="background:#F7D179;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="11: #F7D179"></div><div style="background:#9BBCFA;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="12: #9BBCFA"></div><div style="background:#FFD2F2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="13: #FFD2F2"></div><div style="background:#80E5E2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="14: #80E5E2"></div><div style="background:#F9F6F2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="15: #F9F6F2"></div></div>
+    </div>
+    <div class="card">
+      <div class="hdr"><b>Umber C — green 150, magenta 335</b><span class="note">compromise; magenta warmer, less lilac</span></div>
+      <div class="win" style="background:#19120D">
+        <div class="side">
+          <div class="sh">UMBER &nbsp;<span style="opacity:.6">main +2</span></div>
+          <div class="row">app</div>
+          <div class="row" style="padding-left:18px;color:#E8A33D">Theme.swift &nbsp;M</div>
+          <div class="row sel" style="padding-left:18px">Config.swift &nbsp;M</div>
+          <div class="row" style="padding-left:18px;color:#41A85F">check-theme.sh &nbsp;A</div>
+          <div class="row" style="opacity:.45">vendor</div>
+        </div>
+        <pre style="color:#E5DFD6"><span style="color:#42CBC8">~/Projects/umber</span> <span style="color:#FDACEB">on</span> <span style="color:#D7AA32">main</span> <span style="color:#EF7F74">[!2]</span>
+<span style="color:#8AE49E">❯</span> git status --short
+ <span style="color:#D7AA32">M</span> app/Sources/Umber/Theme.swift
+ <span style="color:#8AE49E">A</span> app/Scripts/check-theme-contrast.sh
+ <span style="color:#EF7F74">D</span> app/Sources/Umber/Legacy.swift
+<span style="color:#FDACEB">??</span> .afk/research/theme-design/
+
+<span style="color:#8AE49E">❯</span> git diff --stat
+ Theme.swift <span style="color:#AAA19B">|</span> <span style="color:#8AE49E">18 +++++++++</span><span style="color:#EF7F74">5 -----</span>
+ Config.swift <span style="color:#AAA19B">|</span> <span style="color:#8AE49E">3 ++</span><span style="color:#EF7F74">1 -</span>
+
+<span style="color:#8AE49E">❯</span> swift build
+<span style="color:#AAA19B">[1/6] Compiling Umber Theme.swift</span>
+<span style="color:#AAA19B">[4/6] Compiling Umber Config.swift</span>
+<span style="color:#EF7F74;font-weight:600">error:</span> cannot find <span style="color:#D7AA32">lightChromeCutoff</span> in scope
+  <span style="color:#AAA19B">--> Config.swift:149:23</span>
+<span style="color:#D7AA32;font-weight:600">warning:</span> unused variable <span style="color:#42CBC8">luminance</span>
+<span style="color:#8AE49E;font-weight:600">✔ Build complete</span> <span style="color:#AAA19B">(2.41s)</span>
+
+<span style="color:#8AE49E">❯</span> ls
+<span style="color:#709BED;font-weight:600">Scripts/</span>  <span style="color:#709BED;font-weight:600">Sources/</span>  <span style="color:#42CBC8">Package.swift</span>  <span style="color:#8AE49E;font-weight:600">make-app.sh</span>  <span style="color:#AAA19B">README.md</span>
+
+<span style="color:#8AE49E">❯</span> echo selected text
+<span style="background:#453021;color:#E5DFD6">selected text renders here</span>
+<span style="color:#8AE49E">❯</span> <span style="background:#FF9B5A;color:#19120D">&nbsp;</span></pre>
+      </div>
+      <div class="sw"><div style="background:#342C26;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="0: #342C26"></div><div style="background:#EF7F74;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="1: #EF7F74"></div><div style="background:#8AE49E;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="2: #8AE49E"></div><div style="background:#D7AA32;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="3: #D7AA32"></div><div style="background:#709BED;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="4: #709BED"></div><div style="background:#FDACEB;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="5: #FDACEB"></div><div style="background:#42CBC8;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="6: #42CBC8"></div><div style="background:#D3CDC5;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="7: #D3CDC5"></div><br><div style="background:#AAA19B;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="8: #AAA19B"></div><div style="background:#FDAAA0;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="9: #FDAAA0"></div><div style="background:#B5FCC2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="10: #B5FCC2"></div><div style="background:#F7D179;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="11: #F7D179"></div><div style="background:#9BBCFA;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="12: #9BBCFA"></div><div style="background:#FED2F3;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="13: #FED2F3"></div><div style="background:#80E5E2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="14: #80E5E2"></div><div style="background:#F9F6F2;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="15: #F9F6F2"></div></div>
+    </div>
+<h2 style="color:#fff;margin:26px 0 16px">Reference</h2>
+
+    <div class="card">
+      <div class="hdr"><b>Tokyo Night (reference)</b><span class="note">the v0.1 default</span></div>
+      <div class="win" style="background:#1A1B26">
+        <div class="side">
+          <div class="sh">UMBER &nbsp;<span style="opacity:.6">main +2</span></div>
+          <div class="row">app</div>
+          <div class="row" style="padding-left:18px;color:#E8A33D">Theme.swift &nbsp;M</div>
+          <div class="row sel" style="padding-left:18px">Config.swift &nbsp;M</div>
+          <div class="row" style="padding-left:18px;color:#41A85F">check-theme.sh &nbsp;A</div>
+          <div class="row" style="opacity:.45">vendor</div>
+        </div>
+        <pre style="color:#C0CAF5"><span style="color:#7DCFFF">~/Projects/umber</span> <span style="color:#BB9AF7">on</span> <span style="color:#E0AF68">main</span> <span style="color:#F7768E">[!2]</span>
+<span style="color:#9ECE6A">❯</span> git status --short
+ <span style="color:#E0AF68">M</span> app/Sources/Umber/Theme.swift
+ <span style="color:#9ECE6A">A</span> app/Scripts/check-theme-contrast.sh
+ <span style="color:#F7768E">D</span> app/Sources/Umber/Legacy.swift
+<span style="color:#BB9AF7">??</span> .afk/research/theme-design/
+
+<span style="color:#9ECE6A">❯</span> git diff --stat
+ Theme.swift <span style="color:#414868">|</span> <span style="color:#9ECE6A">18 +++++++++</span><span style="color:#F7768E">5 -----</span>
+ Config.swift <span style="color:#414868">|</span> <span style="color:#9ECE6A">3 ++</span><span style="color:#F7768E">1 -</span>
+
+<span style="color:#9ECE6A">❯</span> swift build
+<span style="color:#414868">[1/6] Compiling Umber Theme.swift</span>
+<span style="color:#414868">[4/6] Compiling Umber Config.swift</span>
+<span style="color:#F7768E;font-weight:600">error:</span> cannot find <span style="color:#E0AF68">lightChromeCutoff</span> in scope
+  <span style="color:#414868">--> Config.swift:149:23</span>
+<span style="color:#E0AF68;font-weight:600">warning:</span> unused variable <span style="color:#7DCFFF">luminance</span>
+<span style="color:#9ECE6A;font-weight:600">✔ Build complete</span> <span style="color:#414868">(2.41s)</span>
+
+<span style="color:#9ECE6A">❯</span> ls
+<span style="color:#7AA2F7;font-weight:600">Scripts/</span>  <span style="color:#7AA2F7;font-weight:600">Sources/</span>  <span style="color:#7DCFFF">Package.swift</span>  <span style="color:#9ECE6A;font-weight:600">make-app.sh</span>  <span style="color:#414868">README.md</span>
+
+<span style="color:#9ECE6A">❯</span> echo selected text
+<span style="background:#283457;color:#C0CAF5">selected text renders here</span>
+<span style="color:#9ECE6A">❯</span> <span style="background:#C0CAF5;color:#1A1B26">&nbsp;</span></pre>
+      </div>
+      <div class="sw"><div style="background:#15161E;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="0: #15161E"></div><div style="background:#F7768E;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="1: #F7768E"></div><div style="background:#9ECE6A;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="2: #9ECE6A"></div><div style="background:#E0AF68;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="3: #E0AF68"></div><div style="background:#7AA2F7;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="4: #7AA2F7"></div><div style="background:#BB9AF7;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="5: #BB9AF7"></div><div style="background:#7DCFFF;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="6: #7DCFFF"></div><div style="background:#A9B1D6;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="7: #A9B1D6"></div><br><div style="background:#414868;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="8: #414868"></div><div style="background:#F7768E;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="9: #F7768E"></div><div style="background:#9ECE6A;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="10: #9ECE6A"></div><div style="background:#E0AF68;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="11: #E0AF68"></div><div style="background:#7AA2F7;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="12: #7AA2F7"></div><div style="background:#BB9AF7;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="13: #BB9AF7"></div><div style="background:#7DCFFF;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="14: #7DCFFF"></div><div style="background:#C0CAF5;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="15: #C0CAF5"></div></div>
+    </div>
+    <div class="card">
+      <div class="hdr"><b>afk-dark (reference)</b><span class="note">Umber's current preset</span></div>
+      <div class="win" style="background:#0D1117">
+        <div class="side">
+          <div class="sh">UMBER &nbsp;<span style="opacity:.6">main +2</span></div>
+          <div class="row">app</div>
+          <div class="row" style="padding-left:18px;color:#E8A33D">Theme.swift &nbsp;M</div>
+          <div class="row sel" style="padding-left:18px">Config.swift &nbsp;M</div>
+          <div class="row" style="padding-left:18px;color:#41A85F">check-theme.sh &nbsp;A</div>
+          <div class="row" style="opacity:.45">vendor</div>
+        </div>
+        <pre style="color:#C9D1D9"><span style="color:#56B5A8">~/Projects/umber</span> <span style="color:#9F7CE0">on</span> <span style="color:#E5C07B">main</span> <span style="color:#F85149">[!2]</span>
+<span style="color:#9CB04A">❯</span> git status --short
+ <span style="color:#E5C07B">M</span> app/Sources/Umber/Theme.swift
+ <span style="color:#9CB04A">A</span> app/Scripts/check-theme-contrast.sh
+ <span style="color:#F85149">D</span> app/Sources/Umber/Legacy.swift
+<span style="color:#9F7CE0">??</span> .afk/research/theme-design/
+
+<span style="color:#9CB04A">❯</span> git diff --stat
+ Theme.swift <span style="color:#484F58">|</span> <span style="color:#9CB04A">18 +++++++++</span><span style="color:#F85149">5 -----</span>
+ Config.swift <span style="color:#484F58">|</span> <span style="color:#9CB04A">3 ++</span><span style="color:#F85149">1 -</span>
+
+<span style="color:#9CB04A">❯</span> swift build
+<span style="color:#484F58">[1/6] Compiling Umber Theme.swift</span>
+<span style="color:#484F58">[4/6] Compiling Umber Config.swift</span>
+<span style="color:#F85149;font-weight:600">error:</span> cannot find <span style="color:#E5C07B">lightChromeCutoff</span> in scope
+  <span style="color:#484F58">--> Config.swift:149:23</span>
+<span style="color:#E5C07B;font-weight:600">warning:</span> unused variable <span style="color:#56B5A8">luminance</span>
+<span style="color:#9CB04A;font-weight:600">✔ Build complete</span> <span style="color:#484F58">(2.41s)</span>
+
+<span style="color:#9CB04A">❯</span> ls
+<span style="color:#5BA8FF;font-weight:600">Scripts/</span>  <span style="color:#5BA8FF;font-weight:600">Sources/</span>  <span style="color:#56B5A8">Package.swift</span>  <span style="color:#9CB04A;font-weight:600">make-app.sh</span>  <span style="color:#484F58">README.md</span>
+
+<span style="color:#9CB04A">❯</span> echo selected text
+<span style="background:#264F78;color:#C9D1D9">selected text renders here</span>
+<span style="color:#9CB04A">❯</span> <span style="background:#E67E4C;color:#0D1117">&nbsp;</span></pre>
+      </div>
+      <div class="sw"><div style="background:#161B22;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="0: #161B22"></div><div style="background:#F85149;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="1: #F85149"></div><div style="background:#9CB04A;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="2: #9CB04A"></div><div style="background:#E5C07B;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="3: #E5C07B"></div><div style="background:#5BA8FF;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="4: #5BA8FF"></div><div style="background:#9F7CE0;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="5: #9F7CE0"></div><div style="background:#56B5A8;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="6: #56B5A8"></div><div style="background:#C9D1D9;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="7: #C9D1D9"></div><br><div style="background:#484F58;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="8: #484F58"></div><div style="background:#F85149;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="9: #F85149"></div><div style="background:#A8E060;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="10: #A8E060"></div><div style="background:#E67E4C;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="11: #E67E4C"></div><div style="background:#5BA8FF;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="12: #5BA8FF"></div><div style="background:#F08AC4;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="13: #F08AC4"></div><div style="background:#5FE0C0;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="14: #5FE0C0"></div><div style="background:#ECEFF4;width:26px;height:26px;display:inline-block;border-radius:3px;margin:1px" title="15: #ECEFF4"></div></div>
+    </div>

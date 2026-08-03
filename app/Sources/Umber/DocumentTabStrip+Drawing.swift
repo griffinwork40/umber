@@ -93,7 +93,16 @@ extension DocumentTabStrip {
             NSRect(x: rect.minX, y: 6, width: 1, height: rect.height - 12).fill()
         }
 
-        let textAlpha: CGFloat = isActive ? 0.95 : 0.55
+        // 0.72 for inactive, not the 0.55 this shipped with until 2026-08-03. At 0.55 the
+        // composite of the theme foreground over `railBackground` measured APCA Lc 37.3
+        // under umber, 33.0 under afk-dark and 32.1 under tokyo-night — below APCA's Lc 45
+        // floor for text readable at ANY size, which made these 11pt labels the least
+        // legible text in the app. It failed for every palette, so it was the strip's
+        // constant at fault and not any theme. 0.72 clears 45 for all three (umber 53.9)
+        // while leaving a 23-27 Lc gap to the active label, which is what tells you which
+        // document you are looking at. `check-theme-contrast.sh` now measures all four
+        // numbers and greps this file to confirm they are still the shipped ones.
+        let textAlpha: CGFloat = isActive ? 0.95 : 0.72
         var textLeft = rect.minX + Self.horizontalPadding
 
         if let symbol = NSImage(systemSymbolName: item(index).symbolName, accessibilityDescription: nil)?
