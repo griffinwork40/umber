@@ -31,7 +31,8 @@ private struct ConfigFile: Decodable {
         var size: Double?
     }
     struct ThemeSpec: Decodable {
-        /// "umber" | "afk-dark" | "tokyo-night" | "classic". Omitted with other
+        /// "umber" | "classic-repaired" | "afk-dark" | "afk-light" | "tokyo-night" |
+        /// "classic". Omitted with other
         /// fields present means "umber, with my overrides on top" — see
         /// `Config+Theme.swift` for why the fallback is the measured palette.
         var preset: String?
@@ -143,8 +144,10 @@ struct AppConfig {
     /// for the chrome and the content to drift apart.
     var effectiveBackground: NSColor { theme?.background ?? .black }
 
-    /// As `effectiveBackground`, for text. SwiftTerm's default foreground is white.
-    var effectiveForeground: NSColor { theme?.foreground ?? .white }
+    /// As `effectiveBackground`, for AppKit text. SwiftTerm's actual default is `#8A8A8A`,
+    /// not white (`SwiftTerm/Colors.swift:36`); a real theme normally follows its terminal
+    /// foreground, with Classic Repaired's explicit readable-chrome exception.
+    var effectiveForeground: NSColor { theme?.chromeForeground ?? NSColor.fromHex("#8A8A8A")! }
 
     /// The system appearance the window should adopt, derived from the theme.
     ///

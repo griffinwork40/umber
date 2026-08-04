@@ -110,6 +110,9 @@ extension NSColor {
 struct Theme {
     var background: NSColor
     var foreground: NSColor
+    /// Foreground for AppKit chrome; may be brighter than terminal body text when a palette
+    /// deliberately reserves the latter as a quiet layer (`ThemePalette.chromeForeground`).
+    var chromeForeground: NSColor
     var cursor: NSColor
     /// Exactly 16 entries: 8 normal then 8 bright. SwiftTerm's `installColors`
     /// silently does nothing if the array is not 16 long, so this is validated
@@ -143,6 +146,7 @@ struct Theme {
                 + "check-theme-contrast.sh should have caught this before ship")
         background = NSColor.fromHex(palette.background)!
         foreground = NSColor.fromHex(palette.foreground)!
+        chromeForeground = NSColor.fromHex(palette.chromeForeground)!
         cursor = NSColor.fromHex(palette.cursor)!
         ansi = palette.ansi.map { NSColor.fromHex($0)! }
     }
@@ -151,6 +155,10 @@ struct Theme {
     /// `"theme": {"preset": "umber"}`. Rationale and the numbers behind it are on
     /// `ThemePalette.umber`; the derivation is in `.afk/research/theme-design-2026-08-03/`.
     static let umber = Theme(.umber)
+
+    /// Classic Repaired — `"preset": "classic-repaired"`. The engine's vivid Basic
+    /// palette with its unreadable blue and collapsed blue bright step repaired.
+    static let classicRepaired = Theme(.classicRepaired)
 
     /// AFK Dark — `"preset": "afk-dark"`. A verbatim port; see `ThemePalette.afkDark`.
     static let afkDark = Theme(.afkDark)

@@ -52,13 +52,14 @@ VALUES="Sources/Umber/ThemeValues.swift"
 CONTRAST="Sources/Umber/ThemeContrast.swift"
 HARNESS="Scripts/check-theme-contrast-harness.swift"
 REGISTRY="Scripts/check-theme-contrast-registry.swift"
+REPAIR="Scripts/check-theme-contrast-repair.swift"
 THEME="Sources/Umber/Theme.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
   exit 2
 }
-for f in "$VALUES" "$CONTRAST" "$HARNESS" "$REGISTRY" "$THEME"; do
+for f in "$VALUES" "$CONTRAST" "$HARNESS" "$REGISTRY" "$REPAIR" "$THEME"; do
   [[ -f "$f" ]] || { echo "error: $f not found (run from the app/ directory)." >&2; exit 2; }
 done
 
@@ -78,7 +79,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/pure"
 cp "$HARNESS" "$TMP/pure/main.swift"
 
-if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$REGISTRY" "$TMP/pure/main.swift" \
+if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$REGISTRY" "$REPAIR" "$TMP/pure/main.swift" \
      2>"$TMP/compile.log"; then
   echo "error: the pure theme sources would not compile standalone — the gate cannot run." >&2
   sed 's/^/    /' "$TMP/compile.log" >&2
