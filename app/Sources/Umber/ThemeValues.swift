@@ -120,6 +120,36 @@ extension ThemePalette {
         ]
     )
 
+    /// **AFK Light** — `"preset": "afk-light"`, and the only light palette here.
+    ///
+    /// A verbatim port of GitHub's Light Default, so it is NOT held to umber's floors
+    /// below — the same exemption `afkDark` and `tokyoNight` get, and for the same
+    /// reason: measuring someone else's published palette against a standard it was
+    /// never designed for tells you about them, not about this app. `check-light-theme.sh`
+    /// gates it on WCAG ratios (3.0/4.5), which is what its source targeted.
+    ///
+    /// Its real job is structural: it is the first shipped preset whose background sits
+    /// ABOVE `WCAG.lightChromeCutoff` (0.179, `ThemeContrast.swift`), so it is the only thing that exercises
+    /// `AppConfig.appearance` returning `.aqua` and the whole light-chrome derivation
+    /// underneath it. Before this existed that path was written but never run.
+    ///
+    /// `selection` is the one value NOT copied verbatim: GitHub publishes its selection
+    /// as `#0969DA26` — a 15%-alpha blue — and `ThemePalette.selection` is opaque, so
+    /// this is Primer's `blue.2` (`#B6E3FF`), the flattened equivalent of that tint over
+    /// a white background. Noted because it is the single hex here that is derived
+    /// rather than ported.
+    static let afkLight = ThemePalette(
+        name: "afk-light",
+        background: "#FFFFFF", foreground: "#1F2328", cursor: "#0969DA",
+        selection: "#B6E3FF",
+        ansi: [
+            "#24292F", "#CF222E", "#116329", "#4D2D00",
+            "#0969DA", "#8250DF", "#1B7C83", "#6E7781",
+            "#57606A", "#A40E26", "#1A7F37", "#633C01",
+            "#218BFF", "#A475F9", "#3192AA", "#8C959F",
+        ]
+    )
+
     /// Tokyo Night — the v0.1 default, kept as a preset. Also transcribed verbatim.
     static let tokyoNight = ThemePalette(
         name: "tokyo-night",
@@ -137,5 +167,30 @@ extension ThemePalette {
     /// forget to update. `preset(named:)` in `Theme.swift` resolves config strings; this
     /// is the enumeration, and the two must not drift — `check-theme-contrast.sh`
     /// asserts that every name here is reachable from config.
-    static let all: [ThemePalette] = [.umber, .afkDark, .tokyoNight]
+    static let all: [ThemePalette] = [.umber, .afkDark, .tokyoNight, .afkLight]
+
+    /// Resolve a `"preset"` string to a palette. Case-insensitive, reads `_` as `-`, and
+    /// accepts the hyphen-stripped spelling (`afkdark`), which is what users actually type.
+    ///
+    /// This lives in the pure file rather than as a `switch` in `Theme.swift` deliberately:
+    /// `Theme.swift` imports AppKit *and* SwiftTerm, so a mapping there is unreachable by
+    /// any gate and could only be checked by grepping the source for `case` lines — a proxy
+    /// that passes whenever the spelling is present and says nothing about what it returns.
+    /// Here both gates call the real resolver. It also removes the second list: `all` is now
+    /// the only place a palette is registered, so a preset cannot exist while being
+    /// unreachable from config, which was previously a drift the gate could only approximate.
+    ///
+    /// `"classic"` is deliberately absent and must resolve to nil — it means "install
+    /// nothing and let the engine's own defaults stand". A typo also yields nil; the two are
+    /// told apart one layer up in `AppConfig.resolveTheme` (`Config+Theme.swift`), where
+    /// classic stays nil and a typo warns and falls back to `umber`.
+    static func named(_ raw: String) -> ThemePalette? {
+        let key = raw.lowercased().replacingOccurrences(of: "_", with: "-")
+        return all.first { $0.name == key || $0.name.replacingOccurrences(of: "-", with: "") == key }
+    }
+
+    /// The canonical spellings, for the fail-soft warning in `AppConfig.resolveTheme`.
+    /// `classic` is appended by hand because it is the one accepted value resolving to no
+    /// palette at all — a user who typo'd needs to see it listed.
+    static var configNames: [String] { all.map(\.name) + ["classic"] }
 }

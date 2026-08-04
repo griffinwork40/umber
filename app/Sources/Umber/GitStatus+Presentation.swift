@@ -37,9 +37,9 @@ extension GitFileStatus {
     ///
     /// The ANSI palette was also considered and refused. At `theme == nil` — the default
     /// — no palette is installed at all, so there would be nothing to read; and once a
-    /// theme *is* set, SwiftTerm regenerates ANSI 16–255 by interpolating the user's
-    /// bg/fg (`AppConfig.theme`'s note), so a "green" sourced from it is not reliably
-    /// green. Sidebar chrome is not terminal content and should not borrow its colours.
+    /// theme *is* set, its "green" is whatever hex that preset names, which on a light
+    /// preset is a dark green picked to sit on white. Sidebar chrome is not terminal
+    /// content and should not borrow its colours.
     ///
     /// The semantic mapping follows VS Code's *tokens* (which are stable and documented)
     /// rather than its pixels: modified is warm, new-content is green, gone-or-broken is

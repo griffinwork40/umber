@@ -51,13 +51,14 @@ cd "$(dirname "$0")/.."
 VALUES="Sources/Umber/ThemeValues.swift"
 CONTRAST="Sources/Umber/ThemeContrast.swift"
 HARNESS="Scripts/check-theme-contrast-harness.swift"
+REGISTRY="Scripts/check-theme-contrast-registry.swift"
 THEME="Sources/Umber/Theme.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
   exit 2
 }
-for f in "$VALUES" "$CONTRAST" "$HARNESS" "$THEME"; do
+for f in "$VALUES" "$CONTRAST" "$HARNESS" "$REGISTRY" "$THEME"; do
   [[ -f "$f" ]] || { echo "error: $f not found (run from the app/ directory)." >&2; exit 2; }
 done
 
@@ -77,7 +78,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/pure"
 cp "$HARNESS" "$TMP/pure/main.swift"
 
-if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$TMP/pure/main.swift" \
+if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$REGISTRY" "$TMP/pure/main.swift" \
      2>"$TMP/compile.log"; then
   echo "error: the pure theme sources would not compile standalone — the gate cannot run." >&2
   sed 's/^/    /' "$TMP/compile.log" >&2
@@ -107,25 +108,32 @@ if [[ "$out" != *"ALL-OK"* ]]; then
   exit 2
 fi
 
-# Reachability from config lives in Theme.preset(named:), which imports AppKit and so cannot
-# be linked into the harness. Grep it instead: a preset nobody can select is invisible, and
-# a name that resolves to nothing silently falls back to a DIFFERENT theme with a warning.
+# Reachability is asserted IN the harness now, by calling ThemePalette.named(_:) directly (see
+# its round-trip section). This used to be a grep of Theme.preset(named:)'s switch, because the
+# mapping lived behind AppKit; reconciling PR #24 moved it into the Foundation-only
+# ThemeValues.swift, so the real resolver became callable and the grep proxy retired.
 #
-# Comments are stripped FIRST, and the match is anchored to a `case` line. The obvious
-# version of this check — grep for the bare quoted name — was written first and was BLIND:
-# every preset name also appears in a doc comment in this file (`"preset": "umber"`), so
-# deleting the real switch case still passed. Found by deliberately deleting it; the lesson
-# is that a grep-based assertion has to match the CONSTRUCT, not the vocabulary.
+# What remains here is the one thing the harness cannot see: that Theme.swift still DELEGATES
+# to that resolver instead of reintroducing a private switch, which would restore exactly the
+# ungated second list the move removed.
+#
+# Comments are stripped FIRST. The obvious version of this check — grep for the bare quoted
+# name — was written first and was BLIND: every preset name also appears in a doc comment in
+# that file (`"preset": "umber"`), so deleting the real code still passed. Found by deliberately
+# deleting it; the lesson is that a grep-based assertion must match the CONSTRUCT, not the
+# vocabulary.
 STRIPPED="$TMP/theme-nocomments.swift"
 sed -e 's|//.*$||' "$THEME" > "$STRIPPED"
-missing=()
-for name in umber afk-dark tokyo-night; do
-  grep -qE "^[[:space:]]*case[[:space:]].*\"$name\"" "$STRIPPED" || missing+=("$name")
-done
-if (( ${#missing[@]} )); then
-  echo "✗ FAIL: preset(s) not reachable from config in $THEME: ${missing[*]}" >&2
-  echo "    ThemePalette.all lists them, but Theme.preset(named:) has no case, so" >&2
-  echo "    \"theme\": {\"preset\": \"${missing[0]}\"} would warn and fall back." >&2
+if ! grep -qE 'ThemePalette\.named\(.*\)\.map\(Theme\.init\)' "$STRIPPED"; then
+  echo "✗ FAIL: Theme.preset(named:) no longer delegates to ThemePalette.named in $THEME." >&2
+  echo "    Presets must resolve through the Foundation-only resolver — the one a gate can" >&2
+  echo "    actually call. A local switch here is a second list, unreachable by any check" >&2
+  echo "    and free to drift from ThemePalette.all." >&2
+  exit 1
+fi
+if grep -qE '^[[:space:]]*case[[:space:]]+"(umber|afk-dark|afk-light|tokyo-night)"' "$STRIPPED"; then
+  echo "✗ FAIL: $THEME has reintroduced per-preset case lines." >&2
+  echo "    The name mapping belongs in ThemeValues.swift, where both gates can call it." >&2
   exit 1
 fi
 
@@ -134,9 +142,17 @@ fi
 # the harness keeps passing while testing numbers the app no longer draws — which is worse
 # than having no harness, because it reads as a green gate.
 #
-# Comments are stripped before matching, for the same reason as the preset check below and
+# Comments are stripped before matching, for the same reason as the preset check above and
 # with a sharper edge here: the rationale comment beside `textAlpha` names the OLD value
 # (0.55) and the new one, so a naive grep would match prose and pass whatever the code said.
+#
+# This block was deleted by the #25 reconciliation merge (f8b6d38) and restored here. The
+# deletion was silent in the worst way: the `say` line below still claimed "harness constants
+# match" while nothing checked it, and `AFK.md`'s falsification note still described a guard
+# that was gone. Reachability moved into the harness legitimately; THIS is a separate concern
+# that could not follow it, because `DocumentTabStrip+Drawing.swift` imports AppKit and can
+# never be linked into a Foundation-only harness — a shell-side grep is the only instrument
+# that reaches it (PR #24 review, finding 1).
 DRAW="Sources/Umber/DocumentTabStrip+Drawing.swift"
 [[ -f "$DRAW" ]] || { echo "error: $DRAW not found." >&2; exit 2; }
 STRIP_DRAW="$TMP/draw-nocomments.swift"
@@ -157,16 +173,8 @@ if (( ${#drift[@]} )); then
   exit 1
 fi
 
-say "  ok  all 3 shipped palettes parse; 16 ANSI entries each"
-say "  ok  WCAG luminance agrees with the WCAG 2.1 definition on a fixed vector"
-say "  ok  APCA loClip confirmed, so ANSI 0 is judged by OKLab distance not by APCA"
-say "  ok  umber: warm background, dark chrome, body text Lc >= 85"
-say "  ok  umber: every ANSI slot clears its role floor (comments Lc >= 48)"
-say "  ok  umber: all 8 normal->bright pairs separated and correctly ordered"
-say "  ok  umber: colour-vision floors met, incl. tier-1 red/green >= 0.105"
-say "  ok  falsification: xterm's #0000EE on black is correctly REJECTED"
-say "  ok  every shipped preset is reachable from config"
-say "  ok  tab-strip chrome measured for all 3 palettes; harness constants match the shipped ones"
+say "  ok  presets resolve through the gated Foundation-only resolver"
+say "  ok  tab-strip chrome measured for every shipped palette; harness constants match"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"

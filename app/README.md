@@ -47,6 +47,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
 ./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
 ./Scripts/check-engine-config.sh  # does an `engine` string reach the emulator core it names? — fast, headless
+./Scripts/check-light-theme.sh   # are the palettes well-formed, and is `afk-light` light enough to flip the chrome? — fast, headless
 ./Scripts/check-pane-teardown.sh  # does closing a document free its surface and kill its shell? — offscreen GUI
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
@@ -272,11 +273,13 @@ tag 12 did nothing" (exit 1), so a real dead item cannot hide behind an environm
   all bind to those operations
 - Copy/paste/select-all, window position restored across launches
 - **No palette installed by default** — and that is the considered choice, not a
-  gap. SwiftTerm generates ANSI indices 16–255 by interpolating between the
-  terminal's background and foreground (`.base16Lab`), so installing *any* custom
-  background or foreground silently replaces the standard 256-colour cube with
-  synthesised approximations. Leaving it alone keeps the colours every other
-  terminal shows. `afk-dark` and `tokyo-night` remain one config line away
+  gap: SwiftTerm's own colours render well and were what the Step 0 spike showed.
+  Installing a theme is safe for the 256-colour cube, though the code comments
+  said otherwise for months: SwiftTerm *would* regenerate indices 16–255 by
+  interpolating bg/fg (`.base16Lab`), but `TerminalPane.apply(config:)` sets
+  `ansi256PaletteStrategy = .xterm` before installing anything, and
+  `Terminal.swift:523,538` then skip the rebuild — so a theme moves 0–15 and the
+  standard cube stays. `afk-dark` and `tokyo-night` are one config line away
 
 ## Not built yet
 
@@ -328,7 +331,7 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `engine` | `swiftterm` (default) or `ghostty`. Which terminal core backs a **new** tab. `swiftterm` is the vendored SwiftTerm this app was built on; `ghostty` is libghostty, which is actively maintained and supplies shell integration SwiftTerm structurally cannot — OSC 7 (the shell reports its working directory, so the sidebar follows it without polling the kernel) and OSC 133 (command boundaries and exit status). **Read once, when a tab is created.** Edit it, hit ⌘R, and the next ⌘T uses the new core while the tab in front of you keeps its own — swapping a core under a live shell would discard its scrollback and its process. That is deliberate: it means both cores can run side by side in one window, which is the only honest way to compare them on the same work. **Opt-in**, because the one bug class that matters most here — buffer reflow when a window is narrowed — is gated for SwiftTerm (`check-reflow.sh`) and not yet for libghostty. `renderer` above applies to `swiftterm` only; libghostty draws with its own renderer and ignores it. Accepted spellings, case-insensitive with `_` read as `-`: `swiftterm`/`swift-term`/`swift`/`legacy`, and `ghostty`/`libghostty`/`lib-ghostty`. Anything else is rejected with a warning naming the valid values — `./Scripts/check-engine-config.sh` is the gate for that mapping |
 | `theme` | **Defaults to `umber`** (changed 2026-08-03; it was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
-| `theme.preset` | `umber`, `afk-dark`, `tokyo-night`, or `classic`. `classic` means "install nothing", identical to omitting `theme`. Other fields override the preset; supplying colours without a preset bases them on `afk-dark` |
+| `theme.preset` | `umber`, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic` means "install nothing" — no longer identical to omitting `theme`, which now gives you `umber`. `afk-light` is the only light palette, and its white background also flips the window chrome (sidebar, titlebar, scrollers) because appearance is derived from background luminance rather than configured separately. Other fields override the preset; supplying colours without a preset bases them on `umber`. An unrecognised name warns, lists every valid spelling, and falls back to `umber`. `./Scripts/check-theme-contrast.sh` gates the palettes and the name mapping; `./Scripts/check-light-theme.sh` gates the light/dark chrome split |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
 Both former defaults survive as presets — no hex-pasting required:
@@ -338,7 +341,39 @@ Both former defaults survive as presets — no hex-pasting required:
 ```
 
 `tokyo-night` was the v0.1 default, `afk-dark` briefly replaced it. Either
-installs a full palette, with the 256-colour trade-off described above.
+installs a full 16-colour palette; neither disturbs indices 16–255.
+
+### Light mode
+
+```json
+"theme": { "preset": "afk-light" }
+```
+
+`afk-light` is **GitHub Light Default**, copied verbatim from primer's published
+`terminal.ansi*` keys — the exact mirror of `afk-dark`, which is a GitHub *Dark*
+skeleton. It was chosen over Solarized Light, Catppuccin Latte and Tokyo Night
+Day by measurement: of the twelve ANSI slots a TUI actually colours text with,
+the number falling below WCAG contrast 3.0 on that scheme's own background is 5,
+7 and 3 respectively — and **0** for this one. Its foreground is CR 15.80.
+
+Setting it also flips the **window chrome** — sidebar, titlebar, scrollers — to
+light, with no second setting to change. That is not new machinery: appearance
+has always been derived from the theme background's luminance
+(`AppConfig.appearance`), which is the same rule Ghostty calls `window-theme =
+auto`. `./Scripts/check-light-theme.sh` asserts the derivation holds for this
+preset, because a light theme that landed below the cutoff would install its
+colours and leave the sidebar dark — parsing, warning about nothing, and
+half-working.
+
+**Known limitation, and it is a real one.** Only ANSI 0–15 are the theme's.
+Indices 16–255 are the fixed xterm cube (see the note above), which was designed
+for a dark background and does not adapt: measured against `#FFFFFF`, **144 of
+those 240 colours** fall below CR 3.0, including the top of the greyscale ramp.
+Programs that reach for 256-colour output — `bat`, `delta`, `ls` with a rich
+`LS_COLORS`, most TUI dashboards — will have washed-out patches on a light
+background, and no palette choice here can fix that, because the cube is the
+emulator's rather than ours. Changing it would alter 256-colour rendering for
+existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 

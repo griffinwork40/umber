@@ -47,14 +47,10 @@ for p in ThemePalette.all {
 }
 
 // ------------------------------------------------------- 2. reachability from config
-// A preset that exists but no config string resolves to is invisible; a name that
-// resolves to nothing falls back to a DIFFERENT theme with only a warning. The two lists
-// live in different files (ThemeValues.all, Theme.preset(named:)) and must not drift.
-// Theme.swift imports AppKit so it cannot be linked here — instead assert the canonical
-// names this harness knows about, and let the shell half grep the switch for each one.
-let expectedNames = ["umber", "afk-dark", "tokyo-night"]
-expect(Set(ThemePalette.all.map(\.name)) == Set(expectedNames),
-       "preset names", "ThemePalette.all is \(ThemePalette.all.map(\.name)), expected \(expectedNames)")
+// The registry and resolver assertions live in check-theme-contrast-registry.swift — moved
+// there when this file went 20 lines over the 350-LOC ceiling. `expect` is passed in so the
+// counters stay owned here.
+checkPresetRegistry(expect)
 
 // --------------------------------------------- 3. WCAG luminance against the definition
 // Values computed from the WCAG 2.1 definition, not from this implementation.
@@ -153,7 +149,9 @@ if let a = RGB(hex: "#19120D"), let b = RGB(hex: "#1B140F") {
 }
 
 // ------------------------------------------------------------- 5. Umber's thresholds
-// Only Umber is held to these. afk-dark and tokyo-night are verbatim upstream ports and
+// Only Umber is held to these. afk-dark, tokyo-night and afk-light are verbatim upstream
+// ports (afk-light is GitHub Light Default, gated on WCAG ratios by check-light-theme.sh,
+// which is what its source targeted) and
 // they FAIL several of them (measured: tokyo-night's ANSI 8 is Lc 10.3, and six of its
 // eight normal/bright pairs are identical) — that is recorded in ThemeValues.swift and is
 // the point of the comparison, not a defect to launder by relaxing the rule for everyone.
@@ -166,9 +164,11 @@ guard let bg = RGB(hex: u.background), let fg = RGB(hex: u.foreground),
 let a = u.ansi.compactMap { RGB(hex: $0) }
 guard a.count == 16 else { print("FAIL: Umber ansi did not parse to 16"); exit(1) }
 
-// 5a. Background must keep the window's chrome DARK. Config.lightChromeCutoff is 0.179.
-expect(WCAG.luminance(bg) <= 0.179, "Umber background",
-       "luminance \(WCAG.luminance(bg)) is above Config.lightChromeCutoff 0.179, so the "
+// 5a. Background must keep the window's chrome DARK, checked against the live symbol —
+// not a restated literal — so this assertion cannot silently drift from what
+// AppConfig.appearance (Config.swift) actually compares against if the cutoff ever changes.
+expect(WCAG.luminance(bg) <= WCAG.lightChromeCutoff, "Umber background",
+       "luminance \(WCAG.luminance(bg)) is above WCAG.lightChromeCutoff \(WCAG.lightChromeCutoff), so the "
        + "window would adopt LIGHT chrome against a dark terminal")
 
 // 5b. Background must actually be WARM — this is the design thesis, so it is asserted, not
@@ -278,7 +278,15 @@ let ALPHA_ACTIVE = 0.95       // DocumentTabStrip+Drawing.swift textAlpha, activ
 let ALPHA_INACTIVE = 0.72     // DocumentTabStrip+Drawing.swift textAlpha, inactive
 for p in ThemePalette.all {
     guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.foreground) else { continue }
-    let rail = pbg.blended(withFraction: RAIL_LIFT, toward: .white)
+    // The app lifts the rail toward WHITE on a dark background and toward BLACK on a light one
+    // (`DocumentTabStrip+Drawing.swift`, contentIsDark/railBackground). Hardcoding white was
+    // correct until afk-light shipped: on #FFFFFF it made rail == bg, so the ratio assertion
+    // below failed for a reason that was the HARNESS's fault, not the theme's.
+    // CRITICAL: contentIsDark tests NSColor.brightnessComponent < 0.5 — HSB brightness, i.e.
+    // the MAX of R/G/B — NOT WCAG luminance. Reproduce that exact test, or this measures a
+    // colour the app never draws.
+    let isDark = max(pbg.r, max(pbg.g, pbg.b)) < 0.5
+    let rail = pbg.blended(withFraction: RAIL_LIFT, toward: isDark ? .white : .black)
     // The rail must read as a shade of the terminal, not as separate chrome bolted on.
     let railRatio = WCAG.ratio(rail, pbg)
     expect(railRatio > 1.05 && railRatio < 1.45, "\(p.name) tab rail",

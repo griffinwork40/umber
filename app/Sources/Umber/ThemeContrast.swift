@@ -67,6 +67,7 @@ struct RGB {
     }
 
     static let white = RGB(r: 1, g: 1, b: 1)
+    static let black = RGB(r: 0, g: 0, b: 0)
 
     /// Gamma-expanded channels. Luminance is defined on linear light; skipping this
     /// misjudges mid-tones badly, which is the same note `NSColor.relativeLuminance`
@@ -91,6 +92,32 @@ enum WCAG {
     }
 
     /// Contrast ratio, 1…21. AA wants 4.5:1 for body text, 3:1 for large.
+    /// Convenience overloads, so the two gates can assert the SAME formula the app uses
+    /// without each rebuilding an `RGB` first. `luminance(hex:)` returns nil on
+    /// unparseable input rather than trapping — a gate wants to report a bad hex, not die.
+    static func luminance(hex: String) -> Double? { RGB(hex: hex).map(luminance) }
+    static func luminance(red: Double, green: Double, blue: Double) -> Double {
+        luminance(RGB(r: red, g: green, b: blue))
+    }
+
+    /// The background luminance above which the app dresses its window chrome LIGHT —
+    /// `AppConfig.appearance` (`Config.swift`) compares this to the effective background
+    /// and returns `.aqua` or `.darkAqua`.
+    ///
+    /// It lives HERE, beside the formula it is compared against, and not in `Config.swift`,
+    /// for one reason: `Config.swift` imports AppKit, so a cutoff declared there cannot be
+    /// linked by either gate and the number the app actually branches on would go
+    /// unasserted. Both `check-theme-contrast.sh` and `check-light-theme.sh` compile this
+    /// file, so both test the real symbol instead of a copy of its value. `Config.swift:176`
+    /// is the sole call site and converts at the comparison — there is deliberately no
+    /// `Config`-side alias, because a second name for one number is how the two `0.179`s
+    /// this consolidation removed came to exist in the first place.
+    ///
+    /// 0.179 is the midpoint of the sRGB range in *perceived* terms (the luminance of
+    /// 50% grey is 0.216, and #767676 — the classic "mid" web grey — is 0.179), which is
+    /// why it beats a naive 0.5 on the raw component.
+    static let lightChromeCutoff: Double = 0.179
+
     static func ratio(_ a: RGB, _ b: RGB) -> Double {
         let la = luminance(a), lb = luminance(b)
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
