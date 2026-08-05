@@ -13,10 +13,11 @@
 //
 //  `NSTitlebarAccessoryViewController` rather than a custom titlebar view: it
 //  is the system affordance for adding a control beside the traffic lights.
-//  `SpaceWindowController` declines `.fullSizeContentView`
-//  (`SpaceWindowController.swift:168` and the comment above it) precisely so
-//  the titlebar stays an opaque strip AppKit owns and draws — this accessory
-//  attaches to that strip rather than requiring any change to it.
+//  `SpaceWindowController` declines `.fullSizeContentView` (the `styleMask` at
+//  `SpaceWindowController.swift:144`, argued by the comment block at
+//  `:132-141`) precisely so the titlebar stays an opaque strip AppKit owns and
+//  draws — this accessory attaches to that strip rather than requiring any
+//  change to it.
 //
 //  `target = nil`. Same reasoning as the menu item: the responder chain finds
 //  `SpaceViewController`, the window's `contentViewController`, which
@@ -38,11 +39,29 @@ import AppKit
 final class SidebarToggleAccessory: NSTitlebarAccessoryViewController {
     init() {
         super.init(nibName: nil, bundle: nil)
-        // `.left`, not the semantically tempting `.leading`: AppKit documents
-        // only `.left`, `.right`, and `.bottom` as valid titlebar-accessory
-        // positions; every other NSLayoutConstraint attribute raises an
-        // assertion. Left puts the control beside both the traffic lights and
-        // the sidebar it controls.
+        // `.left` deliberately, and NOT because `.leading` is invalid — an
+        // earlier version of this comment claimed exactly that and was wrong.
+        // `NSTitlebarAccessoryViewController.h:27` reads: "For applications
+        // linked on 10.12 and higher, NSLayoutAttributeLeading and
+        // NSLayoutAttributeTrailing can also be used to specify an abstract
+        // position that automatically flips depending on the localized
+        // language." This app links against macOS 14 (`Package.swift:11`), so
+        // `.leading` is available; the "all other values ... will assert"
+        // sentence above it in that header is the 10.11-era text the 10.12
+        // paragraph amends. Verified by execution, not by reading: `.leading`
+        // attaches and pumps a run loop cleanly at `-target
+        // arm64-apple-macos14`, while a genuinely unsupported attribute
+        // (`.width`) aborts with AppKit naming "Left/Leading" among the pair
+        // it accepts.
+        //
+        // The real reason to pin `.left`: per that same sentence, `.left` no
+        // longer auto-flips for an app linked on 10.12+, so it is the literal,
+        // non-mirroring choice — and Umber ships no localization, so there is
+        // nothing to mirror and nothing gained by an abstract position that
+        // would only ever resolve one way. Switch to `.leading` the day this
+        // app grows a right-to-left language, not before. Either attribute
+        // puts the control beside both the traffic lights and the sidebar it
+        // controls.
         layoutAttribute = .left
     }
 
