@@ -166,6 +166,10 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         window.appearance = config.appearance
         window.titlebarAppearsTransparent = false
         window.contentViewController = space
+        // Discoverable ⌘B: a button beside the traffic lights, wired to the
+        // same responder-chain selector the menu item already used. See
+        // `SidebarToggleAccessory.swift`.
+        window.addTitlebarAccessoryViewController(SidebarToggleAccessory())
         // Wider floor than the old terminal-only window: below this the sidebar's
         // 150pt minimum plus the document area's 240pt cannot both be honoured and
         // the split view starts fighting itself.

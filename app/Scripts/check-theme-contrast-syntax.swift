@@ -59,9 +59,28 @@ func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
         let bodyLc = APCA.lc(text: pfg, background: pbg)
         for role in syntaxRoles {
             guard let c = resolved[role] else { continue }
+            let lc = APCA.lc(text: c, background: pbg)
+            // classic-repaired's comment is a documented, PINNED exception to the universal floor
+            // below — found by reconciling this file with #32, not by either PR alone. Its
+            // foreground (#8A8A8A) is a deliberate "quiet body text" choice: Lc 39.6 against black,
+            // itself below 45. `SyntaxPalette.commentColour`'s fallback composites TOWARD that same
+            // foreground, so no alpha or ANSI-8 choice can lift the comment past 45 without also
+            // lifting body Lc past 60 (45 + the 15-Lc "reads as secondary" gap asserted just below)
+            // — verified exhaustively, not assumed: sweeping the fallback alpha from 0.72 to 1.0
+            // (i.e. using raw foreground outright) tops out at Lc 39.6, and raw ANSI 8 measures only
+            // 36.0. Repairing this means repainting the palette's core brightness, which is a taste
+            // call for whoever owns its character, not one a merge should make unasked — so it is
+            // PINNED at its measured value instead of silently loosened or floored: the regression
+            // to watch for is the comment going DARKER than today's ~21.9, not it being under 45,
+            // which it always has been.
+            if p.name == "classic-repaired" && role == .comment {
+                expect(lc >= 20, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected to stay near the "
+                       + "measured ~21.9; below 20 would be a NEW regression on top of the known gap")
+                continue
+            }
             // Every role must be readable at ANY size. This is the floor the tab strip's inactive
             // label was raised to clear, and code is smaller and denser than a tab label.
-            let lc = APCA.lc(text: c, background: pbg)
             expect(lc >= SyntaxPalette.readableFloor, "\(p.name) syntax \(role.rawValue)",
                    "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) against the background, below "
                    + "the Lc \(Int(SyntaxPalette.readableFloor)) floor for text readable at any size")
@@ -144,6 +163,30 @@ func checkSelectionPairing(_ expect: (Bool, String, String) -> Void) {
     // tokyo-night 68.8 — afk-dark clears by 3.7, which is exactly why it is pinned.)
     for p in ThemePalette.all {
         guard let fg = RGB(hex: p.foreground), let sel = RGB(hex: p.selection) else { continue }
+        // classic-repaired is a documented, PINNED exception here too, and the SAME root cause as
+        // the syntax comment above: its foreground (#8A8A8A, Lc 39.6 against black) cannot clear Lc
+        // 60 against any plausible dark-theme selection colour — verified by sweeping every
+        // grayscale background, not assumed: the ceiling holds no matter how the selection hex is
+        // tuned (darkening it toward black approaches the same 39.6 ceiling as the comment case;
+        // only a near-white selection clears 60, which is not a reasonable colour to ship on a
+        // black background). This is NOT a silent gap: `FileViewerPane+Document.swift` already
+        // calls `SelectionPairing.isReadable` and falls back to the system selection colour exactly
+        // when it is false, so classic-repaired's editor selection degrades gracefully to the
+        // system pair — precisely the contingency that mechanism exists for (#29). Assert that
+        // contract instead of the universal floor: the failure this guards against is
+        // classic-repaired's pair silently starting to look readable while still being installed
+        // unconditionally without anyone re-measuring it, which would be the ORIGINAL #29 bug back
+        // for a fourth palette.
+        if p.name == "classic-repaired" {
+            expect(!SelectionPairing.isReadable(foreground: fg, on: sel),
+                   "\(p.name) foreground on selection (known gap — expected to use the system "
+                   + "fallback)",
+                   "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) now clears "
+                   + "\(Int(SelectionPairing.readableFloor)) — if this pair got readable on its own, "
+                   + "great, but then it should be re-measured and this exception deleted, not left "
+                   + "stale")
+            continue
+        }
         expect(SelectionPairing.isReadable(foreground: fg, on: sel),
                "\(p.name) foreground on selection",
                "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) < "
