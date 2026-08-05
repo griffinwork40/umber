@@ -51,6 +51,8 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-pane-teardown.sh  # does closing a document free its surface and kill its shell? — offscreen GUI
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
                                  # needs a GUI session; window is offscreen, steals no focus
+./Scripts/check-sidebar-toggle.sh # is the titlebar toggle installed, does its action resolve,
+                                 # and does clicking it move the sidebar? offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
 UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
@@ -239,6 +241,25 @@ does nothing, and nothing else in this repo would notice. It sends each tag in i
 process, because sharing one text view let the bar keep the previous action's state and a
 dead tag passed; and it distinguishes "no window server" (exit 2) from "tag 1 worked but
 tag 12 did nothing" (exit 1), so a real dead item cannot hide behind an environment excuse.
+
+`check-sidebar-toggle.sh` is that script's sibling one level down. The titlebar's sidebar
+button is the same construct — `target = nil`, action answered only by the responder chain —
+except a button in the titlebar is *less* conspicuous than a menu item, so a dead one would
+survive longer. Against a real offscreen `SpaceWindowController` it asserts that exactly one
+accessory is installed, that the button's shape is intact (nil target, `toggleSidebar:`, an
+accessibility label and a tooltip, an image), that **the button's own action** resolves to a
+live responder, that `isCollapsed` flips in both directions, and — as a control — that a
+bogus selector resolves to nil, so a run cannot be green because the rig answers everything.
+
+Two of those assertions had to be repaired before the gate was worth anything, and how they
+were found is the useful part. The first falsification deleted the
+`addTitlebarAccessoryViewController` call, which fails case 1 and stops there — it proved
+only the case already in mind. Breaking it differently, by pointing `button.action` at a
+nonsense selector, showed case 3 resolving a hardcoded selector instead of the button's own
+(green while the shipped button was inert) and case 4's back-flip test passing trivially
+whenever the first click had not moved anything, printing "FLIPPED IT BACK (false -> false)".
+Both are fixed and the same break now fails four cases. Falsify with a break the author did
+not already have in mind; the one they pick tends to exercise the assertion they trusted most.
 
 ## What works today (v0.1)
 
