@@ -103,14 +103,35 @@ fi
 # unconditionally costs nothing and is the only way the gate's subject is the
 # tree on disk. Verified by reverting 0002 and re-running with no manual build:
 # 6 of 8 cases fail, as they must.
-PRODUCTS=".build/out/Products/Debug"
 say "building SwiftTerm first (the harness links the vendored module)…"
 if ! swift build >/dev/null 2>&1; then
   echo "error: swift build failed — fix that before trusting this gate." >&2
   exit 2
 fi
+
+# Ask SwiftPM where products landed rather than hardcoding a layout. This used to
+# be a literal ".build/out/Products/Debug", which is the NEW Swift Build backend's
+# layout and ONLY that — so on any toolchain still defaulting to classic SwiftPM
+# the gate died with a bare "absent" that reads like a broken machine instead of
+# an unsupported toolchain. CI on Swift 6.1.2 found it on 2026-08-05; the author's
+# 6.4 could never have.
+PRODUCTS="$(swift build --show-bin-path 2>/dev/null)"
+if [[ -z "$PRODUCTS" || ! -d "$PRODUCTS" ]]; then
+  echo "error: could not resolve the SwiftPM bin path." >&2
+  exit 2
+fi
+
+# Classic SwiftPM emits per-file objects under <Module>.build/ and never a merged
+# module object, so this gate cannot run there at all — it is not a missing file,
+# it is a toolchain that does not produce the artifact the harness links. Say so,
+# because "absent" sent the last reader looking for a build failure that did not
+# exist. Still exit 2: environmental, not an assertion failure.
 if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
-  echo "error: $PRODUCTS/SwiftTerm.o still absent after swift build." >&2
+  echo "error: $PRODUCTS/SwiftTerm.o absent after a successful swift build." >&2
+  echo "       This gate links a MERGED module object, which only the Swift Build" >&2
+  echo "       backend emits (Swift 6.3+, or older with --build-system swiftbuild)." >&2
+  echo "       Classic SwiftPM emits per-file objects under SwiftTerm.build/ instead." >&2
+  echo "       Yours: $(swift --version 2>&1 | head -1)" >&2
   exit 2
 fi
 

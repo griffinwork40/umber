@@ -29,7 +29,13 @@ concurrency:
 
 jobs:
   checks:
-    runs-on: macos-15
+    # macos-26, not macos-15, and the reason is a real finding rather than a preference.
+    # check-reflow.sh and check-altbuffer-resize.sh link a MERGED SwiftTerm.o, which only
+    # the Swift Build backend emits — Swift 6.3+. macos-15 ships Swift 6.1.2, whose classic
+    # SwiftPM emits per-file objects instead, so both gates died there with exit 2. Those two
+    # guard the patches for scrollback corruption and the tmux bleed, i.e. the defects most
+    # worth catching, so the runner moves to meet them rather than the gates being dropped.
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
