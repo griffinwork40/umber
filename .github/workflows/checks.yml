@@ -29,12 +29,15 @@ concurrency:
 
 jobs:
   checks:
-    # macos-26, not macos-15, and the reason is a real finding rather than a preference.
-    # check-reflow.sh and check-altbuffer-resize.sh link a MERGED SwiftTerm.o, which only
-    # the Swift Build backend emits — Swift 6.3+. macos-15 ships Swift 6.1.2, whose classic
-    # SwiftPM emits per-file objects instead, so both gates died there with exit 2. Those two
-    # guard the patches for scrollback corruption and the tmux bleed, i.e. the defects most
-    # worth catching, so the runner moves to meet them rather than the gates being dropped.
+    # macos-26 for the toolchain, not for the OS. check-reflow.sh and
+    # check-altbuffer-resize.sh link a MERGED SwiftTerm.o, which only the Swift Build
+    # backend emits; both gates now REQUEST that backend explicitly rather than hoping it
+    # is the default, so what this runner actually has to provide is a swift that carries
+    # the `--build-system` flag at all. macos-15's 6.1.2 predates it; macos-26 ships 6.3.3.
+    #
+    # Do not "simplify" this to macos-latest: the two gates it enables guard the
+    # scrollback-corruption and tmux-bleed patches, and a runner without the flag would
+    # skip straight past them while CI stayed green.
     runs-on: macos-26
     timeout-minutes: 30
 
@@ -53,6 +56,11 @@ jobs:
         working-directory: app
         run: ./Scripts/bootstrap-vendor.sh
 
+      # Deliberately the PLAIN invocation, with no backend flag — this is the command a
+      # newcomer actually types, so it is the one worth proving. The two vendor gates below
+      # request the Swift Build backend for themselves and will build a second time; that
+      # costs about a minute and buys coverage of both backends rather than only the one
+      # the gates happen to need.
       - name: Build
         working-directory: app
         run: swift build

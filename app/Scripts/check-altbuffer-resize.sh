@@ -89,16 +89,22 @@ fi
 # missing the patch passed against a stale patched object file. SwiftPM is incremental, so
 # building unconditionally costs ~2s and is the only way the gate's subject is the tree on
 # disk.
+# See check-reflow.sh for the full note. Short version: this harness links a MERGED module
+# object, only the Swift Build backend emits one, and the backend must be REQUESTED rather
+# than assumed — a hardcoded path worked only on the author's 6.4, and merely asking
+# `--show-bin-path` still failed on 6.3.3, which has the flag but does not default to it.
+BUILD_FLAGS=()
+if swift build --help 2>&1 | grep -q -- '--build-system'; then
+  BUILD_FLAGS=(--build-system swiftbuild)
+fi
+
 say "building SwiftTerm first (the harness links the vendored module)…"
-if ! swift build >/dev/null 2>&1; then
+if ! swift build "${BUILD_FLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix that before trusting this gate." >&2
   exit 2
 fi
 
-# See check-reflow.sh for the full note: this was a hardcoded ".build/out/Products/Debug",
-# which is the Swift Build backend's layout only, so the gate was silently unrunnable on a
-# toolchain defaulting to classic SwiftPM. Ask SwiftPM instead of assuming.
-PRODUCTS="$(swift build --show-bin-path 2>/dev/null)"
+PRODUCTS="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path 2>/dev/null)"
 if [[ -z "$PRODUCTS" || ! -d "$PRODUCTS" ]]; then
   echo "error: could not resolve the SwiftPM bin path." >&2
   exit 2
@@ -106,7 +112,8 @@ fi
 if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
   echo "error: $PRODUCTS/SwiftTerm.o absent after a successful swift build." >&2
   echo "       This gate links a MERGED module object, which only the Swift Build" >&2
-  echo "       backend emits (Swift 6.3+, or older with --build-system swiftbuild)." >&2
+  echo "       backend emits. Classic SwiftPM emits per-file objects instead." >&2
+  echo "       Backend requested: ${BUILD_FLAGS[*]:-<toolchain default, no flag available>}" >&2
   echo "       Yours: $(swift --version 2>&1 | head -1)" >&2
   exit 2
 fi

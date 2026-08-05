@@ -103,34 +103,43 @@ fi
 # unconditionally costs nothing and is the only way the gate's subject is the
 # tree on disk. Verified by reverting 0002 and re-running with no manual build:
 # 6 of 8 cases fail, as they must.
+# Ask for the Swift Build backend EXPLICITLY rather than taking whatever the toolchain
+# defaults to. This harness links a MERGED module object (SwiftTerm.o), and that is the
+# only backend which emits one — classic SwiftPM emits per-file objects under
+# SwiftTerm.build/ and no merged object at all, so on classic this gate cannot run.
+#
+# This was a hardcoded ".build/out/Products/Debug" until 2026-08-05, i.e. the Swift Build
+# layout assumed as a constant. It worked for the author (6.4 defaults to swiftbuild) and
+# failed for everyone else. Note the first fix was ALSO wrong: switching to
+# `--show-bin-path` without pinning the backend still asked the DEFAULT backend where its
+# products were, so CI on 6.3.3 — which has the flag but does not default to it — kept
+# failing, just with a better message. Selecting the backend is the fix; asking politely
+# where the wrong backend put things is not.
+BUILD_FLAGS=()
+if swift build --help 2>&1 | grep -q -- '--build-system'; then
+  BUILD_FLAGS=(--build-system swiftbuild)
+fi
+
 say "building SwiftTerm first (the harness links the vendored module)…"
-if ! swift build >/dev/null 2>&1; then
+if ! swift build "${BUILD_FLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix that before trusting this gate." >&2
   exit 2
 fi
 
-# Ask SwiftPM where products landed rather than hardcoding a layout. This used to
-# be a literal ".build/out/Products/Debug", which is the NEW Swift Build backend's
-# layout and ONLY that — so on any toolchain still defaulting to classic SwiftPM
-# the gate died with a bare "absent" that reads like a broken machine instead of
-# an unsupported toolchain. CI on Swift 6.1.2 found it on 2026-08-05; the author's
-# 6.4 could never have.
-PRODUCTS="$(swift build --show-bin-path 2>/dev/null)"
+PRODUCTS="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path 2>/dev/null)"
 if [[ -z "$PRODUCTS" || ! -d "$PRODUCTS" ]]; then
   echo "error: could not resolve the SwiftPM bin path." >&2
   exit 2
 fi
 
-# Classic SwiftPM emits per-file objects under <Module>.build/ and never a merged
-# module object, so this gate cannot run there at all — it is not a missing file,
-# it is a toolchain that does not produce the artifact the harness links. Say so,
-# because "absent" sent the last reader looking for a build failure that did not
-# exist. Still exit 2: environmental, not an assertion failure.
+# Still exit 2 if it is missing: environmental, not an assertion failure. But now name the
+# real requirement, because the bare "absent" this used to print reads as a failed build
+# and sends the reader looking for one that did not happen.
 if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
   echo "error: $PRODUCTS/SwiftTerm.o absent after a successful swift build." >&2
   echo "       This gate links a MERGED module object, which only the Swift Build" >&2
-  echo "       backend emits (Swift 6.3+, or older with --build-system swiftbuild)." >&2
-  echo "       Classic SwiftPM emits per-file objects under SwiftTerm.build/ instead." >&2
+  echo "       backend emits. Classic SwiftPM emits per-file objects instead." >&2
+  echo "       Backend requested: ${BUILD_FLAGS[*]:-<toolchain default, no flag available>}" >&2
   echo "       Yours: $(swift --version 2>&1 | head -1)" >&2
   exit 2
 fi
