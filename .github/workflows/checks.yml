@@ -1,0 +1,86 @@
+# Umber's verification surface, run on every push and PR.
+#
+# This project has no test target — see app/README.md ("Checks") for the argument. What it
+# has instead is a set of standalone scripts, most of which compile ONE shipped source file
+# with swiftc and run a truth table against it. That design is what makes CI possible here
+# at all: no scheme, no simulator, no test host.
+#
+# Only the headless checks run here. The six GUI ones (find-menu, sidebar-toggle,
+# ghostty-pane, metal-renderer, pane-teardown, keys-e2e) need a window server, a GPU, or
+# Accessibility permission, and keys-e2e steals focus by design — a hosted runner gives
+# none of those reliably, and a flaky gate is worse than an absent one because it teaches
+# you to ignore red. Those stay local, and app/README.md says so.
+#
+# Cost note: macOS runner minutes bill at 10x on PRIVATE repos, which would have burned the
+# free quota in a few days. They are free and unlimited on public ones. This workflow was
+# added at the same time the repo went public, and that is not a coincidence.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          swift --version
+          sw_vers
+
+      # vendor/ is gitignored and Package.swift names it as a path dependency, so this must
+      # happen before anything can compile. It also verifies the result against the pin, so
+      # a moved upstream tag fails HERE rather than as a mysterious compile error later.
+      - name: Bootstrap vendored SwiftTerm
+        working-directory: app
+        run: ./Scripts/bootstrap-vendor.sh
+
+      - name: Build
+        working-directory: app
+        run: swift build
+
+      # The two gates whose subject is the VENDORED emulator rather than our own source.
+      # They link SwiftTerm.o, so they need the build above. Both were validated by
+      # falsification — reverting the patch each guards makes it fail — which is the only
+      # reason their passes mean anything.
+      - name: Vendor patch gates
+        working-directory: app
+        run: |
+          ./Scripts/check-reflow.sh
+          ./Scripts/check-altbuffer-resize.sh
+
+      # Everything below compiles a single shipped file standalone. No build required, no
+      # window server, fast. Run as one step so a failure names the script in the log.
+      - name: Headless gates
+        working-directory: app
+        run: |
+          set -e
+          for s in \
+            check-file-size.sh \
+            check-keybindings.sh \
+            check-space-restore.sh \
+            check-cursor-style.sh \
+            check-engine-config.sh \
+            check-renderer-config.sh \
+            check-command-outcome.sh \
+            check-cwd-follow.sh \
+            check-git-status.sh \
+            check-theme-contrast.sh \
+            check-light-theme.sh
+          do
+            echo "::group::$s"
+            "./Scripts/$s"
+            echo "::endgroup::"
+          done

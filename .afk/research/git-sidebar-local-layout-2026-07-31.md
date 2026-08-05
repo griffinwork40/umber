@@ -182,7 +182,7 @@ break.
 
 **b) This checkout IS a worktree — VERIFIED, `.git` is a FILE, not a directory.**
 Directly verified this session: `cat .git` at repo root →
-`gitdir: /Users/griffinlong/Projects/open_source/mac-terminal/.git/worktrees/afk-add-git-sidebar`;
+`gitdir: <repo>/.git/worktrees/afk-add-git-sidebar`;
 `file .git` → "ASCII text". Standard git-worktree(1) mechanism: the real `.git`
 directory (refs/objects/config) lives at the main checkout; each worktree gets only
 a pointer file. **Implication**: any repo-detection that does `isDirectory(root/.git)`
