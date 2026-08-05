@@ -42,6 +42,11 @@ struct ThemePalette {
     /// Exactly 16: 8 normal then 8 bright. SwiftTerm's `installColors` silently does
     /// nothing if the array is not 16 long, so `Config` validates before `Theme` builds.
     let ansi: [String]
+
+    /// Text colour for document chrome. Normally the terminal foreground; Classic Repaired
+    /// deliberately keeps body text quiet, so its ANSI white supplies readable 11pt labels
+    /// without brightening every terminal glyph to satisfy a tab-strip constraint.
+    var chromeForeground: String { name == "classic-repaired" ? ansi[7] : foreground }
 }
 
 extension ThemePalette {
@@ -99,6 +104,28 @@ extension ThemePalette {
             "#FFD2F2",  // 13 bright magenta 0.912 0.078 337
             "#80E5E2",  // 14 bright cyan    0.860 0.095 193
             "#F9F6F2",  // 15 bright white   0.974 0.006  74
+        ]
+    )
+
+    /// **Classic Repaired** — Terminal.app Basic's structure with only its demonstrable
+    /// defects repaired. It keeps the true-black ground, quiet `#8A8A8A` body text and
+    /// saturated ANSI ring that make `classic` attractive, but raises blue out of the
+    /// canonical-unreadable range and restores a visible normal/bright blue step.
+    ///
+    /// Every other chromatic ANSI value is SwiftTerm's `terminalAppColors` verbatim
+    /// (`Colors.swift:91-108`); bright white is lifted to restore its collapsed pair too.
+    /// The two blues were derived with the shipped OKLab/APCA
+    /// implementation: ANSI 4 reaches Lc 45.1, ANSI 12 reaches 58.9, and their dE-OK
+    /// separation is 0.092. `check-theme-contrast-repair.swift` pins those properties.
+    static let classicRepaired = ThemePalette(
+        name: "classic-repaired",
+        background: "#000000", foreground: "#8A8A8A", cursor: "#A1A8FD",
+        selection: "#262952",
+        ansi: [
+            "#000000", "#C23621", "#25BC24", "#ADAD27",
+            "#818AFC", "#D338D3", "#33BBC8", "#CBCCCD",
+            "#818383", "#FC391F", "#31E722", "#EAEC23",
+            "#A1A8FD", "#F935F8", "#14F0F0", "#FFFFFF",
         ]
     )
 
@@ -167,7 +194,7 @@ extension ThemePalette {
     /// forget to update. `preset(named:)` in `Theme.swift` resolves config strings; this
     /// is the enumeration, and the two must not drift — `check-theme-contrast.sh`
     /// asserts that every name here is reachable from config.
-    static let all: [ThemePalette] = [.umber, .afkDark, .tokyoNight, .afkLight]
+    static let all: [ThemePalette] = [.umber, .classicRepaired, .afkDark, .tokyoNight, .afkLight]
 
     /// Resolve a `"preset"` string to a palette. Case-insensitive, reads `_` as `-`, and
     /// accepts the hyphen-stripped spelling (`afkdark`), which is what users actually type.

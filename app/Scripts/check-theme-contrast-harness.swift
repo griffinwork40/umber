@@ -51,6 +51,7 @@ for p in ThemePalette.all {
 // there when this file went 20 lines over the 350-LOC ceiling. `expect` is passed in so the
 // counters stay owned here.
 checkPresetRegistry(expect)
+checkClassicRepaired(expect)
 
 // --------------------------------------------- 3. WCAG luminance against the definition
 // Values computed from the WCAG 2.1 definition, not from this implementation.
@@ -277,7 +278,7 @@ let RAIL_LIFT = 0.07          // DocumentTabStrip+Drawing.swift railBackground
 let ALPHA_ACTIVE = 0.95       // DocumentTabStrip+Drawing.swift textAlpha, active
 let ALPHA_INACTIVE = 0.72     // DocumentTabStrip+Drawing.swift textAlpha, inactive
 for p in ThemePalette.all {
-    guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.foreground) else { continue }
+    guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.chromeForeground) else { continue }
     // The app lifts the rail toward WHITE on a dark background and toward BLACK on a light one
     // (`DocumentTabStrip+Drawing.swift`, contentIsDark/railBackground). Hardcoding white was
     // correct until afk-light shipped: on #FFFFFF it made rail == bg, so the ratio assertion

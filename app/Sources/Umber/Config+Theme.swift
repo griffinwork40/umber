@@ -66,8 +66,13 @@ extension AppConfig {
             else { warnings.append("theme.background '\(raw)' is not a hex colour") }
         }
         if let raw = foreground {
-            if let c = NSColor.fromHex(raw) { theme?.foreground = c }
-            else { warnings.append("theme.foreground '\(raw)' is not a hex colour") }
+            if let c = NSColor.fromHex(raw) {
+                // A preset may separate quiet terminal text from readable document chrome,
+                // but an explicit user override owns both surfaces unless a second config
+                // field is ever added. Leaving chrome on the preset would make this field lie.
+                theme?.foreground = c
+                theme?.chromeForeground = c
+            } else { warnings.append("theme.foreground '\(raw)' is not a hex colour") }
         }
         if let raw = cursor {
             if let c = NSColor.fromHex(raw) { theme?.cursor = c }
