@@ -103,46 +103,12 @@ fi
 # unconditionally costs nothing and is the only way the gate's subject is the
 # tree on disk. Verified by reverting 0002 and re-running with no manual build:
 # 6 of 8 cases fail, as they must.
-# Ask for the Swift Build backend EXPLICITLY rather than taking whatever the toolchain
-# defaults to. This harness links a MERGED module object (SwiftTerm.o), and that is the
-# only backend which emits one — classic SwiftPM emits per-file objects under
-# SwiftTerm.build/ and no merged object at all, so on classic this gate cannot run.
-#
-# This was a hardcoded ".build/out/Products/Debug" until 2026-08-05, i.e. the Swift Build
-# layout assumed as a constant. It worked for the author (6.4 defaults to swiftbuild) and
-# failed for everyone else. Note the first fix was ALSO wrong: switching to
-# `--show-bin-path` without pinning the backend still asked the DEFAULT backend where its
-# products were, so CI on 6.3.3 — which has the flag but does not default to it — kept
-# failing, just with a better message. Selecting the backend is the fix; asking politely
-# where the wrong backend put things is not.
-BUILD_FLAGS=()
-if swift build --help 2>&1 | grep -q -- '--build-system'; then
-  BUILD_FLAGS=(--build-system swiftbuild)
-fi
-
-say "building SwiftTerm first (the harness links the vendored module)…"
-if ! swift build "${BUILD_FLAGS[@]}" >/dev/null 2>&1; then
-  echo "error: swift build failed — fix that before trusting this gate." >&2
-  exit 2
-fi
-
-PRODUCTS="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path 2>/dev/null)"
-if [[ -z "$PRODUCTS" || ! -d "$PRODUCTS" ]]; then
-  echo "error: could not resolve the SwiftPM bin path." >&2
-  exit 2
-fi
-
-# Still exit 2 if it is missing: environmental, not an assertion failure. But now name the
-# real requirement, because the bare "absent" this used to print reads as a failed build
-# and sends the reader looking for one that did not happen.
-if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
-  echo "error: $PRODUCTS/SwiftTerm.o absent after a successful swift build." >&2
-  echo "       This gate links a MERGED module object, which only the Swift Build" >&2
-  echo "       backend emits. Classic SwiftPM emits per-file objects instead." >&2
-  echo "       Backend requested: ${BUILD_FLAGS[*]:-<toolchain default, no flag available>}" >&2
-  echo "       Yours: $(swift --version 2>&1 | head -1)" >&2
-  exit 2
-fi
+# Where is the compiled vendored module? That whole concern — including which build
+# backend can even produce the merged object this harness links — lives in one place,
+# because both vendor gates need it and an identical copy in each is how you ship a
+# gate that passes for the wrong reason.
+. Scripts/vendored-module.sh
+resolve_vendored_module          # sets PRODUCTS, or exits 2
 
 cat > "$TMP/main.swift" <<'SWIFT'
 import Foundation
