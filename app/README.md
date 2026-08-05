@@ -293,14 +293,13 @@ not already have in mind; the one they pick tends to exercise the assertion they
   send the readline bytes (`^U ^K ^A ^E`) that bash, zsh, fish and afk's own REPL
   all bind to those operations
 - Copy/paste/select-all, window position restored across launches
-- **No palette installed by default** — and that is the considered choice, not a
-  gap: SwiftTerm's own colours render well and were what the Step 0 spike showed.
-  Installing a theme is safe for the 256-colour cube, though the code comments
-  said otherwise for months: SwiftTerm *would* regenerate indices 16–255 by
-  interpolating bg/fg (`.base16Lab`), but `TerminalPane.apply(config:)` sets
-  `ansi256PaletteStrategy = .xterm` before installing anything, and
-  `Terminal.swift:523,538` then skip the rebuild — so a theme moves 0–15 and the
-  standard cube stays. `afk-dark` and `tokyo-night` are one config line away
+- **Umber palette by default.** Installing a theme is safe for the 256-colour cube,
+  though the code comments said otherwise for months: SwiftTerm *would* regenerate
+  indices 16–255 by interpolating bg/fg (`.base16Lab`), but
+  `TerminalPane.apply(config:)` sets `ansi256PaletteStrategy = .xterm` first, so a
+  theme moves 0–15 and the standard cube stays. `classic-repaired` preserves
+  Terminal.app Basic's true black, quiet body text and saturation while repairing
+  its unreadable blue; the other presets remain one config line away
 
 ## Not built yet
 
@@ -352,10 +351,19 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `engine` | `swiftterm` (default) or `ghostty`. Which terminal core backs a **new** tab. `swiftterm` is the vendored SwiftTerm this app was built on; `ghostty` is libghostty, which is actively maintained and supplies shell integration SwiftTerm structurally cannot — OSC 7 (the shell reports its working directory, so the sidebar follows it without polling the kernel) and OSC 133 (command boundaries and exit status). **Read once, when a tab is created.** Edit it, hit ⌘R, and the next ⌘T uses the new core while the tab in front of you keeps its own — swapping a core under a live shell would discard its scrollback and its process. That is deliberate: it means both cores can run side by side in one window, which is the only honest way to compare them on the same work. **Opt-in**, because the one bug class that matters most here — buffer reflow when a window is narrowed — is gated for SwiftTerm (`check-reflow.sh`) and not yet for libghostty. `renderer` above applies to `swiftterm` only; libghostty draws with its own renderer and ignores it. Accepted spellings, case-insensitive with `_` read as `-`: `swiftterm`/`swift-term`/`swift`/`legacy`, and `ghostty`/`libghostty`/`lib-ghostty`. Anything else is rejected with a warning naming the valid values — `./Scripts/check-engine-config.sh` is the gate for that mapping |
 | `theme` | **Defaults to `umber`** (changed 2026-08-03; it was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
-| `theme.preset` | `umber`, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic` means "install nothing" — no longer identical to omitting `theme`, which now gives you `umber`. `afk-light` is the only light palette, and its white background also flips the window chrome (sidebar, titlebar, scrollers) because appearance is derived from background luminance rather than configured separately. Other fields override the preset; supplying colours without a preset bases them on `umber`. An unrecognised name warns, lists every valid spelling, and falls back to `umber`. `./Scripts/check-theme-contrast.sh` gates the palettes and the name mapping; `./Scripts/check-light-theme.sh` gates the light/dark chrome split |
+| `theme.preset` | `umber`, **`classic-repaired`**, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic-repaired` keeps classic's true black, quiet body text and saturated ANSI colours while repairing its unreadable blue and collapsed blue/white bright steps; `classic` still means "install nothing". Its 11pt document chrome deliberately uses ANSI white rather than the quiet terminal foreground, and the contrast gate measures that actual seam. `afk-light` is the only light palette. Other fields override the preset; supplying colours without one bases them on `umber`. Unknown names warn and fall back to `umber`. The two theme gates pin the palette/name and light/dark chrome contracts |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
-Both former defaults survive as presets — no hex-pasting required:
+Classic's repaired alternative and both former defaults are presets — no hex-pasting required:
+
+```json
+"theme": { "preset": "classic-repaired" }
+```
+
+This keeps Basic's true-black, high-chroma character and quiet `#8A8A8A` body text,
+raises blue from APCA Lc 16.9 to 45.1, and restores distinguishable blue and white
+normal/bright pairs. The rest of the chromatic ring is unchanged from SwiftTerm.
+
 
 ```json
 "theme": { "preset": "tokyo-night" }
