@@ -22,6 +22,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml calls this before it publishes anything, so a tag is gated by the same
+  # list rather than a second copy of it. Additive: the triggers above are unaffected.
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,7 +45,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Toolchain
         run: |
