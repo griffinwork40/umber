@@ -6,7 +6,7 @@ substantive commitment and is the least-specified section in this document** · 
 The app was renamed **MacTerminal → Umber** on 2026-07-27 (`faf1291`); repo is now `griffinwork40/umber`.
 **Created:** 2026-07-26
 **Owner:** Griffin Long
-**Repo:** `/Users/griffinlong/Projects/open_source/mac-terminal` (new, empty at plan time)
+**Repo:** this one (then named `mac-terminal`; new, empty at plan time)
 
 ---
 
@@ -40,8 +40,7 @@ Constraints extracted:
 `crynta/terax-ai` — 8,669 stars, 931 forks, 364 open issues, created 2026-04-21, last push 2026-07-25.
 "Lightweight (7MB) Terminal-first AI-native dev workspace." Tauri 2 + Rust (`portable-pty`) + React 19 +
 xterm.js (WebGL) + CodeMirror 6 + Vercel AI SDK v6. Apache-2.0. Site terax.app.
-Operator has a fork at `/Users/griffinlong/Projects/open_source/terax-ai`
-(`origin=griffinwork40/terax-ai`, `upstream=crynta/terax-ai`).
+Operator has a local fork of it (`upstream=crynta/terax-ai`).
 
 Two observations that shaped this plan:
 
@@ -247,7 +246,7 @@ built, for the human-judgment gates G1/G4/G6.
 > +494/-4 across 4 files, 2 commits (`91bb3c3`, `e3727ff`), all CI green
 > (macOS + Ubuntu suites, lint/build, real-PTY scrollback, docs).
 > Branch `afk/session-status-contract` off `main` in
-> `/Users/griffinlong/Projects/open_source/agent-afk`, pushed to `origin`
+> the `agent-afk` checkout, pushed to `origin`
 > (= public `griffinwork40/agent-afk`).
 >
 > **CI incident worth remembering:** the first run failed on macOS in an unrelated test —

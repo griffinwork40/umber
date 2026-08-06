@@ -85,7 +85,7 @@ read-only for real observed output; none were modified. Repo: worktree
    exited `2`** in this worktree — *"error: vendor/SwiftTerm is missing — nothing to
    check"* — because `vendor/` is gitignored (confirmed: `.afk-worktrees/*` checkouts
    never materialize it; the sibling main checkout at
-   `/Users/griffinlong/Projects/open_source/mac-terminal/vendor/SwiftTerm` does have it).
+   `<repo>/vendor/SwiftTerm` does have it).
    **This is itself a live, unplanned confirmation of the exit-code contract working
    correctly**: a genuinely environment-broken run (no vendor present) produced exit `2`
    with a named cause, not a false pass and not a false "assertion failed."

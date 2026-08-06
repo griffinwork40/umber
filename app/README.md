@@ -455,6 +455,20 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **four** local pa
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
+./Scripts/bootstrap-vendor.sh          # from app/; --force to discard an existing tree
+```
+
+That does everything below and then delegates to `verify-vendor.sh` for the verdict,
+propagating its exit code. It stages the clone in a temp directory and moves it into place
+only once every patch has applied, so an interrupted run never leaves a half-built
+`vendor/SwiftTerm` for the next one to puzzle over — and it refuses to repair an existing
+mismatched tree in place, because a partly-patched checkout is indistinguishable from a
+differently-patched one. It also checks that the tag still resolves to the commit the pin
+names, which `verify-vendor.sh` only echoes cosmetically.
+
+The manual equivalent, if you would rather see the steps than trust a script:
+
+```sh
 git clone --depth 1 --branch v1.15.0 \
     https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
 chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
