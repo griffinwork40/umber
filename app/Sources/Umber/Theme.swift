@@ -114,6 +114,16 @@ struct Theme {
     /// deliberately reserves the latter as a quiet layer (`ThemePalette.chromeForeground`).
     var chromeForeground: NSColor
     var cursor: NSColor
+    /// The selection background.
+    ///
+    /// Added 2026-08-03, and its absence until then is the more interesting half: the value
+    /// existed in `ThemePalette` from the day the palettes were measured, but it never
+    /// crossed this bridge, so *nothing downstream could consume it even in principle*. The
+    /// gap was recorded as "not yet wired to either engine" — accurate about the engines and
+    /// quietly understating the cause, which was this struct's field list. The editor
+    /// consumes it now (`FileViewerPane+Document.swift`); both terminal engines still do not,
+    /// and that half of the gap stands.
+    var selection: NSColor
     /// Exactly 16 entries: 8 normal then 8 bright. SwiftTerm's `installColors`
     /// silently does nothing if the array is not 16 long, so this is validated
     /// at construction rather than trusted.
@@ -148,6 +158,7 @@ struct Theme {
         foreground = NSColor.fromHex(palette.foreground)!
         chromeForeground = NSColor.fromHex(palette.chromeForeground)!
         cursor = NSColor.fromHex(palette.cursor)!
+        selection = NSColor.fromHex(palette.selection)!
         ansi = palette.ansi.map { NSColor.fromHex($0)! }
     }
 

@@ -3,8 +3,9 @@
 # Assert that the shipped `umber` palette is measurably legible — and that the rules
 # doing the asserting are strict enough to reject a palette known to be bad.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/ThemeValues.swift` and `Sources/Umber/ThemeContrast.swift`
-# only. Both are Foundation-only BY DESIGN — their headers say so — precisely so they can be
+# WHAT IS UNDER TEST. `Sources/Umber/ThemeValues.swift`, `Sources/Umber/ThemeContrast.swift`
+# and `Sources/Umber/SyntaxPalette.swift` only. All three are Foundation-only BY DESIGN — their
+# headers say so — precisely so they can be
 # compiled here with swiftc and never link AppKit, SwiftTerm, or the app. Same trick
 # check-renderer-config.sh plays on Renderer.swift and check-cwd-follow.sh plays on
 # ShellDirectory.swift. Compiling the SHIPPED files, not copies, is the whole point: a check
@@ -50,22 +51,25 @@ cd "$(dirname "$0")/.."
 
 VALUES="Sources/Umber/ThemeValues.swift"
 CONTRAST="Sources/Umber/ThemeContrast.swift"
+SYNTAX="Sources/Umber/SyntaxPalette.swift"
 HARNESS="Scripts/check-theme-contrast-harness.swift"
+SYNHARNESS="Scripts/check-theme-contrast-syntax.swift"
 REGISTRY="Scripts/check-theme-contrast-registry.swift"
 REPAIR="Scripts/check-theme-contrast-repair.swift"
+REFERENCE="Scripts/check-theme-contrast-reference.swift"
 THEME="Sources/Umber/Theme.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
   exit 2
 }
-for f in "$VALUES" "$CONTRAST" "$HARNESS" "$REGISTRY" "$REPAIR" "$THEME"; do
+for f in "$VALUES" "$CONTRAST" "$SYNTAX" "$HARNESS" "$SYNHARNESS" "$REGISTRY" "$REPAIR" "$REFERENCE" "$THEME"; do
   [[ -f "$f" ]] || { echo "error: $f not found (run from the app/ directory)." >&2; exit 2; }
 done
 
 # A pure file that has quietly acquired a UI import is a real regression in the split that
 # makes this gate possible, so name it as that rather than as a compile error later.
-for f in "$VALUES" "$CONTRAST"; do
+for f in "$VALUES" "$CONTRAST" "$SYNTAX"; do
   if grep -qE '^\s*import\s+(AppKit|SwiftUI|Cocoa|SwiftTerm|GhosttyTerminal)' "$f"; then
     echo "error: $f imports a UI framework — it is supposed to be Foundation-only." >&2
     echo "  That split is the only reason this gate can compile it standalone. Fix the" >&2
@@ -79,7 +83,8 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/pure"
 cp "$HARNESS" "$TMP/pure/main.swift"
 
-if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$REGISTRY" "$REPAIR" "$TMP/pure/main.swift" \
+if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$SYNTAX" "$SYNHARNESS" "$REGISTRY" "$REPAIR" \
+     "$REFERENCE" "$TMP/pure/main.swift" \
      2>"$TMP/compile.log"; then
   echo "error: the pure theme sources would not compile standalone — the gate cannot run." >&2
   sed 's/^/    /' "$TMP/compile.log" >&2
@@ -168,6 +173,44 @@ grep -qE 'blended\(withFraction: 0\.07' "$STRIP_DRAW" \
   || drift+=("railBackground no longer lifts by 0.07 — update RAIL_LIFT in the harness")
 grep -qE '^[[:space:]]*theme: \.umber,' "$STRIP_CFG" \
   || drift+=("AppConfig.defaults() no longer installs .umber — the gate's floors no longer describe what the app ships by default")
+
+# CONSUMER GUARD. A measured colour with no consumer is the failure this repo has already
+# shipped once: `ThemePalette.selection` was designed, measured and asserted from the day the
+# palettes landed, and for the whole time it reached NOTHING — `Theme` had no such field, so
+# the value could not cross the AppKit bridge even in principle, and no check noticed because
+# every check was about the number rather than about its reaching anything. Measuring a colour
+# nobody draws is the same class of error as drawing a colour nobody measured.
+#
+# So: assert the wiring exists. Necessarily a grep — `Theme.swift` and the pane import AppKit
+# and cannot be linked here — and therefore weak: it proves the expression is present, not
+# that a selected range renders in it. That remains daily-drive territory. Comments stripped
+# first and matched on the CONSTRUCT for the reason the preset check below documents at length.
+VIEWER="Sources/Umber/FileViewerPane+Document.swift"
+[[ -f "$VIEWER" ]] || { echo "error: $VIEWER not found." >&2; exit 2; }
+STRIP_VIEWER="$TMP/viewer-nocomments.swift"
+STRIP_THEME="$TMP/theme-nocomments-fields.swift"
+sed -e 's|//.*$||' "$VIEWER" > "$STRIP_VIEWER"
+sed -e 's|//.*$||' "$THEME" > "$STRIP_THEME"
+grep -qE 'selection = NSColor\.fromHex\(palette\.selection\)' "$STRIP_THEME" \
+  || drift+=("Theme no longer builds .selection from the palette — the measured value has stopped crossing the AppKit bridge, which is exactly how it went unused before")
+grep -qE 'selectedTextAttributes' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer sets selectedTextAttributes — the editor has stopped consuming theme.selection and nothing else does")
+# The greps below are NOT redundant with it, and it alone was BLIND. It matches the
+# identifier, so it survives any mutation that keeps the assignment and changes what is
+# assigned — including `= [.backgroundColor: NSColor.selectedTextBackgroundColor]`, the
+# ORIGINAL BUG restored verbatim: the measured colour reaches nothing and the gate stays
+# green. That is this script's own stated lesson (match the CONSTRUCT, not the vocabulary —
+# see the preset check above) applied to the check that documents it.
+#
+# Anchored to the CALL SITE, not to the helper. Grepping the file for `config.theme?.selection`
+# was tried first and is ALSO blind, for a subtler reason worth keeping: once the lookup moved
+# into `readableSelection(for:)`, those strings survive in the helper even when the assignment
+# stops calling it, so a file-scope grep passes while the wiring is severed. Both blind
+# versions were probed against a mutated copy rather than reasoned about.
+grep -qE 'selectedTextAttributes = Self\.readableSelection\(for: config\)\.map' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer maps Self.readableSelection(for:) into selectedTextAttributes — the call-site wiring to the measured palette has been severed")
+grep -qE 'SelectionPairing\.isReadable' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer measures the selection pair — a user override can pair a dark foreground with a preset's dark selection at APCA Lc 0.0 (invisible selected text)")
 if (( ${#drift[@]} )); then
   echo "✗ FAIL: the harness's assumptions have drifted from the shipped code:" >&2
   for d in "${drift[@]}"; do echo "    - $d" >&2; done
@@ -176,6 +219,12 @@ fi
 
 say "  ok  presets resolve through the gated Foundation-only resolver"
 say "  ok  tab-strip chrome measured for every shipped palette; harness constants match"
+say "  ok  syntax roles: distinct non-surface slots, readable in every palette but one documented"
+say "      exception (classic-repaired's comment — see check-theme-contrast-syntax.swift), comments"
+say "      dimmer than body text"
+say "  ok  syntax clamp: both branches reachable (umber raw, tokyo-night clamped) and it raises Lc"
+say "  ok  runtime selection pair readable in every palette; unreadable user overrides fall back"
+say "      to the complete system pair; the falsification's Lc 0.0 override is REJECTED"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"

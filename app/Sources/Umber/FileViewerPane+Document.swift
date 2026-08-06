@@ -35,10 +35,60 @@ extension FileViewerPane: SpaceDocument {
         scrollView.backgroundColor = config.effectiveBackground
         textView.backgroundColor = config.effectiveBackground
         textView.textColor = config.effectiveForeground
+        // The theme's selection colour, which until 2026-08-03 nothing in the app consumed:
+        // it was measured with the rest of the palette and then dropped at the AppKit bridge
+        // (`Theme.swift` had no such field), so no consumer could have read it. Against an
+        // unthemed editor the stock highlight is a system blue that has no relationship to a
+        // warm umber background.
+        //
+        // Only the BACKGROUND is set. Overriding the selected text's foreground would be the
+        // obvious next line and it is deliberately absent — the normal foreground is meant to
+        // show through, which is the same trick iTerm2 plays in `TextViewPorthole.swift`.
+        // `selectedTextAttributes` REPLACES rather than merges, so omitting `.foregroundColor`
+        // is what makes that happen; AppKit does not substitute `.selectedTextColor` back in.
+        //
+        // That is precisely why the pair has to be MEASURED here rather than asserted once in
+        // the harness. §5h checks `umber`'s foreground on `umber`'s selection; a config file
+        // can pair a user's foreground with a preset's selection, because `selection` is the
+        // one `ThemePalette` field with no override (#29). See `SelectionPairing` for the
+        // configuration that reaches APCA Lc 0.0 that way.
+        //
+        // Falls back to the COMPLETE system pair in BOTH failing cases — no theme
+        // (`"preset": "classic"`), and a theme whose selection this foreground cannot be read
+        // on. `selectedTextAttributes` replaces rather than merges, so installing only the
+        // system background would leave the normal foreground in place; under dark Aqua that
+        // measured Lc 17.8 instead of the system pair's 86.1. Supplying both halves preserves
+        // AppKit's Increase Contrast and appearance-aware choice.
+        textView.selectedTextAttributes = Self.readableSelection(for: config).map {
+            [.backgroundColor: $0]
+        } ?? [
+            .backgroundColor: NSColor.selectedTextBackgroundColor,
+            .foregroundColor: NSColor.selectedTextColor,
+        ]
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R changes the size here exactly as it does in a terminal
         // (`TerminalPane.apply(config:)`). A live ⌘+ zoom still outranks the file.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+    }
+
+    /// The theme's selection background, or nil when AppKit's system pair should stand.
+    ///
+    /// The AppKit half of `SelectionPairing`, kept to a lookup: cross the two colours into
+    /// hex (`NSColor.hexString` converts to sRGB first, so a catalog colour like the
+    /// no-theme `.white` cannot trap here) and ask the pure rule. Everything decidable is
+    /// decided there, where `check-theme-contrast.sh` can compile it standalone.
+    ///
+    /// Deliberately NOT on `AppConfig` beside `effectiveBackground`/`effectiveForeground`,
+    /// though that is where it will belong: those exist because four call sites were
+    /// open-coding the same fallback, and selection has exactly ONE consumer today. Promote
+    /// it when the terminals are told too (#31) — and by then `Config.swift` is at 327/350,
+    /// so that promotion is the `Config+Chrome.swift` extraction #29 already prescribes,
+    /// rather than three more lines squeezed under the ceiling.
+    static func readableSelection(for config: AppConfig) -> NSColor? {
+        guard let selection = config.theme?.selection,
+              let sel = RGB(hex: selection.hexString),
+              let fg = RGB(hex: config.effectiveForeground.hexString) else { return nil }
+        return SelectionPairing.isReadable(foreground: fg, on: sel) ? selection : nil
     }
 
     var currentFontSize: CGFloat { fontSize }

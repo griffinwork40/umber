@@ -50,6 +50,18 @@ struct RGB {
 
     init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
 
+    /// The inverse of `init?(hex:)`, mirroring `NSColor.hexString` in `Theme.swift`.
+    ///
+    /// Exists for *derived* colours — a composited comment colour or a lifted rail has no hex
+    /// literal anywhere to name it, so a gate failure would otherwise have to report three
+    /// Doubles. Clamped rather than trusted: compositing keeps values in 0…1, but a future
+    /// caller doing arithmetic outside that range should produce a wrong colour name, not a
+    /// crash inside a failure message.
+    var hex: String {
+        func channel(_ c: Double) -> Int { Int((min(max(c, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", channel(r), channel(g), channel(b))
+    }
+
     /// `NSColor.blended(withFraction:of:)`, reproduced in pure arithmetic.
     ///
     /// Interpolates the GAMMA-ENCODED components, not linear light — that is what AppKit
@@ -227,5 +239,47 @@ enum CVD {
     /// against, since a palette is only as safe as its weaker case.
     static func worstDistance(_ x: RGB, _ y: RGB) -> Double {
         Kind.allCases.map { OKLab.distance(simulate(x, $0), simulate(y, $0)) }.min() ?? 0
+    }
+}
+
+// MARK: - SelectionPairing
+
+/// Whether a selection highlight can be painted *under* a given foreground at all.
+///
+/// A selection background is the one theme colour that is never seen alone: it is always
+/// read through the text sitting on it, so the only question worth asking about it is a
+/// question about a PAIR. §5h of the harness has asked exactly that since the palettes
+/// landed — but only of `umber`, and only of a pair both halves of which come from the same
+/// palette. Neither restriction survives contact with a config file.
+///
+/// `Config+Theme.swift` lets a user override `background` and `foreground` and gives them no
+/// way to override `selection` (the one `ThemePalette` field with no override — issue #29).
+/// So `{"theme": {"background": "#FFFFFF", "foreground": "#1A1A1A"}}` bases on `umber`,
+/// replaces two fields, and keeps `#453021` — a near-black selection under near-black text,
+/// measuring **APCA Lc 0.0**. Not "degraded": invisible. That configuration is expressible
+/// today and documented as such (`Config.appearance` derives `.aqua` above
+/// `lightChromeCutoff` precisely because a light user background is expressible), so the
+/// pairing has to be decided at runtime rather than asserted once for the shipped presets.
+///
+/// Pure and Foundation-only like the rest of this file, so `check-theme-contrast.sh` holds
+/// the rule to a number while the AppKit half stays a three-line lookup in the pane.
+enum SelectionPairing {
+    /// The floor a foreground must clear when read against a selection highlight.
+    ///
+    /// 60, not `SyntaxPalette.readableFloor`'s 45, and the gap is deliberate: 45 is APCA's
+    /// "resolvable at any size" floor for a glyph you are merely reading, while selected text
+    /// is text you are reading *and acting on* — the number §5h has asserted for umber since
+    /// the palettes landed. Declared here rather than in the harness because a threshold that
+    /// lives only in the test is a threshold the app cannot honour; the gate now reads this
+    /// one instead of holding its own copy.
+    static let readableFloor: Double = 60
+
+    /// Is `foreground` readable when drawn on a `selection` highlight?
+    ///
+    /// Answering false does not mean the theme is broken — it means this particular pair is,
+    /// and the caller should fall back to the system pair rather than install half of a
+    /// measured one.
+    static func isReadable(foreground: RGB, on selection: RGB) -> Bool {
+        APCA.lc(text: foreground, background: selection) >= readableFloor
     }
 }
