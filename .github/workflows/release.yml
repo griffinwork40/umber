@@ -60,7 +60,7 @@ jobs:
       contents: write  # only this job writes; uploading a release asset needs it
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # On a tag push github.ref IS the tag. On workflow_dispatch it is the branch the
           # run was started from, which would silently build main and label it with the
