@@ -89,16 +89,12 @@ fi
 # missing the patch passed against a stale patched object file. SwiftPM is incremental, so
 # building unconditionally costs ~2s and is the only way the gate's subject is the tree on
 # disk.
-PRODUCTS=".build/out/Products/Debug"
-say "building SwiftTerm first (the harness links the vendored module)…"
-if ! swift build >/dev/null 2>&1; then
-  echo "error: swift build failed — fix that before trusting this gate." >&2
-  exit 2
-fi
-if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
-  echo "error: $PRODUCTS/SwiftTerm.o still absent after swift build." >&2
-  exit 2
-fi
+# Where is the compiled vendored module? That whole concern — including which build
+# backend can even produce the merged object this harness links — lives in one place,
+# because both vendor gates need it and an identical copy in each is how you ship a
+# gate that passes for the wrong reason.
+. Scripts/vendored-module.sh
+resolve_vendored_module          # sets PRODUCTS, or exits 2
 
 cat > "$TMP/main.swift" <<'SWIFT'
 import Foundation

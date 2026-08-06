@@ -312,8 +312,8 @@ integration is live with `configSource: .none` and no rc changes — actual tran
 
 ```
 [spike] Q1: surface configured, backend=.exec (libghostty spawns the shell)
-[spike] OSC 7 pwd -> /Users/griffinlong/…/.afk-worktrees/libghostty-spike/app
-[spike] title -> griffinlong@Griffins-MacBook-Pro:~/Projects/…/app
+[spike] OSC 7 pwd -> <repo>/.afk-worktrees/libghostty-spike/app
+[spike] title -> <user>@<host>:~/Projects/…/app
 [spike] title -> …/.afk-worktrees/libghostty-spike/app      <- libghostty abbreviates paths itself
 ```
 
@@ -384,9 +384,11 @@ which contradicts plan §4.2's own founding principle.
 4. **#494 remains unfixed if SwiftTerm wins the probe.** Step 0 item 2 at least stops the plan from
    claiming otherwise; option B is the cheap escape.
 5. **G6 (the multi-hour soak) is untouched by any of this** and still retires only through real use.
-6. `.afk/plans/native-swift-terminal-afk-host.md` still carries three absolute `/Users/griffinlong`
+6. ~~`.afk/plans/native-swift-terminal-afk-host.md` still carries three absolute `/Users/<user>`
    paths (one naming an unrelated fork). Unchanged here, still blocking on any
-   `gh repo edit --visibility public`.
+   `gh repo edit --visibility public`.~~ **Done 2026-08-05** — scrubbed as part of the
+   open-source release pass, along with two more in `.afk/research/git-sidebar-*` that this
+   list missed and the `<user>@<host>` leak in the spike transcript above.
 
 ---
 
