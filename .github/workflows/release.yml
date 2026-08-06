@@ -1,0 +1,171 @@
+# Build the release artifact FROM THE TAG, so provenance is mechanical rather than a
+# claim someone makes in a chat window.
+#
+# v0.1.0's zip was built on a laptop. The tree happened to be clean and the commit
+# happened to be right, but nothing about the artifact proved either — "I checked" is a
+# process argument, and Swift builds embed absolute paths and timestamps, so a later
+# rebuild cannot byte-compare its way to a verdict. The fix is to move the build to a
+# machine whose starting state is a fresh checkout of the tag and whose every step is in
+# the log.
+#
+# This workflow REFUSES more than it builds. The build itself is three lines; the rest is
+# five assertions, each guarding a way this could ship something wrong while staying
+# green. That ratio is deliberate and matches the check-*.sh scripts: a release job that
+# only builds is a release job that will eventually publish an x86_64 binary, or a zip
+# whose Info.plist disagrees with its own tag, and say nothing.
+#
+# Cutting a release:
+#   1. bump VERSION in app/Scripts/make-app-bundle.sh, commit it
+#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+#   3. this runs; the zip and its .sha256 appear on the release
+# Forget step 1 and step 3 fails loudly on the tag/bundle mismatch, which is the entire
+# point of asserting it.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # Backfill or retry without moving a tag. Takes an EXISTING tag; it never creates one,
+  # because a workflow that can mint tags can mint them at the wrong commit.
+  #
+  # Caveat worth knowing rather than engineering around: a locally-referenced reusable
+  # workflow always runs at the CALLER's sha. On a tag push that is the tag, so the gates
+  # test exactly what ships. On a manual dispatch the gates run at the ref you dispatched
+  # from (normally main) while the build checks out the input tag — so a backfill proves
+  # "main's gates pass and the tag builds", not "the tag's gates pass". For the primary
+  # path, tag push, there is no gap.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach to (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The gates run against the tag before anything is published. A tag can point at a
+  # commit that never saw CI — pushed from a laptop, or moved — so "main was green" is not
+  # evidence about THIS artifact. Reuses checks.yml rather than restating its gate list:
+  # two lists would drift, and the one that drifts is always the one nobody runs.
+  verify:
+    uses: ./.github/workflows/checks.yml
+
+  release:
+    needs: verify
+    runs-on: macos-26
+    timeout-minutes: 45
+    permissions:
+      contents: write  # only this job writes; uploading a release asset needs it
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # On a tag push github.ref IS the tag. On workflow_dispatch it is the branch the
+          # run was started from, which would silently build main and label it with the
+          # tag — so the input wins when present.
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve tag and assert it matches the bundle version
+        id: v
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+
+          # make-app-bundle.sh hardcodes VERSION and stamps it into Info.plist. Nothing
+          # ties it to the tag, so a forgotten bump ships vX.Y.Z containing the previous
+          # version — visible only in About, which nobody opens. Fail here instead.
+          SCRIPT_VERSION="$(grep -m1 '^VERSION=' app/Scripts/make-app-bundle.sh | cut -d'"' -f2)"
+          if [ "$TAG" != "v$SCRIPT_VERSION" ]; then
+            echo "::error::tag $TAG disagrees with make-app-bundle.sh VERSION=$SCRIPT_VERSION."
+            echo "::error::Bump VERSION to ${TAG#v}, commit, and re-tag — or the zip will misreport itself."
+            exit 1
+          fi
+          echo "tag=$TAG"        >> "$GITHUB_OUTPUT"
+          echo "asset=Umber-$TAG.zip" >> "$GITHUB_OUTPUT"
+          echo "  tag=$TAG  bundle version=$SCRIPT_VERSION  commit=$(git rev-parse HEAD)"
+
+      - name: Toolchain and runner architecture
+        run: |
+          set -euo pipefail
+          swift --version
+          sw_vers
+          # Umber is Apple-silicon only (LSMinimumSystemVersion 14.0, arm64 build). If
+          # GitHub ever changes what macos-26 provisions, an x86_64 runner would produce a
+          # zip that launches for nobody on an M-series Mac and fails no other check here.
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m), expected arm64 — refusing to publish a cross-arch build"
+            exit 1
+          fi
+
+      - name: Bootstrap vendored SwiftTerm
+        working-directory: app
+        run: ./Scripts/bootstrap-vendor.sh
+
+      # Ad-hoc signs (SIGN_IDENTITY defaults to "-"). There is no Developer ID and no
+      # notarisation, which is why the release notes carry the xattr instruction.
+      - name: Build release bundle
+        working-directory: app
+        run: ./Scripts/make-app-bundle.sh release
+
+      - name: Assert the built bundle is what the tag claims
+        working-directory: app
+        run: |
+          set -euo pipefail
+          APP=build/Umber.app
+          BUILT="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+          if [ "v$BUILT" != "${{ steps.v.outputs.tag }}" ]; then
+            echo "::error::built bundle reports $BUILT, tag is ${{ steps.v.outputs.tag }}"
+            exit 1
+          fi
+          ARCH="$(lipo -archs "$APP/Contents/MacOS/Umber")"
+          if [ "$ARCH" != "arm64" ]; then
+            echo "::error::binary is '$ARCH', expected arm64"
+            exit 1
+          fi
+          codesign -v --verbose=2 "$APP"
+          echo "  version=$BUILT arch=$ARCH signature=ok"
+
+      # ditto, not zip. A plain `zip` does not preserve the extended attributes and
+      # symlink structure a signed .app depends on, and the damage shows up only as a
+      # broken signature on the DOWNLOADER's machine, never on the builder's.
+      - name: Package
+        working-directory: app
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent build/Umber.app "${{ steps.v.outputs.asset }}"
+          shasum -a 256 "${{ steps.v.outputs.asset }}" > "${{ steps.v.outputs.asset }}.sha256"
+          cat "${{ steps.v.outputs.asset }}.sha256"
+
+      # Unpack the artifact that is about to be published and verify the signature
+      # SURVIVED the round trip. This is the one failure that is invisible to every step
+      # above: the app on disk is fine, the zip is the thing that is broken.
+      - name: Verify the packaged artifact, not the built one
+        working-directory: app
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/verify && mkdir -p /tmp/verify
+          ditto -x -k "${{ steps.v.outputs.asset }}" /tmp/verify
+          codesign -v --verbose=2 /tmp/verify/Umber.app
+          test -x /tmp/verify/Umber.app/Contents/MacOS/Umber
+          test -f /tmp/verify/Umber.app/Contents/Resources/Umber.icns
+          echo "  unpacked signature verifies; executable and icon present"
+
+      - name: Attach to the release
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          ASSET: ${{ steps.v.outputs.asset }}
+        run: |
+          set -euo pipefail
+          # A tag push does not imply a release object exists. Create one only if absent;
+          # never edit the notes of an existing release, which may have been hand-written.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "  no release for $TAG — creating with generated notes"
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          # --clobber so a re-run replaces rather than erroring on a duplicate name.
+          gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
+          echo "  uploaded $ASSET (+ .sha256) built from $(git rev-parse HEAD)"
