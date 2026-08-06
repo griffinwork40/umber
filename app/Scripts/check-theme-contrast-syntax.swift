@@ -22,11 +22,11 @@
 
 import Foundation
 
-/// §5k — the syntax role mapping, asserted for ALL THREE palettes.
+/// §5k — the syntax role mapping, asserted for every shipped palette.
 func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
     // ------------------------------------- 5k. the editor's SYNTAX roles, all palettes
     // `SyntaxPalette` maps five syntax roles onto slots of whichever ANSI ring is installed,
-    // rather than adding five hex literals per palette. Asserted for ALL THREE palettes for the
+    // rather than adding five hex literals per palette. Asserted for every shipped palette for the
     // same reason §5j is: the MAPPING is app policy, not a palette's property, so a failure here
     // is the mapping's fault and must not be launderable by relaxing the rule for one theme.
     //
@@ -52,7 +52,11 @@ func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
            + syntaxRoles.map { "\($0.rawValue)=\(SyntaxPalette.ansiIndex(for: $0))" }.joined(separator: " "))
     // 5k-iii…v. Per palette: readable, distinguishable, and de-emphasised in the right direction.
     for p in ThemePalette.all {
-        guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.foreground) else { continue }
+        guard let pbg = RGB(hex: p.background), let pfg = RGB(hex: p.foreground) else {
+            expect(false, "\(p.name) syntax palette parses",
+                   "background or foreground hex did not parse — the palette would otherwise skip every syntax assertion")
+            continue
+        }
         let resolved = SyntaxPalette.resolved(for: p)
         expect(resolved.count == syntaxRoles.count, "\(p.name) syntax resolution",
                "resolved \(resolved.count) of \(syntaxRoles.count) roles — a palette hex did not parse")
@@ -157,38 +161,18 @@ func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
 /// come from different places, because `Config+Theme.swift` overrides `background` and
 /// `foreground` and gives the user no way to override `selection` (#29).
 func checkSelectionPairing(_ expect: (Bool, String, String) -> Void) {
-    // 5l-i. Every shipped palette's own pair must clear the floor. Asserted for all three for
-    // the same reason §5k is: the editor installs `theme.selection` whichever preset is live,
-    // so a failure is the app's, not a port's. (Measured: umber 81.3, afk-dark 63.7,
-    // tokyo-night 68.8 — afk-dark clears by 3.7, which is exactly why it is pinned.)
+    // 5l-i. Every shipped palette's own RUNTIME pair must clear the floor. The editor paints
+    // `effectiveForeground`, which comes from `chromeForeground`; Classic Repaired deliberately
+    // gives chrome its brighter ANSI 7 instead of its quiet terminal foreground. Measuring
+    // `foreground` here used to invent a failure the app did not have (Lc 35.1 instead of 71.1).
     for p in ThemePalette.all {
-        guard let fg = RGB(hex: p.foreground), let sel = RGB(hex: p.selection) else { continue }
-        // classic-repaired is a documented, PINNED exception here too, and the SAME root cause as
-        // the syntax comment above: its foreground (#8A8A8A, Lc 39.6 against black) cannot clear Lc
-        // 60 against any plausible dark-theme selection colour — verified by sweeping every
-        // grayscale background, not assumed: the ceiling holds no matter how the selection hex is
-        // tuned (darkening it toward black approaches the same 39.6 ceiling as the comment case;
-        // only a near-white selection clears 60, which is not a reasonable colour to ship on a
-        // black background). This is NOT a silent gap: `FileViewerPane+Document.swift` already
-        // calls `SelectionPairing.isReadable` and falls back to the system selection colour exactly
-        // when it is false, so classic-repaired's editor selection degrades gracefully to the
-        // system pair — precisely the contingency that mechanism exists for (#29). Assert that
-        // contract instead of the universal floor: the failure this guards against is
-        // classic-repaired's pair silently starting to look readable while still being installed
-        // unconditionally without anyone re-measuring it, which would be the ORIGINAL #29 bug back
-        // for a fourth palette.
-        if p.name == "classic-repaired" {
-            expect(!SelectionPairing.isReadable(foreground: fg, on: sel),
-                   "\(p.name) foreground on selection (known gap — expected to use the system "
-                   + "fallback)",
-                   "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) now clears "
-                   + "\(Int(SelectionPairing.readableFloor)) — if this pair got readable on its own, "
-                   + "great, but then it should be re-measured and this exception deleted, not left "
-                   + "stale")
+        guard let fg = RGB(hex: p.chromeForeground), let sel = RGB(hex: p.selection) else {
+            expect(false, "\(p.name) selection pair parses",
+                   "chrome foreground or selection hex did not parse — the palette would otherwise skip its selection assertion")
             continue
         }
         expect(SelectionPairing.isReadable(foreground: fg, on: sel),
-               "\(p.name) foreground on selection",
+               "\(p.name) chrome foreground on selection",
                "APCA Lc \(String(format: "%.1f", APCA.lc(text: fg, background: sel))) < "
                + "\(Int(SelectionPairing.readableFloor)) — selected text is hard to read")
     }
@@ -206,7 +190,7 @@ func checkSelectionPairing(_ expect: (Bool, String, String) -> Void) {
     }
     // 5l-iii. And it must not reject the good case, or the pane would fall back to the system
     // colour always and the measured palettes would reach nothing — the original bug, again.
-    if let uFG = RGB(hex: ThemePalette.umber.foreground),
+    if let uFG = RGB(hex: ThemePalette.umber.chromeForeground),
        let uSel = RGB(hex: ThemePalette.umber.selection) {
         expect(SelectionPairing.isReadable(foreground: uFG, on: uSel),
                "falsification (selection pairing, control)",

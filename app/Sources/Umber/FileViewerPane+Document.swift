@@ -53,13 +53,17 @@ extension FileViewerPane: SpaceDocument {
         // one `ThemePalette` field with no override (#29). See `SelectionPairing` for the
         // configuration that reaches APCA Lc 0.0 that way.
         //
-        // Falls back to the SYSTEM selection colour in BOTH failing cases — no theme
+        // Falls back to the COMPLETE system pair in BOTH failing cases — no theme
         // (`"preset": "classic"`), and a theme whose selection this foreground cannot be read
-        // on. It is the right fallback for the same reason the file tree uses system parts: it
-        // tracks Increase Contrast and the window's appearance for free, and AppKit pairs it
-        // with `.selectedTextColor` when we install no background of our own.
-        textView.selectedTextAttributes = [
-            .backgroundColor: Self.readableSelection(for: config) ?? .selectedTextBackgroundColor
+        // on. `selectedTextAttributes` replaces rather than merges, so installing only the
+        // system background would leave the normal foreground in place; under dark Aqua that
+        // measured Lc 17.8 instead of the system pair's 86.1. Supplying both halves preserves
+        // AppKit's Increase Contrast and appearance-aware choice.
+        textView.selectedTextAttributes = Self.readableSelection(for: config).map {
+            [.backgroundColor: $0]
+        } ?? [
+            .backgroundColor: NSColor.selectedTextBackgroundColor,
+            .foregroundColor: NSColor.selectedTextColor,
         ]
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R changes the size here exactly as it does in a terminal

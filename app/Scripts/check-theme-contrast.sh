@@ -207,8 +207,8 @@ grep -qE 'selectedTextAttributes' "$STRIP_VIEWER" \
 # into `readableSelection(for:)`, those strings survive in the helper even when the assignment
 # stops calling it, so a file-scope grep passes while the wiring is severed. Both blind
 # versions were probed against a mutated copy rather than reasoned about.
-grep -qE '\.backgroundColor: Self\.readableSelection\(for: config\)' "$STRIP_VIEWER" \
-  || drift+=("FileViewerPane no longer installs Self.readableSelection(for:) as the selection background — selectedTextAttributes is being set from something other than the measured palette, which is the bug the identifier grep above cannot see")
+grep -qE 'selectedTextAttributes = Self\.readableSelection\(for: config\)\.map' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer maps Self.readableSelection(for:) into selectedTextAttributes — the call-site wiring to the measured palette has been severed")
 grep -qE 'SelectionPairing\.isReadable' "$STRIP_VIEWER" \
   || drift+=("FileViewerPane no longer measures the selection pair — a user override can pair a dark foreground with a preset's dark selection at APCA Lc 0.0 (invisible selected text)")
 if (( ${#drift[@]} )); then
@@ -223,8 +223,8 @@ say "  ok  syntax roles: distinct non-surface slots, readable in every palette b
 say "      exception (classic-repaired's comment — see check-theme-contrast-syntax.swift), comments"
 say "      dimmer than body text"
 say "  ok  syntax clamp: both branches reachable (umber raw, tokyo-night clamped) and it raises Lc"
-say "  ok  selection pair readable in every palette but classic-repaired, which correctly falls back"
-say "      to the system colour; the falsification's Lc 0.0 user override is REJECTED"
+say "  ok  runtime selection pair readable in every palette; unreadable user overrides fall back"
+say "      to the complete system pair; the falsification's Lc 0.0 override is REJECTED"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"

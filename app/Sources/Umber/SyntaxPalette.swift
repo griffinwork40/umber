@@ -45,17 +45,17 @@ enum SyntaxRole: String, CaseIterable {
 
 /// Syntax colours as a **role mapping onto the ANSI ring**, not as new hex per palette.
 ///
-/// **Why a mapping.** Two of the three shipped palettes are declared verbatim upstream
+/// **Why a mapping.** Three of the five shipped palettes are declared verbatim upstream
 /// ports, and `ThemeValues.swift` states the contract they are held to: *"a preset's job is
 /// to be the thing it claims to be — silently 'fixing' a port makes it a different theme
-/// wearing the same name."* Inventing ten syntax colours for `afk-dark` and `tokyo-night`
-/// would break precisely that. A mapping invents nothing and inherits whatever legibility
-/// the palette was already measured for. Note the limit, because the obvious next sentence
-/// is false today: this does NOT yet work for hex a user typed. Overrides are applied to
-/// `Theme` (NSColor) by `Config+Theme.swift` after `Theme.init(_:)` has run, and there is no
-/// `Theme`→`ThemePalette` conversion, so `colour(_:in:)` below is reachable only from the
-/// three shipped presets. Whoever writes the highlighter (#28) needs that bridge first, or
-/// the config's colours and the editor's will disagree. It is also what the surrounding
+/// wearing the same name."* Inventing ten syntax colours for those ports would break precisely
+/// that. A mapping invents nothing and inherits whatever legibility the palette was already
+/// measured for. Note the limit, because the obvious next sentence is false today: this does
+/// NOT yet work for hex a user typed. Overrides are applied to `Theme` (NSColor) by
+/// `Config+Theme.swift` after `Theme.init(_:)` has run, and there is no `Theme`→`ThemePalette`
+/// conversion, so `colour(_:in:)` below is reachable only from the five shipped presets.
+/// Whoever writes the highlighter (#28) needs that bridge first, or the config's colours and
+/// the editor's will disagree. It is also what the surrounding
 /// ecosystem does: base16, every 16-colour vim
 /// scheme, `bat --theme=ansi` and `delta` all express syntax as ANSI roles, so the editor
 /// ends up agreeing with the tools running in the terminal beside it.
@@ -65,9 +65,10 @@ enum SyntaxRole: String, CaseIterable {
 /// and every member of it uses the same slot set: **green, yellow, blue, cyan**. Red and
 /// magenta are excluded by the numbers rather than by taste — under `afk-dark` both measure
 /// APCA Lc 41.4, below the Lc 45 floor at which text stops being readable at any size. Two
-/// consequences fell out and both are wanted: the four roles clear the floor in all three
-/// palettes, and **red stays free**, which is the colour an editor will want for diagnostics
-/// and a diff for deletion. Spending it on `number` would have been the expensive mistake.
+/// consequences fell out and both are wanted: the four chromatic roles clear the floor in
+/// every palette (the separate comment role has one pinned Classic Repaired gap), and **red
+/// stays free**, which is the colour an editor will want for diagnostics and a diff for
+/// deletion. Spending it on `number` would have been the expensive mistake.
 ///
 /// **Which member of the tie.** Numbers could not choose, so convention did: `string` =
 /// green is close to universal (base16 `0B`, `grep`'s match, a diff's addition), and
@@ -129,10 +130,10 @@ enum SyntaxPalette {
     /// nobody can read is the worst outcome available here.
     ///
     /// So: use ANSI 8 when it is legible, and otherwise fall back to the foreground drawn at
-    /// `commentAlpha`, which de-emphasises without going invisible. The clamp fires for two of
-    /// the three shipped palettes and lands them at Lc 46.3 (tokyo-night) and 47.4 (afk-dark);
-    /// umber takes the raw path at 51.5. All three stay 27.5…35.5 Lc below body text, so a
-    /// comment still reads as secondary rather than as code.
+    /// `commentAlpha`, which de-emphasises without going invisible. Across the five shipped
+    /// palettes the clamp fires for three: Tokyo Night lands at Lc 46.3, AFK Dark at 47.4, and
+    /// Classic Repaired at its pinned Lc 21.9 gap; Umber (51.5) and AFK Light (81.8) take the raw
+    /// path. Comments stay 17.7…35.5 Lc below body text, so they still read as secondary.
     ///
     /// This is a *clamp*, and clamps hide things, so note exactly what it does not do: it
     /// never touches hue and never nudges gamut, which is the harder unbuilt version AFK.md
