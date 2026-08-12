@@ -42,8 +42,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// is focused — consistent with the action above being a no-op there
     /// (PR #2 review, finding 4).
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard menuItem.action == #selector(saveDocument(_:)) else { return true }
-        return focusedSpace?.activeDocument?.documentIsEdited == true
+        let sel = menuItem.action
+        if sel == #selector(saveDocument(_:)) {
+            return focusedSpace?.activeDocument?.documentIsEdited == true
+        }
+        if sel == #selector(goToLine(_:)) {
+            return focusedSpace?.activeDocument is FileViewerPane
+        }
+        if sel == #selector(toggleWordWrap(_:)) {
+            guard let viewer = focusedSpace?.activeDocument as? FileViewerPane else {
+                menuItem.state = .off
+                return false
+            }
+            menuItem.state = viewer.isWrapping ? .on : .off
+            return true
+        }
+        return true
     }
 
     /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
@@ -261,4 +275,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func resetFont(_ sender: Any?) {
         for document in allDocuments { document.resetFontSize() }
     }
+
+    // MARK: - Editor actions
+
+    /// ⌘L — go to a line in the focused file viewer. Terminals do not answer.
+    @objc func goToLine(_ sender: Any?) {
+        guard let viewer = focusedSpace?.activeDocument as? FileViewerPane else { return }
+        viewer.goToLine(sender)
+    }
+
+    /// View → Word Wrap. Toggles soft-wrap on the focused file viewer.
+    @objc func toggleWordWrap(_ sender: Any?) {
+        guard let viewer = focusedSpace?.activeDocument as? FileViewerPane else { return }
+        viewer.setWrapping(!viewer.isWrapping)
+    }
+
 }

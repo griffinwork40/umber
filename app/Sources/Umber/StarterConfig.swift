@@ -43,6 +43,11 @@ enum StarterConfig {
       "// engine-caveat": "renderer above applies to swiftterm only; libghostty draws with its own renderer and ignores it.",
       "engine": "swiftterm",
 
+      "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
+      "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
+      "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
+      "// editor.wordWrap": "auto (default, wraps .md/.txt, not code) | on | off",
+
       "// theme": "OMITTED HERE, WHICH MEANS UMBER — since 2026-08-03 the built-in default is the umber palette, so leaving this out gives you a measured theme rather than the emulator's raw colours. Installing a palette does NOT harm the 256-colour cube: this app pins ansi256PaletteStrategy to .xterm before any colour, so indices 16-255 stay the standard xterm values whatever you set. Set preset to classic if you genuinely want no colours installed.",
       "// theme-example": {
         "preset": "umber",

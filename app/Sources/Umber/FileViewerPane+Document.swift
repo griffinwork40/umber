@@ -72,6 +72,14 @@ extension FileViewerPane: SpaceDocument {
         // hitting ⌘R changes the size here exactly as it does in a terminal
         // (`TerminalPane.apply(config:)`). A live ⌘+ zoom still outranks the file.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+        // Update the line-number gutter to match the new theme and font.
+        rulerView?.updateAppearance(
+            background: config.effectiveBackground,
+            foreground: config.effectiveForeground,
+            font: Self.resized(config.font, to: fontSize))
+        // Re-resolve wrap mode and tab width — the config may have changed both.
+        applyWrapping()
+        applyTabWidth()
         // Re-highlight: the theme may have changed, and the font re-set above cleared
         // attributed runs. Full re-tokenise rather than range-based, because a theme
         // change affects every token.

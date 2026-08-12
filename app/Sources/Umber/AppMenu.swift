@@ -166,6 +166,15 @@ extension AppDelegate {
             item.tag = tag
             editMenu.addItem(item)
         }
+        editMenu.addItem(.separator())
+        // Go to Line. ⌘L, the chord Xcode, BBEdit, Nova, CotEditor and Sublime all
+        // use. `target: nil` so AppKit walks the responder chain — `FileViewerPane`
+        // answers `goToLine:`, terminals do not, and the item greys itself out over
+        // a terminal automatically (nobody in the responder chain responds).
+        editMenu.addItem(
+            withTitle: "Go to Line…",
+            action: Selector(("goToLine:")), keyEquivalent: "l")
+
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
@@ -197,6 +206,14 @@ extension AppDelegate {
             keyEquivalent: "f")
         fullScreenItem.keyEquivalentModifierMask = [.control, .command]
         viewMenu.addItem(fullScreenItem)
+        viewMenu.addItem(.separator())
+        // Word Wrap toggle. No key equivalent — ⌘⇧W is Close Space. The menu
+        // item's state (checkmark) is managed by `validateUserInterfaceItem`; the
+        // action is answered by `AppDelegate.toggleWordWrap(_:)` or routed to the
+        // focused document through the responder chain.
+        viewMenu.addItem(
+            withTitle: "Word Wrap",
+            action: Selector(("toggleWordWrap:")), keyEquivalent: "")
         viewMenu.addItem(.separator())
         // No custom action and no target: the responder chain reaches
         // SpaceViewController, which is the window's contentViewController and
