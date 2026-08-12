@@ -110,8 +110,12 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// `chdir` entirely when the parameter is nil (`Pty.swift:101-104`) — so an
     /// unrooted pane inherits the app process's cwd as before.
     func start() {
+        var env = Terminal.getEnvironmentVariables()
+        env.append("TERM_PROGRAM=Umber")
+        env.append("TERM_PROGRAM_VERSION=0.1")
         view.startProcess(
-            executable: config.shell, args: ["-l"], currentDirectory: resolvedWorkingDirectory())
+            executable: config.shell, args: ["-l"],
+            environment: env, currentDirectory: resolvedWorkingDirectory())
         applyCursorStyle(config.cursorStyle)
     }
 

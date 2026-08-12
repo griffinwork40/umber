@@ -191,7 +191,7 @@ final class GhosttyPane: NSObject {
             backend: .exec,
             fontSize: Float(fontSize),
             workingDirectory: resolvedWorkingDirectory(),
-            envVars: [:])
+            envVars: ["TERM_PROGRAM": "Umber", "TERM_PROGRAM_VERSION": "0.1"])
         view.controller = controller
     }
 
