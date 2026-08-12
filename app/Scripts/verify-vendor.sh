@@ -65,6 +65,7 @@ PATCH="$REPO_ROOT/patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patc
 PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
 PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
 PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
+PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -78,7 +79,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -93,6 +94,8 @@ WANT_PATCHED="$(pin_value patched_package_swift)"
 WANT_UPSTREAM="$(pin_value upstream_package_swift)"
 WANT_BUFFER="$(pin_value patched_buffer_swift)"
 WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
+WANT_PARSER="$(pin_value patched_escape_seq_parser)"
+WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
 
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
@@ -201,4 +204,56 @@ if [[ "$GOT_BUFFER" != "$WANT_BUFFER" ]]; then
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 4 local patches"
+# --- third load-bearing check: is the ptmux passthrough patch applied? -----------
+# 0005 adds PtmuxDcsHandler.swift (new file) and extends dispatchDcs() in
+# EscapeSequenceParser.swift. A tree missing 0005 drops DCS Ptmux sequences silently
+# — OSC 52 clipboard, graphics, and custom sequences from apps like neovim running
+# inside tmux with allow-passthrough=on are lost, with no runtime error or log.
+PARSER="$VENDOR/Sources/SwiftTerm/EscapeSequenceParser.swift"
+if [[ ! -f "$PARSER" ]]; then
+  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/EscapeSequenceParser.swift -- incomplete checkout."
+  exit 1
+fi
+
+PTMUX_HANDLER="$VENDOR/Sources/SwiftTerm/PtmuxDcsHandler.swift"
+if [[ ! -f "$PTMUX_HANDLER" ]]; then
+  err "error: vendor/SwiftTerm is missing PtmuxDcsHandler.swift."
+  err ""
+  err "Patch 0005 adds this file and extends dispatchDcs() in EscapeSequenceParser.swift."
+  err "Without it DCS Ptmux sequences (OSC 52 clipboard, graphics, etc.) from apps"
+  err "inside tmux are silently dropped."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+  exit 2
+fi
+
+GOT_PARSER="$(sha256_of "$PARSER")"
+
+if [[ "$GOT_PARSER" == "$WANT_PARSER_UPSTREAM" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err ""
+  err "Patch 0005 adds a PtmuxDcsHandler branch to dispatchDcs() so that DCS Ptmux"
+  err "passthrough sequences (ESC P tmux;...) are decoded and re-fed to the terminal."
+  err "Without it, apps like neovim inside tmux with allow-passthrough=on lose all"
+  err "passthrough sequences silently."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+  exit 2
+fi
+
+if [[ "$GOT_PARSER" != "$WANT_PARSER" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift matches neither"
+  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err ""
+  err "  expected (patched): $WANT_PARSER"
+  err "  found:              $GOT_PARSER"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift"
+  err "  # then update patched_escape_seq_parser in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 5 local patches"

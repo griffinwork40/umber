@@ -1,0 +1,113 @@
+--- a/Sources/SwiftTerm/EscapeSequenceParser.swift
++++ b/Sources/SwiftTerm/EscapeSequenceParser.swift
+@@ -567,6 +567,13 @@
+             return Terminal.DECRQSS(terminal: terminal)
+         } else if collect.isEmpty && code == 0x71 {  // "q"
+             return SixelDcsHandler(terminal: terminal)
++        } else if collect.isEmpty && code == 0x74 {  // "t" -- first byte of "tmux;"
++            // SPIKE-LOCAL PATCH 0005: DCS Ptmux passthrough.
++            // tmux wraps inner sequences as: ESC P tmux ; ESC<inner-ESC-doubled> ESC \
++            // The 't' is the DCS final-byte that triggers this hook; "mux;" and the
++            // inner payload arrive via put(). PtmuxDcsHandler validates the prefix,
++            // un-doubles ESC bytes, and re-feeds the result to terminal.feed().
++            return PtmuxDcsHandler(terminal: terminal)
+         }
+         return nil
+     }
+--- /dev/null
++++ b/Sources/SwiftTerm/PtmuxDcsHandler.swift
+@@ -0,0 +1,94 @@
++//
++//  PtmuxDcsHandler.swift
++//
++//  SPIKE-LOCAL PATCH 0005 (not upstream): DCS Ptmux passthrough handler.
++//
++//  When tmux's `allow-passthrough on` is set, applications inside a tmux session
++//  wrap their escape sequences in a DCS Ptmux envelope:
++//
++//      ESC P tmux ; ESC <inner-sequence-with-ESC-doubled> ESC \
++//
++//  Every ESC byte inside the inner sequence is sent doubled (ESC ESC) so that the
++//  surrounding ST terminator (ESC \) is unambiguous. This handler:
++//    1. Detects the "tmux;" prefix in the accumulated data bytes.
++//    2. Un-doubles all ESC bytes (ESC ESC -> ESC).
++//    3. Re-feeds the recovered inner sequence to terminal.feed() as if it arrived
++//       directly from the PTY -- the same approach used by iTerm2, Ghostty, Kitty,
++//       and WezTerm.
++//
++//  Registration: EscapeSequenceParser.dispatchDcs() returns this handler when
++//  collect is empty and flag is 0x74 ('t'). The DCS state machine calls:
++//    * hook(collect:parameters:flag:) -- on DCS entry, resets the accumulation buffer
++//    * put(data:)                     -- feeds data bytes (called for "mux;..." onward)
++//    * unhook()                       -- on ST (ESC \), triggers processing
++//
++
++// DcsHandler is declared in EscapeSequenceParser.swift (same module, no import needed).
++
++class PtmuxDcsHandler: DcsHandler {
++    /// Bytes accumulated from put() calls. The first bytes will be "mux;" (the 't'
++    /// was consumed as the DCS final-byte that triggered the hook).
++    private var data: [UInt8] = []
++    unowned var terminal: Terminal
++
++    init(terminal: Terminal) {
++        self.terminal = terminal
++    }
++
++    // Called when DCS is entered. The 't' that matched this handler was the DCS
++    // final-byte; "mux;" and the inner payload arrive via put().
++    func hook(collect: cstring, parameters: [Int], flag: UInt8) {
++        data = []
++    }
++
++    func put(data: ArraySlice<UInt8>) {
++        self.data.append(contentsOf: data)
++    }
++
++    func unhook() {
++        // Prefix expected after 't': "mux;" -- i.e. the full string is "tmux;"
++        // where 't' was the DCS final-byte and "mux;" arrives here.
++        let prefix: [UInt8] = [0x6d, 0x75, 0x78, 0x3b] // m u x ;
++        guard data.count > prefix.count, data.prefix(prefix.count).elementsEqual(prefix) else {
++            // Not a tmux passthrough or malformed -- drop silently.
++            data = []
++            return
++        }
++
++        // Strip the "mux;" prefix; what remains is the inner sequence with ESC doubled.
++        let inner = data.dropFirst(prefix.count)
++
++        // Un-double ESC bytes: every 0x1b 0x1b pair becomes a single 0x1b.
++        var recovered: [UInt8] = []
++        recovered.reserveCapacity(inner.count)
++        var idx = inner.startIndex
++        while idx < inner.endIndex {
++            let byte = inner[idx]
++            if byte == 0x1b {
++                let next = inner.index(after: idx)
++                if next < inner.endIndex && inner[next] == 0x1b {
++                    // ESC ESC -> single ESC
++                    recovered.append(0x1b)
++                    idx = inner.index(after: next)
++                    continue
++                }
++                // Lone ESC at end -- include it as-is (defensive; should not happen
++                // in a well-formed tmux passthrough, but do not lose the byte).
++                recovered.append(0x1b)
++            } else {
++                recovered.append(byte)
++            }
++            idx = inner.index(after: idx)
++        }
++
++        data = []
++
++        guard !recovered.isEmpty else { return }
++
++        // Re-feed the recovered sequence through the terminal's input pipeline.
++        // This is safe to call from within a DCS handler: unhook() is invoked
++        // after the parser has already processed the ST terminator and returned
++        // to ground state, so the recursive feed does not re-enter a DCS context.
++        terminal.feed(byteArray: recovered)
++    }
++}

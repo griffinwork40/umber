@@ -142,3 +142,41 @@ upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f
 # reflow read-back API check-reflow.sh depends on lives here
 # (getBufferAsData, Terminal.swift:5947), so a change means re-checking that gate.
 terminal_swift = 7d29fe260ff9561ac827e3e145838005c1ad5306f5ca0d087fec2b813520ede9
+# EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
+# This is the hash verify-vendor.sh requires.
+#
+# What 0005 does: adds a PtmuxDcsHandler branch to dispatchDcs() for DCS sequences
+# with an empty collect and final-byte 't' (0x74). The DCS state machine already
+# handles ESC P -> dcsEntry and dispatches 't' as the final-byte with dcsHook,
+# making collect=[], code=0x74 the correct registration key. The handler buffers
+# all put() bytes, validates the "mux;" prefix on unhook(), un-doubles ESC pairs
+# (tmux's wire encoding), and re-feeds the inner sequence to terminal.feed().
+#
+# Severity: SILENT. A tree missing 0005 compiles, runs, and silently drops every
+# DCS Ptmux sequence — meaning OSC 52 clipboard, graphics, and custom sequences
+# from apps like neovim running inside tmux with allow-passthrough=on are lost.
+# There is no runtime error, no log entry, just a missing feature.
+#
+# The patch also adds PtmuxDcsHandler.swift (a new file). That file has no
+# upstream counterpart, so its absence means the build would fail (undefined
+# type) — making 0005 louder than 0004 about its own absence: missing the file
+# is a compile error, missing just the EscapeSequenceParser.swift change is silent.
+#
+# No behavioural gate script exists for 0005 (no tmux available in the build
+# environment). The hash pair below is the machine-verifiable equivalent: a tree
+# with the handler registered but not the file fails to compile; a tree with the
+# file but not the registration silently drops passthrough sequences and hits this
+# unknown-hash branch.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
+#   # then update patched_escape_seq_parser below
+patched_escape_seq_parser  = 5f1a11eb0d2523e4bd92b057f7293a3f1fa0f3f2be86efe714a9616668bd46ae
+
+# EscapeSequenceParser.swift as shipped upstream at v1.15.0.
+upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3aa2f34058e937a
+
+# PtmuxDcsHandler.swift — added by 0005, has no upstream counterpart.
+# This is purely documentary: if verify-vendor.sh ever checks for the file's
+# presence, this is the expected hash. A missing file is a compile error anyway.
+ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
