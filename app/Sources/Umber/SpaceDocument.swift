@@ -151,6 +151,12 @@ protocol SpaceDocument: AnyObject {
     /// returns to, and `windowDidBecomeKey()` is the only hook that sees that return.
     func clearAttention()
 
+    /// Propagate a window-level focus change to the terminal (DECSET 1004). SwiftTerm
+    /// fires `setTerminalFocus` only from first-responder changes; switching macOS
+    /// window tabs without cycling first-responder leaves tmux focus-events blind.
+    /// `GhosttyPane` inherits the default no-op — libghostty self-manages.
+    func notifyWindowFocus(_ focused: Bool)
+
     /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
     /// Implementors that can hold unsaved work MUST prompt here — every close path
     /// in the app funnels through it, so this is the single choke point between a
@@ -267,6 +273,8 @@ extension SpaceDocument {
     /// Paired with that default: a document with nothing to say has nothing to retire.
     /// `TerminalPane` and `GhosttyPane` both override with `status = .idle`.
     func clearAttention() {}
+    /// No-op for non-terminal documents and GhosttyPane (libghostty self-manages).
+    func notifyWindowFocus(_ focused: Bool) {}
 }
 
 /// The stored `documentDelegate` property on `TerminalPane` is the whole witness, so this
