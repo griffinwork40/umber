@@ -162,6 +162,9 @@ extension SpaceViewController {
         // named for fanning out rather than sharing a class between two concerns whose
         // intervals differ (750ms vs 2s).
         fileTree.stopGitFollow()
+        // Mirror of the focus-in fan in `windowDidBecomeKey()`: tell every terminal it
+        // lost focus so DECSET 1004 sends CSI O and tmux / vim see the window leave.
+        for document in documents { document.notifyWindowFocus(false) }
     }
 
     /// Re-poll immediately — see `DirectoryFollow.pollNow()` for why the timer's rhythm

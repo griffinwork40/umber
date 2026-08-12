@@ -131,6 +131,33 @@ extension TerminalPane: ShellHosting {
     }
 }
 
+// MARK: - Window-level focus events (DECSET 1004)
+
+extension TerminalPane {
+    /// Forward a window-level key notification to SwiftTerm's focus-events machinery.
+    ///
+    /// SwiftTerm wires `setTerminalFocus` only from `becomeFirstResponder`/
+    /// `resignFirstResponder` (`MacTerminalView.swift:1010-1027`). That is correct for
+    /// first-responder changes within a window but misses the macOS window-tab case:
+    /// switching Spaces fires `windowDidBecomeKey`/`windowDidResignKey` WITHOUT cycling
+    /// first responder, so tmux with `focus-events on` never sees the gain or loss, and
+    /// vim/neovim's `FocusGained`/`FocusLost` autocommands silently stop working.
+    ///
+    /// Called for every document in the Space — not just the active one — because the
+    /// focused pane is the one currently the first responder and SwiftTerm gates the
+    /// actual send on `sendFocus` (DECSET 1004): a pane that has not enabled focus
+    /// events is a no-op regardless (`Terminal.swift:578-583`).
+    ///
+    /// Placed here rather than in `TerminalPane.swift` because that file sits at
+    /// 346/350 lines — four lines of headroom, not enough for this block and its
+    /// doc comment. `ShellHosting.swift` already carries the `TerminalPane` shell-
+    /// capability conformance and is the correct file for a second TerminalPane
+    /// concern that would otherwise push the main file past the ceiling.
+    func notifyWindowFocus(_ focused: Bool) {
+        view.getTerminal().setTerminalFocus(focused)
+    }
+}
+
 // MARK: - Finding one in a Space
 
 /// The container's shell-host queries, here rather than in `SpaceViewController.swift`

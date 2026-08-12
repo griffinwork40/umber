@@ -319,5 +319,15 @@ final class SpaceViewController: NSSplitViewController {
         // that today, but the dot state is cheap to keep honest. After the line above, so
         // the cleared status is what gets drawn rather than the stale one.
         syncDocumentChrome()
+        // Propagate window-level focus-in to every document so DECSET 1004 focus events
+        // reach the terminal. SwiftTerm only fires `setTerminalFocus` from
+        // `becomeFirstResponder`/`resignFirstResponder` — switching macOS window tabs
+        // (Spaces) without changing first-responder leaves tmux focus-events blind.
+        // Fan over all documents, not just the active one: SwiftTerm gates the actual
+        // CSI I/O send on `sendFocus` (DECSET 1004), so a pane without focus events
+        // enabled is a no-op (`Terminal.swift:580`). `GhosttyPane` inherits the
+        // protocol default no-op — libghostty handles window focus via its own
+        // NSNotification observer registered in `AppTerminalView.viewDidMoveToWindow`.
+        for document in documents { document.notifyWindowFocus(true) }
     }
 }
