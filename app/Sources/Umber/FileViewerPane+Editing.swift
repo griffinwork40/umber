@@ -19,6 +19,7 @@ import AppKit
 extension FileViewerPane: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         setDirty(true)
+        highlightEditedParagraph()
     }
 }
 

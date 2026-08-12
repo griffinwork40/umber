@@ -9,11 +9,11 @@
 //  illegible. Painting the ranges needs AppKit and is therefore unreachable by any gate, so
 //  everything a gate could hold to a number lives here instead of there.
 //
-//  NO APP CONSUMER YET, and that is the intended ordering rather than an oversight: the
-//  colours become a measured claim before any code paints with them. The consumer is
-//  `FileViewerPane+Highlighting.swift`, which does not exist yet; the gate
-//  (`check-theme-contrast-harness.swift` §5k) is what exercises this file today. If that
-//  file never lands, this one should be deleted rather than left as decoration.
+//  The APP CONSUMER is `FileViewerPane+Highlighting.swift`, which reads the role→slot
+//  mapping and the comment-colour fallback to paint five syntax roles over source files
+//  in the editor. The colour decisions live here rather than there because this file is
+//  Foundation-only and gateable; the painting is AppKit-only and not. The gate
+//  (`check-theme-contrast-harness.swift` §5k) still exercises this file independently.
 //
 //  Side effect worth naming: this is the FIRST caller of `ThemeContrast` inside
 //  `Sources/Umber`. Until now that file was 204 lines of measurement compiled into the
