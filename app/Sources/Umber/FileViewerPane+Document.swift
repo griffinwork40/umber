@@ -69,6 +69,10 @@ extension FileViewerPane: SpaceDocument {
         // hitting ⌘R changes the size here exactly as it does in a terminal
         // (`TerminalPane.apply(config:)`). A live ⌘+ zoom still outranks the file.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+        // Re-highlight: the theme may have changed, and the font re-set above cleared
+        // attributed runs. Full re-tokenise rather than range-based, because a theme
+        // change affects every token.
+        highlightSyntax()
     }
 
     /// The theme's selection background, or nil when AppKit's system pair should stand.

@@ -16,10 +16,10 @@ protocol FileViewerPaneDelegate: AnyObject {
 /// The file tree shipped before there was anywhere to open a file into, so
 /// activating a row typed its path into the terminal and did nothing else: a
 /// picker wired to a hole. This closes it with a plain `NSTextView` — editing,
-/// undo and ⌘S, but no syntax highlighting and no tree-sitter. The plan's
-/// highlighting candidate, CodeEditSourceEditor, still self-describes as "not ready
-/// for production use" (plan §4.3), and it is a separate decision from whether you
-/// can type.
+/// undo, ⌘S, and regex-based syntax highlighting for the five roles
+/// `SyntaxPalette` defines (keyword, string, number, type, comment). No
+/// tree-sitter, no grammar bundles — a tokenizer that gets the easy 90% right
+/// and stays auditable, which is the honest trade for a viewer.
 ///
 /// **The hard part of editing here is not typing, it is the race.** This app's
 /// premise is that an agent is rewriting these same files in the terminal next
@@ -263,6 +263,7 @@ final class FileViewerPane: NSObject {
             ? config.effectiveForeground.withAlphaComponent(0.6)
             : config.effectiveForeground
         textView.insertionPointColor = config.theme?.cursor ?? config.effectiveForeground
+        highlightSyntax()
 
         let stamp = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         if let date = stamp?.contentModificationDate, let size = stamp?.fileSize {
