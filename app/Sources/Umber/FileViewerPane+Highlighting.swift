@@ -18,8 +18,10 @@
 //
 //  **Performance.** Highlighting runs on the full text after `reload` and on config
 //  change. For the 4 MiB / ~100k line cap `FileViewerPane` already enforces, this is
-//  well under a frame. `textDidChange` re-highlights only the edited paragraph, which
-//  is the cheapest scope `NSTextStorage` supports without a custom layout manager.
+//  well under a frame. `textDidChange` calls `highlightEditedParagraph`, which passes
+//  only the paragraph's text slice to `tokenise` — ~57 regex patterns run over one
+//  paragraph, not the whole file. Compiled `NSRegularExpression` objects are cached
+//  at file scope so the per-keystroke cost is matches-only, not compile-then-match.
 //
 //  Language detection (extension → family + keywords) lives in `SyntaxLanguage.swift`,
 //  pulled out when this file hit the 350-line ceiling. The seam is clean: that file
@@ -73,7 +75,7 @@ private func tokenise(_ text: NSString, family: LanguageFamily, keywords: Set<St
         findAll(#"'{3}[\s\S]*?'{3}"#, in: text, range: fullRange).forEach { add($0, .comment) }
         findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
     case .ruby:
-        findAll(#"=begin[\s\S]*?=end"#, in: text, range: fullRange).forEach { add($0, .comment) }
+        findAll(#"^=begin[\s\S]*?^=end"#, in: text, range: fullRange).forEach { add($0, .comment) }
         findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
     case .shell:
         findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
@@ -161,11 +163,24 @@ private func tokenise(_ text: NSString, family: LanguageFamily, keywords: Set<St
     return tokens
 }
 
+/// Cache for compiled regular expressions — the pattern set is fixed per language family,
+/// so compiling once and reusing eliminates the per-keystroke `NSRegularExpression` init cost.
+/// `nonisolated(unsafe)` is correct here: highlighting only ever runs on the main actor
+/// (called from `@MainActor` methods on `FileViewerPane`), so there is no concurrent access.
+private nonisolated(unsafe) var regexCache: [String: NSRegularExpression] = [:]
+
 /// All non-overlapping matches of a pattern in a string.
 private func findAll(_ pattern: String, in text: NSString,
                      range: NSRange) -> [NSRange] {
-    guard let regex = try? NSRegularExpression(
-        pattern: pattern, options: [.anchorsMatchLines]) else { return [] }
+    let regex: NSRegularExpression
+    if let cached = regexCache[pattern] {
+        regex = cached
+    } else {
+        guard let compiled = try? NSRegularExpression(
+            pattern: pattern, options: [.anchorsMatchLines]) else { return [] }
+        regexCache[pattern] = compiled
+        regex = compiled
+    }
     return regex.matches(in: text as String, range: range).map(\.range)
 }
 
@@ -175,7 +190,11 @@ extension FileViewerPane {
     /// Resolve the theme's syntax colours as `NSColor`, cached per config reload.
     /// Uses `theme.ansi` directly — the AppKit bridge — so no `ThemePalette` conversion
     /// is needed. Falls back through `SyntaxPalette.ansiIndex` for slot lookup.
+    /// The result is stored in `cachedSyntaxColours` (declared on `FileViewerPane` itself,
+    /// because extensions cannot hold stored properties) and recomputed only when
+    /// `apply(config:)` nils out that cache on a theme change.
     func syntaxColours() -> [SyntaxRole: NSColor]? {
+        if let cached = cachedSyntaxColours { return cached }
         guard let theme = config.theme else { return nil }
         var colours: [SyntaxRole: NSColor] = [:]
         for role in SyntaxRole.allCases {
@@ -202,7 +221,9 @@ extension FileViewerPane {
                 colours[role] = theme.ansi[index]
             }
         }
-        return colours.isEmpty ? nil : colours
+        let result = colours.isEmpty ? nil : colours
+        cachedSyntaxColours = result
+        return result
     }
 
     /// Apply syntax highlighting to the full text view contents.
@@ -216,7 +237,7 @@ extension FileViewerPane {
         guard let lang = languageForExtension(ext),
               let colours = syntaxColours() else { return }
 
-        let storage = textView.textStorage!
+        guard let storage = textView.textStorage else { return }
         let text = storage.string as NSString
         let fullRange = NSRange(location: 0, length: text.length)
 
@@ -242,7 +263,7 @@ extension FileViewerPane {
         guard let lang = languageForExtension(ext),
               let colours = syntaxColours() else { return }
 
-        let storage = textView.textStorage!
+        guard let storage = textView.textStorage else { return }
         let text = storage.string as NSString
         // Find the paragraph range around the insertion point.
         let selection = textView.selectedRange()
@@ -251,12 +272,16 @@ extension FileViewerPane {
 
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: config.effectiveForeground, range: paraRange)
-        let tokens = tokenise(text, family: lang.family, keywords: lang.keywords)
+        // Tokenise only the paragraph text so ~57 regex patterns do not run over
+        // the full file on every keystroke. Returned ranges are paragraph-local;
+        // offset to storage-global before applying.
+        let paraText = text.substring(with: paraRange) as NSString
+        let tokens = tokenise(paraText, family: lang.family, keywords: lang.keywords)
         for token in tokens {
-            // Only apply tokens that intersect the edited paragraph.
-            guard NSIntersectionRange(token.range, paraRange).length > 0 else { continue }
+            let globalRange = NSRange(location: paraRange.location + token.range.location,
+                                     length: token.range.length)
             if let colour = colours[token.role] {
-                storage.addAttribute(.foregroundColor, value: colour, range: token.range)
+                storage.addAttribute(.foregroundColor, value: colour, range: globalRange)
             }
         }
         storage.endEditing()

@@ -76,6 +76,12 @@ final class FileViewerPane: NSObject {
     /// refresh that finds a dirty buffer — so it cannot be `private(set)`.
     var hasExternalChange = false
 
+    /// Resolved theme colours for each syntax role — computed once per config
+    /// reload and reused on every keystroke. Nil until the first call to
+    /// `syntaxColours()` and reset to nil by `apply(config:)` on theme change.
+    /// Stored here (not in the extension) because extensions cannot hold stored properties.
+    var cachedSyntaxColours: [SyntaxRole: NSColor]?
+
     /// Write the file back as whatever it was read as. Re-encoding a Latin-1 or
     /// UTF-16 file to UTF-8 behind the user's back is a silent, whole-file diff.
     /// Settable because `+Editing` reassigns it when the user explicitly consents

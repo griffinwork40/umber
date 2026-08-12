@@ -32,6 +32,9 @@ extension FileViewerPane: SpaceDocument {
 
     func apply(config: AppConfig) {
         self.config = config
+        // Theme changed — invalidate the syntax-colour cache so `syntaxColours()`
+        // recomputes hex→RGB + APCA on the next call rather than serving stale values.
+        cachedSyntaxColours = nil
         scrollView.backgroundColor = config.effectiveBackground
         textView.backgroundColor = config.effectiveBackground
         textView.textColor = config.effectiveForeground

@@ -105,6 +105,9 @@ func languageForExtension(_ ext: String) -> (family: LanguageFamily, keywords: S
             "export", "source", "alias", "unalias", "set", "unset", "shift",
             "break", "continue", "eval", "exec", "trap", "readonly", "declare"])
     case "yml", "yaml", "toml":
+        // Accepted imprecision: `.shell` gives `#` comments, but the backtick
+        // template-literal pattern fires on these languages where backtick is not
+        // a string delimiter.
         return (.shell, [])
     case "html", "htm", "xml", "svg":
         return (.html, [])
