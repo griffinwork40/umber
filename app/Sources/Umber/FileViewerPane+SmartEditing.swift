@@ -41,14 +41,19 @@ extension FileViewerPane: NSTextViewDelegate {
         // Bracket / quote auto-pairing (single-character typed, no selection).
         if replacement.count == 1 && range.length == 0 {
             let ch = replacement.first!
+
+            // Skip-close for closing brackets/quotes: typing a closer when cursor sits on it.
+            if Self.isSkippableCloser(ch),
+               !isInsideStringOrComment(at: range.location),
+               let str = textView.string as NSString?,
+               range.location < str.length,
+               str.character(at: range.location) == ch.utf16.first! {
+                textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+                return false
+            }
+
+            // Auto-pair openers: insert opener + closer, place cursor between.
             if let close = Self.closerFor(ch) {
-                // Skip-close: typing a closer when cursor is already on it.
-                if ch == close, let str = textView.string as NSString?,
-                   range.location < str.length,
-                   str.character(at: range.location) == ch.asciiValue! {
-                    textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
-                    return false
-                }
                 // Don't pair inside strings or comments.
                 if !isInsideStringOrComment(at: range.location) {
                     let pair = "\(ch)\(close)"
@@ -67,8 +72,10 @@ extension FileViewerPane: NSTextViewDelegate {
             let before = range.location - 1
             let after = range.location
             if after < str.length {
-                let open = Character(UnicodeScalar(str.character(at: before))!)
-                let close = Character(UnicodeScalar(str.character(at: after))!)
+                guard let openScalar = UnicodeScalar(str.character(at: before)),
+                      let closeScalar = UnicodeScalar(str.character(at: after)) else { return true }
+                let open = Character(openScalar)
+                let close = Character(closeScalar)
                 if Self.closerFor(open) == close {
                     // Delete both characters.
                     textView.insertText("",
@@ -114,6 +121,7 @@ extension FileViewerPane: NSTextViewDelegate {
     // MARK: - Auto-pairing
 
     /// Returns the closing character for an opener, or nil.
+    /// Only openers are mapped here; closers are handled via `isSkippableCloser`.
     private static func closerFor(_ ch: Character) -> Character? {
         switch ch {
         case "{": return "}"
@@ -122,9 +130,16 @@ extension FileViewerPane: NSTextViewDelegate {
         case "\"": return "\""
         case "'": return "'"
         case "`": return "`"
-        // Close-bracket characters: return themselves so skip-close works.
-        case "}", ")", "]": return ch
         default: return nil
+        }
+    }
+
+    /// Returns true for characters that should skip-close (advance past) when
+    /// the cursor already sits on that character.
+    private static func isSkippableCloser(_ ch: Character) -> Bool {
+        switch ch {
+        case "}", ")", "]", "\"", "'", "`": return true
+        default: return false
         }
     }
 
