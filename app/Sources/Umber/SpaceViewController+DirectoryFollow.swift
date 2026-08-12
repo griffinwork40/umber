@@ -162,8 +162,12 @@ extension SpaceViewController {
         // named for fanning out rather than sharing a class between two concerns whose
         // intervals differ (750ms vs 2s).
         fileTree.stopGitFollow()
-        // Mirror of the focus-in fan in `windowDidBecomeKey()`: tell every terminal it
-        // lost focus so DECSET 1004 sends CSI O and tmux / vim see the window leave.
+        // Mirror of the focus-in event in `windowDidBecomeKey()` (in
+        // `SpaceViewController.swift`): tell every terminal it lost focus so DECSET 1004
+        // sends CSI O and tmux / vim see the window leave. The asymmetry is deliberate:
+        // become-key notifies only the active document (background tabs are not visible),
+        // resign-key notifies all — every terminal loses focus when the window leaves,
+        // regardless of which tab is showing.
         for document in documents { document.notifyWindowFocus(false) }
     }
 
