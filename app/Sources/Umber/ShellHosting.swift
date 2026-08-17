@@ -90,13 +90,17 @@ protocol ShellHosting: SpaceDocument {
     /// nil — blanking the sidebar because a shell exited is worse than showing a
     /// directory that is one `exit` stale.
     ///
-    /// A *property*, not a `directoryDidChange` callback, because there is nothing to
-    /// push from: OSC 7 — the notification-shaped answer, which SwiftTerm already parses
-    /// into `hostCurrentDirectoryUpdate` — never fires under Umber, for the reason
-    /// documented at length in `ShellDirectory.swift`'s header (macOS's emitter is gated
-    /// on `TERM_PROGRAM == Apple_Terminal`, which SwiftTerm does not set). With no event
-    /// to subscribe to, the honest shape is a value the container polls, and
-    /// `SpaceViewController+DirectoryFollow.swift` owns that polling.
+    /// A *property*, not a `directoryDidChange` callback, because polling is the fallback
+    /// rather than the primary path. OSC 7 — the notification-shaped answer, which SwiftTerm
+    /// already parses into `hostCurrentDirectoryUpdate` — fires whenever the user sources
+    /// `shell-integration.zsh`, which emits `ESC ] 7 ; file://hostname/path BEL` in its
+    /// precmd hook. `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`)
+    /// fills that body and stores the path in `_reportedDirectory`. Without the script, a stock
+    /// zsh under Umber emits no OSC 7 (macOS's emitter is gated on `TERM_PROGRAM == Apple_Terminal`,
+    /// which SwiftTerm does not set — documented at length in `ShellDirectory.swift`'s header),
+    /// so the kernel poll remains the honest shape for unintegrated shells. `currentDirectory`
+    /// prefers the OSC 7 value and falls back to the kernel poll, and
+    /// `SpaceViewController+DirectoryFollow.swift` owns that polling timer.
     var currentDirectory: URL? { get }
 }
 

@@ -64,7 +64,14 @@ let package = Package(
                 // operator has actually lived in the winner (§7 Phase 6).
                 .product(name: "GhosttyTerminal", package: "libghostty-spm"),
             ],
-            path: "Sources/Umber"
+            path: "Sources/Umber",
+            // `shell-integration.zsh` must be declared here so SwiftPM copies it into
+            // the product bundle and `Bundle.main.path(forResource:ofType:)` returns a
+            // non-nil path. Without this, `swift run Umber` and the release bundle both
+            // silently skip UMBER_INTEGRATION, and the zsh integration is never sourced.
+            // The path is relative to the target's `path` ("Sources/Umber"), so two levels
+            // up to the package root, then into Resources/.
+            resources: [.copy("../../Resources/shell-integration.zsh")]
         )
     ]
 )

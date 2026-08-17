@@ -31,16 +31,24 @@ _umber_osc() {
     printf '\033]%s\a' "$1"
 }
 
-# RFC 3986 percent-encode a path. Only the characters that are unsafe inside a
-# file:// URL are encoded; '/' is left unencoded (it is a path separator, not
-# data). Implemented in pure zsh so this file has no external dependency.
+# RFC 3986 percent-encode a path. Only the characters that are safe inside a
+# file:// URL are left as-is; '/' is left unencoded (it is a path separator,
+# not data). Encoding operates over UTF-8 BYTES, not Unicode code points —
+# `printf '%02X'` of a multibyte character (e.g. 'é') yields the code-point
+# value (0xE9), not the two UTF-8 bytes (0xC3 0xA9), producing a malformed URL
+# that fails percent-decoding. The LC_ALL=C trick forces a byte-at-a-time walk
+# so non-ASCII characters encode correctly: café → %C3%A9, 日 → %E6%97%A5.
 _umber_urlencode() {
-    local string="$1" encoded="" i char
+    local string="$1" encoded="" byte
+    # LC_ALL=C makes the shell treat the string as raw bytes (one character =
+    # one octet), so ${string:$i:1} yields exactly one UTF-8 byte per iteration.
+    local LC_ALL=C
+    local i
     for (( i = 0; i < ${#string}; i++ )); do
-        char="${string:$i:1}"
-        case "$char" in
-            [a-zA-Z0-9_.~/-]) encoded+="$char" ;;
-            *) encoded+=$(printf '%%%02X' "'$char") ;;
+        byte="${string:$i:1}"
+        case "$byte" in
+            [a-zA-Z0-9_.~/-]) encoded+="$byte" ;;
+            *) encoded+=$(printf '%%%02X' "'$byte") ;;
         esac
     done
     printf '%s' "$encoded"

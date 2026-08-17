@@ -165,11 +165,12 @@ extension GhosttyPane:
         recordTitle(title)
     }
 
-    /// OSC 7. **This is the callback `TerminalPane` has never been able to fill.**
-    /// `TerminalPane.hostCurrentDirectoryUpdate` is a wired-but-empty body and provably must
-    /// be — see `ShellHosting.swift:97` — so the sidebar follows the shell by polling the
-    /// kernel every 750ms instead (`SpaceViewController+DirectoryFollow.swift`). Under this
-    /// engine the shell just says so, and the poller would be redundant for this pane.
+    /// OSC 7. **Both engine paths now handle OSC 7.**
+    /// `TerminalPane.hostCurrentDirectoryUpdate` is now filled (see `TerminalPane+ShellIntegration.swift`)
+    /// when the user sources `shell-integration.zsh`; for shells that have not sourced the script the
+    /// sidebar falls back to the kernel poll (`SpaceViewController+DirectoryFollow.swift`). Under this
+    /// engine libghostty ships its own shell integration and pushes OSC 7 with no rc-file cooperation,
+    /// so the poller is redundant for this pane regardless.
     ///
     /// **OBSERVED, 3/3 runs.** This comment previously said "NOT YET OBSERVED IN THIS APP"
     /// and cited `check-ghostty-pane.sh` reporting `pwd=-`; both the claim and the citation

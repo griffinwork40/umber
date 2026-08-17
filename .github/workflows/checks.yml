@@ -92,6 +92,7 @@ jobs:
             check-engine-config.sh \
             check-renderer-config.sh \
             check-command-outcome.sh \
+            check-shell-integration.sh \
             check-cwd-follow.sh \
             check-git-status.sh \
             check-theme-contrast.sh \

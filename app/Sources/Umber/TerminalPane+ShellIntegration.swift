@@ -45,6 +45,17 @@ extension Terminal: OscRegistering {}
 
 // MARK: - TerminalPane shell integration
 
+// MARK: - UMBER_DIAG helper
+
+/// Emit a diagnostic line to stderr when `UMBER_DIAG` is set in the environment.
+/// Scoped to this file — internal helpers in other files (`GhosttyPane.diag`) are
+/// not reachable here since `diag` is a method on `GhosttyPane`, not a free function.
+/// Mirrors `GhosttyPane.diag` (`GhosttyPane.swift:274-277`) but labels the engine.
+private func termDiag(_ message: String) {
+    guard ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil else { return }
+    FileHandle.standardError.write(Data("[diag] swiftterm: \(message)\n".utf8))
+}
+
 @MainActor
 extension TerminalPane {
 
@@ -106,6 +117,13 @@ extension TerminalPane {
                     isActiveDocument: self.isActiveDocument
                 )
                 self.applyCommandOutcome(outcome)
+                // Match the diag style of GhosttyPane+Document.swift:255-260 so both
+                // engine paths are equally observable under UMBER_DIAG=1.
+                termDiag("""
+                    OSC 133 command finished: exit=\(exitCode.map(String.init) ?? "nil") \
+                    in \(String(format: "%.1f", Double(nanos) / 1_000_000))ms \
+                    -> \(outcome)
+                    """)
             }
         }
         // Retain the state for the pane's lifetime. The handler closure already holds
@@ -136,7 +154,12 @@ extension TerminalPane {
     ///
     /// SwiftTerm delivers this via the full callback chain described in the file header.
     /// The shell-integration script emits `ESC ] 7 ; file://<host><percent-encoded-path> BEL`
-    /// in its precmd hook; SwiftTerm parses the URL and delivers the string to this method.
+    /// in its precmd hook. SwiftTerm delivers the raw OSC 7 payload (`file://hostname/path`)
+    /// without stripping the scheme or percent-decoding — the `parseOsc7Directory` call
+    /// below handles both. (An earlier comment claimed SwiftTerm stripped the scheme at
+    /// `Terminal.oscSetCurrentDirectory:1730-1742`; that is not what the source does — it
+    /// stores `txt` verbatim into `hostCurrentDirectory` and the `hasPrefix` branch here
+    /// is what actually strips it.)
     ///
     /// Storing in `_reportedDirectory` mirrors `GhosttyPane`'s `reportedDirectory` pattern:
     /// `ShellHosting.currentDirectory` answers from the stored value, and the 750ms kernel
@@ -150,31 +173,27 @@ extension TerminalPane {
     /// (one `tcgetpgrp` + one `proc_pidinfo` per 750ms) is unchanged; it just becomes
     /// redundant for panes that do source the script.
     func handleOsc7Directory(_ directory: String?) {
-        guard let raw = directory, !raw.isEmpty else { return }
-        // SwiftTerm delivers the directory string already decoded from the file:// URL
-        // (`Terminal.oscSetCurrentDirectory` at Terminal.swift:1730-1742 calls
-        // `hostCurrentDirectory = txt` after stripping the scheme).
+        guard let raw = directory,
+              // Delegate URL parsing to the Foundation-only `ShellIntegration.parseOsc7Directory`
+              // so the logic is gateable headlessly by `check-shell-integration.sh`.
+              // That function handles both `file://hostname/path` and bare-path forms,
+              // percent-decodes the path component, and returns nil for empty/invalid input.
+              let path = ShellIntegration.parseOsc7Directory(raw)
+        else { return }
         // Normalise the same way ShellDirectory.current does, so OSC 7 and the kernel
         // path compare equal and the poller's early-return fires correctly.
-        let path: String
-        if raw.hasPrefix("file://") {
-            // The raw OSC 7 payload is "file://hostname/path" — strip the scheme+host.
-            guard let url = URL(string: raw), let p = url.path.removingPercentEncoding,
-                  !p.isEmpty
-            else { return }
-            path = p
-        } else {
-            path = raw
-        }
         let url = URL(fileURLWithPath: path)
             .standardizedFileURL
             .resolvingSymlinksInPath()
         _reportedDirectory = url.path
+        termDiag("OSC 7 pwd -> \(url.path)")
     }
 
     // Internal storage — cannot add a stored property in an extension, so back it
     // with associated object storage keyed on a second static variable.
-    var _reportedDirectory: String? {
+    // `fileprivate(set)` restricts writes to this file — only `handleOsc7Directory`
+    // (above) is the writer; reads cross file boundaries for `ShellHosting.currentDirectory`.
+    fileprivate(set) var _reportedDirectory: String? {
         get { objc_getAssociatedObject(self, &TerminalPane.reportedDirectoryKey) as? String }
         set { objc_setAssociatedObject(
             self, &TerminalPane.reportedDirectoryKey,

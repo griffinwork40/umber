@@ -125,8 +125,16 @@ if !received.isEmpty {
     fail("D-before-C", "D before any C must be ignored; got \(received.count) callback(s)")
 }
 
-// 2. A clears the start-time guard
+// 2. A clears the start-time guard — falsification: set commandStartTime first so
+//    deleting the `commandStartTime = nil` line in handle(case "A") would expose the gap.
+//    Without priming commandStartTime, a fresh State already has it nil, so removing the
+//    nil-assignment in the A handler would still pass — the D would reach `guard let start`
+//    and bail, giving a false green. Priming forces a real clear.
+state.commandStartTime = Date()
 ShellIntegration.handle(data: asBytes("A"), state: state)
+if state.commandStartTime != nil {
+    fail("A-clears-start-time", "A must set commandStartTime to nil; got non-nil after A")
+}
 // D after A (still no C) → still ignored
 ShellIntegration.handle(data: asBytes("D;0"), state: state)
 if !received.isEmpty {
@@ -182,6 +190,44 @@ if !received.isEmpty {
 ShellIntegration.handle(data: asBytes("D;0"), state: state)
 received.removeAll()
 
+// ── parseOsc7Directory ────────────────────────────────────────────────────────
+
+// Basic file://localhost path
+let basic = ShellIntegration.parseOsc7Directory("file://localhost/Users/test")
+if basic != "/Users/test" {
+    fail("osc7-basic", "expected /Users/test, got \(String(describing: basic))")
+}
+
+// Percent-encoded path (UTF-8 multibyte: é = %C3%A9)
+let encoded = ShellIntegration.parseOsc7Directory("file://localhost/Users/test/caf%C3%A9")
+if encoded != "/Users/test/café" {
+    fail("osc7-percent-encoded", "expected /Users/test/café, got \(String(describing: encoded))")
+}
+
+// Path with spaces (%20)
+let spaces = ShellIntegration.parseOsc7Directory("file://localhost/Users/test/my%20dir")
+if spaces != "/Users/test/my dir" {
+    fail("osc7-spaces", "expected /Users/test/my dir, got \(String(describing: spaces))")
+}
+
+// Bare path (no scheme) — passthrough
+let bare = ShellIntegration.parseOsc7Directory("/Users/test")
+if bare != "/Users/test" {
+    fail("osc7-bare-path", "expected /Users/test, got \(String(describing: bare))")
+}
+
+// Empty string → nil
+let empty = ShellIntegration.parseOsc7Directory("")
+if empty != nil {
+    fail("osc7-empty", "expected nil for empty input, got \(String(describing: empty))")
+}
+
+// Invalid URL → nil
+let invalid = ShellIntegration.parseOsc7Directory("file://\u{00}/bad")
+if invalid != nil {
+    fail("osc7-invalid", "expected nil for invalid URL, got \(String(describing: invalid))")
+}
+
 // ── FALSIFICATION PIN ─────────────────────────────────────────────────────────
 // Remove the `guard let start = state.commandStartTime` guard in handle() and
 // this pin must turn red: D before any C would then fire the callback.
@@ -198,10 +244,11 @@ if falseCalled != 0 {
 // ── Summary ──────────────────────────────────────────────────────────────────
 if bad == 0 {
     print("  ok  parseExitCode: D/D;0/D;1/D;127/D;-1/D;130/D;0;extra/D;abc/D;")
-    print("  ok  state machine: D-before-C ignored, A resets, C→D delivers")
+    print("  ok  state machine: D-before-C ignored, A resets (start-time cleared), C→D delivers")
     print("  ok  state machine: nil exit code on bare D, non-zero exit codes")
     print("  ok  state machine: second D without C ignored (idle reset)")
     print("  ok  unknown bytes (B) silently ignored")
+    print("  ok  parseOsc7Directory: basic file:// path, percent-encoded UTF-8, spaces, bare path, empty→nil, invalid→nil")
     print("  ok  falsification pin: D-before-C guard confirmed load-bearing")
     print("\nall shell-integration cases passed")
 } else {

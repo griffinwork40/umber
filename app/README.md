@@ -41,6 +41,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-cwd-follow.sh    # does the sidebar follow the shell's cwd? — fast, headless
+./Scripts/check-shell-integration.sh # OSC 133 A/C/D state machine + parseOsc7Directory URL parsing — fast, headless
 ./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless

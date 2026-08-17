@@ -143,6 +143,50 @@ enum ShellIntegration {
     }
 }
 
+// MARK: - OSC 7 URL parsing
+
+extension ShellIntegration {
+
+    /// Parse an OSC 7 payload into a normalised POSIX path, or nil for invalid input.
+    ///
+    /// Accepts two forms:
+    ///   • `file://hostname/path` — the wire format emitted by `shell-integration.zsh` and
+    ///     returned by SwiftTerm's OSC 7 callback. The hostname component is stripped; only
+    ///     the path portion is returned (per RFC 8089 §2, a `file:` URI may carry any host
+    ///     for localhost equivalents — the terminal only cares about the path).
+    ///   • A bare POSIX path (no scheme) — accepted as a no-op passthrough, so callers need
+    ///     not branch on whether SwiftTerm has already decoded the URL.
+    ///
+    /// Percent-decoding is applied to the path component (`%20` → space, `%C3%A9` → é).
+    /// Empty, nil, and structurally invalid inputs all return nil rather than a partial path.
+    ///
+    /// Pure Foundation — no AppKit, no SwiftTerm. Compiled by `check-shell-integration.sh`
+    /// alongside `ShellIntegration.swift` so the logic is gateable headlessly.
+    static func parseOsc7Directory(_ raw: String) -> String? {
+        guard !raw.isEmpty else { return nil }
+
+        let path: String
+        if raw.hasPrefix("file://") {
+            // `file://hostname/path` — URL(string:) handles the parsing; .path gives
+            // the percent-decoded POSIX path. An invalid URL (e.g. stray BEL characters
+            // that SwiftTerm has not stripped) returns nil from URL(string:), which we
+            // propagate to the caller.
+            guard let url = URL(string: raw),
+                  let decoded = url.path.removingPercentEncoding,
+                  !decoded.isEmpty
+            else { return nil }
+            path = decoded
+        } else {
+            // Bare path (no scheme). Accept as-is, applying percent-decoding in case the
+            // shell emitted an encoded bare path.
+            path = raw.removingPercentEncoding ?? raw
+        }
+
+        guard !path.isEmpty else { return nil }
+        return path
+    }
+}
+
 // MARK: - OscRegistering protocol
 
 /// Thin protocol so `ShellIntegration` can call `registerOscHandler` without importing
