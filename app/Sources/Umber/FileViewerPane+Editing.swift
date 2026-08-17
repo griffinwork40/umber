@@ -1,6 +1,6 @@
 //
 //  FileViewerPane+Editing.swift
-//  Typing, saving, and the alerts that stand between a buffer and lost work.
+//  Saving and the alerts that stand between a buffer and lost work.
 //
 //  Its own file because this is the *dangerous* half of the viewer. Reading a
 //  file is fail-soft and reversible; writing one over an agent that rewrote it
@@ -8,20 +8,17 @@
 //  right here. Isolating the write path — `write()`, the encoding-change prompt,
 //  the overwrite prompt — means a reader auditing "can this destroy work?" reads
 //  one file, and `FileViewerPane.swift` stays about getting bytes on screen.
-//  `NSTextViewDelegate` rides along because its single callback exists only to
-//  raise the dirty flag this file owns.
+//
+//  `NSTextViewDelegate` used to ride along here for its single `textDidChange`
+//  callback. It moved to `+SmartEditing.swift` because `shouldChangeTextIn` (the
+//  hook for auto-indent, tab→spaces and bracket pairing) must live in the SAME
+//  extension as `textDidChange` — Swift requires one conformance per protocol —
+//  and that concern outgrew the save/alert file.
 //
 
 import AppKit
 
 // MARK: - Editing
-
-extension FileViewerPane: NSTextViewDelegate {
-    func textDidChange(_ notification: Notification) {
-        setDirty(true)
-        highlightEditedParagraph()
-    }
-}
 
 extension FileViewerPane {
     /// Was `fileprivate` when all of this lived in one file. It has to be internal

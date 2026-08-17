@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Materialise vendor/SwiftTerm from nothing: clone the pinned upstream, apply the
-# four local patches, and hand off to verify-vendor.sh for the verdict.
+# five local patches, and hand off to verify-vendor.sh for the verdict.
 #
 # Why this script exists: vendor/ is gitignored (.gitignore:20) but
 # app/Package.swift declares `.package(path: "../vendor/SwiftTerm")`, so a fresh
@@ -62,13 +62,15 @@ pin_value() {
 # build possible at all (it moves Shaders.metal off the offline `metal` compiler);
 # 0002 fixes SwiftTerm #494; 0003 fixes the alt-buffer bleed; 0004 stops an
 # ungated upstream debug assertion from calling abort() in RELEASE on every
-# resize. A tree missing any one of them is not the tree this project is tested
-# against, which is the whole reason the pin records hashes rather than a version.
+# resize; 0005 adds DCS Ptmux passthrough so tmux can forward SGR sequences. A
+# tree missing any one of them is not the tree this project is tested against,
+# which is the whole reason the pin records hashes rather than a version.
 PATCHES=(
   "0001-ship-metal-shader-as-copy-resource.patch"
   "0002-index-iswrapped-buffer-absolute.patch"
   "0003-trim-lines-on-narrowing-for-all-buffers.patch"
   "0004-gate-resize-post-condition-behind-debug.patch"
+  "0005-add-dcs-ptmux-passthrough.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
@@ -79,7 +81,7 @@ fi
 for p in "${PATCHES[@]}"; do
   if [[ ! -f "$PATCH_DIR/$p" ]]; then
     err "error: missing patches/swiftterm/$p"
-    err "       All four patches are required; see SwiftTerm.pin for why."
+    err "       All five patches are required; see SwiftTerm.pin for why."
     exit 1
   fi
 done

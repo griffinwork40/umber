@@ -50,6 +50,12 @@ private struct ConfigFile: Decodable {
     var mouseReporting: Bool?
     var renderer: String?
     var engine: String?
+    struct EditorSpec: Decodable {
+        var tabWidth: Int?
+        var softTabs: Bool?
+        var wordWrap: String?
+    }
+    var editor: EditorSpec?
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
@@ -110,6 +116,10 @@ struct AppConfig {
     /// child process. So editing this and hitting ⌘R affects the next ⌘T, not the tab you are
     /// looking at, and that is the honest behaviour rather than a limitation to work around.
     var engine: TerminalEngine
+    // Editor behaviour — see `Config+Editor.swift` for the resolver.
+    var tabWidth: Int
+    var softTabs: Bool
+    var wordWrap: WordWrapMode
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -214,7 +224,10 @@ struct AppConfig {
             optionAsMeta: true,
             mouseReporting: true,
             renderer: .default,
-            engine: .default
+            engine: .default,
+            tabWidth: 4,
+            softTabs: true,
+            wordWrap: .auto
         )
     }
 
@@ -308,6 +321,10 @@ struct AppConfig {
             }
         }
 
+        if let e = file.editor {
+            config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
+                               wordWrap: e.wordWrap)
+        }
         return config
     }
 
