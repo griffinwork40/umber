@@ -82,6 +82,14 @@ final class FileViewerPane: NSObject {
     /// Stored here (not in the extension) because extensions cannot hold stored properties.
     var cachedSyntaxColours: [SyntaxRole: NSColor]?
 
+    /// The line-number gutter. Stored here because extensions cannot hold stored
+    /// properties; created once in `init` and never recreated.
+    var rulerView: LineNumberRulerView?
+
+    /// Whether this document is currently soft-wrapping. Per-document runtime state
+    /// (not persisted). Defaults from config + file extension in `applyWrapping()`.
+    var isWrapping = false
+
     /// Write the file back as whatever it was read as. Re-encoding a Latin-1 or
     /// UTF-16 file to UTF-8 behind the user's back is a silent, whole-file diff.
     /// Settable because `+Editing` reassigns it when the user explicitly consents
@@ -117,10 +125,9 @@ final class FileViewerPane: NSObject {
         self.fontSize = FontZoom.override ?? config.font.pointSize
         super.init()
 
-        // Non-wrapping, horizontally scrollable: this is code, and soft-wrapping
-        // code re-flows indentation into nonsense. Every constant below is load
-        // bearing for that — an `NSTextView` wraps by default and only stops when
-        // the container is told it no longer tracks the view's width.
+        // Non-wrapping by default — the right choice for code, where soft-wrapping
+        // re-flows indentation into nonsense. `setWrapping(_:)` toggles this for
+        // markdown and prose; these constants set up the non-wrapping baseline.
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.maxSize = NSSize(
@@ -162,6 +169,14 @@ final class FileViewerPane: NSObject {
         // background is the point, so this view must actually paint it.
         scrollView.drawsBackground = true
         scrollView.autoresizingMask = [.width, .height]
+
+        // Line-number gutter. Installed before `apply(config:)` so the first
+        // `updateAppearance` call in `apply` has a ruler to reach.
+        let ruler = LineNumberRulerView(textView: textView)
+        scrollView.verticalRulerView = ruler
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = true
+        rulerView = ruler
 
         apply(config: config)
         reload(preservingScroll: false)
@@ -292,6 +307,8 @@ final class FileViewerPane: NSObject {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
+
+    // MARK: - Helpers
 
     /// Same trick as `TerminalPane.resized` — see `AppConfig.resized(_:to:)` for why
     /// this cannot go through `NSFont(name:size:)`.
