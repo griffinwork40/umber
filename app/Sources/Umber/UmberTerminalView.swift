@@ -1,6 +1,6 @@
 //
 //  UmberTerminalView.swift
-//  SwiftTerm's view, plus this app's own key handling.
+//  SwiftTerm's view, plus this app's own key handling and link policy.
 //
 
 import AppKit
@@ -35,6 +35,54 @@ protocol UmberTerminalViewDelegate: AnyObject {
 }
 
 final class UmberTerminalView: LocalProcessTerminalView {
+    // MARK: - Initialisation
+
+    /// Overrides the super's designated initialiser so we can set Umber's link
+    /// policy once, at construction time, rather than requiring `TerminalPane` to
+    /// reach into the view's properties after the fact.
+    ///
+    /// `super.init(frame:)` calls `setup()` (`MacLocalTerminalView.swift:73`), which
+    /// sets `terminalDelegate = self` and creates the `LocalProcess`. Both must exist
+    /// before link detection can run — specifically, the `terminal` property (a
+    /// `Terminal` instance) is created inside `TerminalView.init`, which `super` delegates
+    /// to — so setting these properties after the `super` call is required, not optional.
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Detect OSC 8 hyperlinks AND plain-text URLs via `.implicit`. The plain-text
+        // detector (`ghosttyImplicitLinkRegex`, `Terminal.swift:6204`) matches many
+        // schemes from raw output — https, mailto, ftp, file, ssh, git, tel, magnet,
+        // and more — not only http(s). Safety for every detected link is enforced
+        // downstream by `openSafeURL`'s scheme allow-list (see `TerminalPane+Links.swift`).
+        // Set explicitly rather than relying on the SwiftTerm default so a future upstream
+        // change to that default cannot silently disable URL clicking.
+        // Source: `Mac/MacTerminalView.swift:889-890`.
+        linkReporting = .implicit
+        // Underline only on ⌘+hover; activate only when highlighted. This is the
+        // standard macOS convention (Terminal.app, iTerm2, Ghostty all use it):
+        // plain clicks stay free for text selection and mouse reporting, and ⌘ is
+        // the intentional "I want the link" gesture. Source: `Mac/MacTerminalView.swift:893`.
+        linkHighlightMode = .hoverWithModifier
+    }
+
+    /// Required companion to the frame-based initialiser above.
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("UmberTerminalView: use init(frame:)") }
+
+    // MARK: - Link activation
+
+    /// Override the inherited `requestOpenLink` to route through `openSafeURL(_:)`,
+    /// which filters to safe schemes and logs under `UMBER_DIAG`.
+    ///
+    /// `LocalProcessTerminalView` is its own `TerminalViewDelegate` and provides a
+    /// default `requestOpenLink` that calls `openLink(_:)` → `NSWorkspace.shared.open`.
+    /// We override rather than replace so the subclass controls every outbound URL
+    /// without needing to reassign `terminalDelegate` (explicitly warned against in
+    /// `MacLocalTerminalView.swift:59-64`). See `TerminalPane+Links.swift` for the
+    /// full architecture and rationale.
+    override func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+        openSafeURL(link)
+    }
+
     /// Separate from `processDelegate` because the bell is *not* on
     /// `LocalProcessTerminalViewDelegate` — that protocol carries exactly four
     /// members (`MacLocalTerminalView.swift:14-43`: sizeChanged,
