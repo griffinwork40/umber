@@ -91,6 +91,7 @@ jobs:
             check-cursor-style.sh \
             check-engine-config.sh \
             check-renderer-config.sh \
+            check-links.sh \
             check-command-outcome.sh \
             check-cwd-follow.sh \
             check-git-status.sh \
