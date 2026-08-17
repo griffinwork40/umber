@@ -226,12 +226,11 @@ extension GhosttyPane:
 
     /// OSC 133 — a command inside the live shell finished, with its exit code and duration.
     ///
-    /// **This is the signal `DocumentStatus` was designed around and has never been able to
-    /// receive.** That enum models `.running`, `.succeeded` and `.failed` and marks all three
-    /// "Not wired", each annotated with the libghostty delegate that would populate it — this
-    /// one. Building OSC 133 parsing on SwiftTerm to reach them was costed at ~3 days of work
-    /// that would be written twice, so the presentation was built and the signal was left for
-    /// the engine that already emits it.
+    /// **Now wired on both engine paths.** The SwiftTerm path uses `ShellIntegration.swift`
+    /// + `TerminalPane+ShellIntegration.swift` (custom OSC handler registered via
+    /// `Terminal.registerOscHandler(code: 133)`). This libghostty path receives the same
+    /// three events through `TerminalSurfaceCommandFinishedDelegate` with no parsing needed.
+    /// Both paths route through the same `CommandOutcome.of` decision function.
     ///
     /// **Now wired, and the three questions Phase 3 left open are answered in
     /// `CommandOutcome.swift`** — how long a success must run to be worth marking (10s, a

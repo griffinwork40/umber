@@ -35,7 +35,8 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// Only `.idle` and `.attention` are reachable today; see `DocumentStatus` for
     /// which libghostty delegate fills each of the others in and why building OSC 133
     /// parsing here now would be work done twice (probe plan §6.2).
-    private(set) var status: DocumentStatus = .idle {
+    // Internal setter: cross-file extension `TerminalPane+ShellIntegration` sets this on OSC 133 D.
+    var status: DocumentStatus = .idle {
         didSet {
             guard status != oldValue else { return }
             documentDelegate?.documentDidChangeStatus(self)
@@ -113,10 +114,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         var env = Terminal.getEnvironmentVariables()
         env.append("TERM_PROGRAM=Umber")
         env.append("TERM_PROGRAM_VERSION=0.1")
-        view.startProcess(
-            executable: config.shell, args: ["-l"],
+        appendShellIntegrationEnv(&env)  // UMBER_INTEGRATION — see TerminalPane+ShellIntegration
+        view.startProcess(executable: config.shell, args: ["-l"],
             environment: env, currentDirectory: resolvedWorkingDirectory())
         applyCursorStyle(config.cursorStyle)
+        registerShellIntegration()       // OSC 133 — see TerminalPane+ShellIntegration
     }
 
     /// The cwd to hand the shell, or nil to let it inherit the app's.
@@ -279,16 +281,15 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        // OSC 7. Not used yet; a future tab title could prefer it over OSC 0/2.
+        // OSC 7 — forward to the shell-integration extension, which normalises and
+        // stores the path so `ShellHosting.currentDirectory` prefers it over the
+        // kernel poll. Full chain in `TerminalPane+ShellIntegration.swift`.
+        handleOsc7Directory(directory)
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
-        // Deliberately does NOT set `.failed` on a non-zero exit code. This fires when
-        // the *shell itself* exits, at which point the pane is closing
-        // (`SpaceViewController.documentDidTerminate`) — a status on a tab about to
-        // vanish is a status nobody reads. `.failed` is for a failed *command* inside a
-        // live shell, which needs OSC 133 and arrives with libghostty's
-        // `TerminalSurfaceCommandFinishedDelegate` (probe plan §6.2).
+        // Does NOT set `.failed`: this fires when the *shell* exits (pane closing),
+        // not when a command inside it fails. `.failed` comes from OSC 133 D.
         documentDelegate?.documentDidTerminate(self)
     }
 }
@@ -323,13 +324,10 @@ extension TerminalPane {
     /// (`DocumentAreaViewController.present`), so having a superview *is* being presented. A
     /// cached flag would be a second copy of that fact with no "did become inactive" callback.
     ///
-    /// **`isKeyWindow`** — and is that Space the one on screen? Spaces are native macOS window
-    /// tabs, so one window of a tab group is visible at a time and superview alone is only an
-    /// *intra-Space* test: it stayed true for the selected tab of a **background** Space, which
-    /// then took `.ignore` from `CommandOutcome.of` (`CommandOutcome.swift:60`) and was never
-    /// marked — the marker silently off in the app's primary multi-project workflow. With this
-    /// half a background Space's selected tab marks correctly (PR #21 review, item 1).
-    fileprivate var isActiveDocument: Bool {
+    /// **`isKeyWindow`** — is that Space on screen? A background Space's selected tab
+    /// stayed true for the superview test alone, silently skipping the OSC 133 mark
+    /// (PR #21 review, item 1). Both halves together make it window-aware.
+    var isActiveDocument: Bool {
         view.superview != nil && view.window?.isKeyWindow == true
     }
 }

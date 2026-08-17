@@ -53,6 +53,15 @@ for bundle in "$BIN_DIR"/*.bundle; do
 done
 shopt -u nullglob
 
+# Shell-integration script. Bundled in Resources/ so TerminalPane.start() can
+# locate it via Bundle.main.path(forResource:ofType:) and set UMBER_INTEGRATION.
+SHELL_INT_SRC="$ROOT/Resources/shell-integration.zsh"
+if [[ -f "$SHELL_INT_SRC" ]]; then
+  cp "$SHELL_INT_SRC" "$APP/Contents/Resources/shell-integration.zsh"
+else
+  echo "==> warning: $SHELL_INT_SRC missing; shell-integration will not be available" >&2
+fi
+
 # App icon. Resources/Umber.icns is committed so a build needs no Python or
 # Pillow; regenerate it with Scripts/make-icon.py --icns when the design changes.
 ICON_SRC="$ROOT/Resources/$APP_NAME.icns"
