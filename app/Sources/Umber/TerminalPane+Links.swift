@@ -12,9 +12,9 @@
 //       .none     — no tracking at all
 //       .explicit — OSC 8 hyperlinks only (e.g. `\e]8;;https://…\a`)
 //       .implicit — OSC 8 first, then falls back to plain-text URL detection
-//     We use `.implicit` so that both OSC 8 payloads and bare http(s):// strings
-//     printed to the terminal are clickable without requiring the program to emit
-//     hyperlink escapes. Set in `UmberTerminalView.init(frame:)`.
+//     We use `.implicit` so that both OSC 8 payloads and bare URLs printed to the
+//     terminal are clickable without requiring the program to emit hyperlink escapes.
+//     Set in `UmberTerminalView.init(frame:)`.
 //     Source: `Apple/AppleTerminalView.swift:41-49`, `Mac/MacTerminalView.swift:889-890`.
 //
 //  2. HIGHLIGHTING. `view.linkHighlightMode` controls when underlines appear and
@@ -64,38 +64,44 @@ extension UmberTerminalView {
     ///
     /// WHY SCHEME-FILTER. `NSWorkspace.shared.open(url)` is a shell-open: it honours
     /// the URL's scheme and dispatches to whatever handler the user has registered.
-    /// `openLink(_:)` in the SwiftTerm default (`Mac/MacTerminalView.swift:3020-3025`)
-    /// accepts any string parseable as a `URL(string:)`, including `mailto:`,
-    /// `ftp:`, and custom schemes that could invoke unexpected applications. Filtering
-    /// to a known-safe list matches Terminal.app and Ghostty behaviour and means a
-    /// rogue program that emits an OSC 8 with a `javascript:` payload cannot trigger
-    /// anything outside a browser's own sandbox. `file://` is included because
-    /// programs legitimately emit build-output paths.
+    /// The base `openLink(_:)` in SwiftTerm (`Mac/MacTerminalView.swift:3020-3025`)
+    /// accepts any string parseable as a `URL(string:)` with no scheme check at all.
     ///
-    /// Implicit plain-text matches are always http/https (SwiftTerm's regex accepts
-    /// only those two: `Terminal.swift:5971`), so the filter is primarily a defence
-    /// against explicitly-crafted OSC 8 payloads.
+    /// The plain-text detector, `ghosttyImplicitLinkRegex` (`Terminal.swift:6204`),
+    /// matches many schemes from raw terminal output — `https?://`, `mailto:`, `ftp://`,
+    /// `file:`, `ssh:`, `git://`, `tel:`, `magnet:`, `ipfs://`, `gemini://`, and more.
+    /// OSC 8 payloads are arbitrary: a rogue program can emit any scheme it likes.
+    /// `openSafeURL`'s allow-list is therefore the PRIMARY defence for every detected
+    /// link — plain-text and OSC 8 alike — not a backstop for a narrow category.
+    ///
+    /// The allow-list is {https, http, file} (see `LinkScheme.allowed`). `file://` is
+    /// deliberately included to match Terminal.app and Ghostty: build tools and compilers
+    /// routinely emit `file://` paths as clickable output, and the required ⌘-hover-
+    /// then-click gesture plus Gatekeeper together bound the risk. `mailto`, `ftp`, `ssh`,
+    /// `javascript`, `data`, and all custom/unknown schemes are blocked because they
+    /// dispatch to arbitrary registered handlers.
     func openSafeURL(_ link: String) {
         guard let url = URL(string: link) else {
             if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
                 FileHandle.standardError.write(
-                    "[diag] link-click: not a valid URL — \(link)\n"
+                    "[diag] link-click: not a valid URL — \(link.count) chars\n"
                         .data(using: .utf8)!)
             }
             return
         }
-        let scheme = url.scheme?.lowercased() ?? ""
-        guard scheme == "https" || scheme == "http" || scheme == "file" else {
+        guard LinkScheme.isSafe(url.scheme) else {
             if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
+                let scheme = url.scheme ?? "?"
                 FileHandle.standardError.write(
-                    "[diag] link-click: scheme '\(scheme)' blocked — \(link)\n"
+                    "[diag] link-click: scheme '\(scheme)' blocked\n"
                         .data(using: .utf8)!)
             }
             return
         }
         if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
+            let loc = "\(url.scheme ?? "?")://\(url.host ?? "")"
             FileHandle.standardError.write(
-                "[diag] link-click: opening \(url.absoluteString)\n"
+                "[diag] link-click: opening \(loc)\n"
                     .data(using: .utf8)!)
         }
         NSWorkspace.shared.open(url)

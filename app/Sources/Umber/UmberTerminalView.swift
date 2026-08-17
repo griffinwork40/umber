@@ -48,10 +48,14 @@ final class UmberTerminalView: LocalProcessTerminalView {
     /// to — so setting these properties after the `super` call is required, not optional.
     override init(frame: NSRect) {
         super.init(frame: frame)
-        // Detect both OSC 8 payloads and plain-text http(s):// strings. `.implicit`
-        // is the SwiftTerm default, but we set it explicitly so this is an assertion
-        // rather than an accident: a future upstream change to the default should not
-        // silently disable URL clicking. Source: `Mac/MacTerminalView.swift:889-890`.
+        // Detect OSC 8 hyperlinks AND plain-text URLs via `.implicit`. The plain-text
+        // detector (`ghosttyImplicitLinkRegex`, `Terminal.swift:6204`) matches many
+        // schemes from raw output — https, mailto, ftp, file, ssh, git, tel, magnet,
+        // and more — not only http(s). Safety for every detected link is enforced
+        // downstream by `openSafeURL`'s scheme allow-list (see `TerminalPane+Links.swift`).
+        // Set explicitly rather than relying on the SwiftTerm default so a future upstream
+        // change to that default cannot silently disable URL clicking.
+        // Source: `Mac/MacTerminalView.swift:889-890`.
         linkReporting = .implicit
         // Underline only on ⌘+hover; activate only when highlighted. This is the
         // standard macOS convention (Terminal.app, iTerm2, Ghostty all use it):
