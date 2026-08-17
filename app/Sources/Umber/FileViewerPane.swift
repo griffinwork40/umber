@@ -66,9 +66,10 @@ final class FileViewerPane: NSObject {
 
     /// The body is an explanation ("…is a binary file."), not the file's contents.
     /// Gates editing — see rule 3 in the type comment.
-    /// `private(set)` because `reload` below is the only writer: `+Editing` can read
-    /// the gate that blocks its own `write()`, but cannot unlock it.
-    private(set) var isPlaceholder = true
+    /// Writable module-wide because `reload` — its single writer — now lives in
+    /// `+IO.swift` across a file boundary. The one-writer discipline is the real
+    /// invariant, not the access level (same trade as `isDirty`/`setDirty`).
+    var isPlaceholder = true
 
     /// Set when disk moved while the buffer was dirty. Not an error state: it means
     /// the next save has to ask before it overwrites someone else's work.
@@ -112,12 +113,14 @@ final class FileViewerPane: NSObject {
     /// in an agent workspace — would hang the app, not scroll slowly. 4 MiB is
     /// roughly 100k lines of source, far past anything worth reading in a viewer
     /// with no editor affordances.
-    private static let maxBytes = 4 << 20
+    /// Visible to `+IO.swift` where `read()` lives. Same promotion reason as
+    /// `isPlaceholder` — the reader crossed a file boundary.
+    static let maxBytes = 4 << 20
 
     /// A NUL in the first block is the same heuristic `git diff` uses to call a
     /// file binary, and for the same reason: no text encoding this viewer can
     /// render puts one there.
-    private static let sniffBytes = 8 << 10
+    static let sniffBytes = 8 << 10
 
     init(config: AppConfig, url: URL, frame: NSRect) {
         self.config = config
@@ -180,140 +183,5 @@ final class FileViewerPane: NSObject {
 
         apply(config: config)
         reload(preservingScroll: false)
-    }
-
-    // MARK: - Contents
-
-    /// Read the file, or explain why not.
-    ///
-    /// Mirrors `AppConfig.load()`'s fail-soft contract (AFK.md, Conventions): this
-    /// never throws and never shows an alert. A missing, huge, or binary file is an
-    /// ordinary thing to click in a file tree, so each one degrades to a legible
-    /// line of text in the document body — the tab still opens, the app still works.
-    private struct Contents {
-        let text: String
-        let isPlaceholder: Bool
-        let encoding: String.Encoding
-    }
-
-    private func read() -> Contents {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        let size = values?.fileSize ?? 0
-
-        if size > Self.maxBytes {
-            return tooLargePlaceholder(bytes: size)
-        }
-
-        guard let data = try? Data(contentsOf: url) else {
-            return Contents(
-                text: "Could not read \(url.lastPathComponent).", isPlaceholder: true,
-                encoding: .utf8)
-        }
-
-        // Re-check against what actually loaded, not just the pre-read stat above:
-        // the file can grow between that stat and this read completing — this
-        // app's own concurrent-agent-write premise — and trusting a stale "it was
-        // small a moment ago" would defeat the whole point of the guard
-        // (PR #2 review, finding 3).
-        if data.count > Self.maxBytes {
-            return tooLargePlaceholder(bytes: data.count)
-        }
-
-        if data.prefix(Self.sniffBytes).contains(0) {
-            return Contents(
-                text: "\(url.lastPathComponent) is a binary file.", isPlaceholder: true,
-                encoding: .utf8)
-        }
-
-        // UTF-8 first because it is essentially always the answer; the second
-        // attempt catches the Latin-1 and UTF-16 stragglers without which a
-        // legitimately-readable file would be mislabelled binary.
-        if let text = String(data: data, encoding: .utf8) {
-            return Contents(text: text, isPlaceholder: false, encoding: .utf8)
-        }
-        var encoding: String.Encoding = .utf8
-        if let text = try? String(contentsOf: url, usedEncoding: &encoding) {
-            return Contents(text: text, isPlaceholder: false, encoding: encoding)
-        }
-        return Contents(
-            text: "\(url.lastPathComponent) is not text in any encoding Umber recognises.",
-            isPlaceholder: true, encoding: .utf8)
-    }
-
-    /// Shared by both the pre-read stat check and the post-read TOCTOU re-check in
-    /// `read()`, so the message can't drift between the two call sites.
-    private func tooLargePlaceholder(bytes: Int) -> Contents {
-        let mb = Double(bytes) / Double(1 << 20)
-        return Contents(
-            text: "\(url.lastPathComponent) is \(String(format: "%.1f", mb)) MB — too large to view.\n"
-                + "Umber's viewer lays out the whole file at once, so it caps at "
-                + "\(Self.maxBytes >> 20) MB. Open it in the terminal instead.",
-            isPlaceholder: true, encoding: .utf8)
-    }
-
-    /// Pull the current bytes onto the screen.
-    ///
-    /// `preservingScroll` is what makes the refresh-on-focus behaviour tolerable:
-    /// an agent appending to a log you are reading should not fling you back to
-    /// line 1 every time you ⌘-tab into the window.
-    ///
-    /// Internal rather than private because both extensions reload: `+Document`'s
-    /// `refresh(diskChanged:)` on a clean buffer, and `+Editing`'s "Discard Mine and
-    /// Reload" branch. It stays the single way bytes reach the screen.
-    func reload(preservingScroll: Bool) {
-        let origin = scrollView.contentView.bounds.origin
-        let contents = read()
-        let text = contents.text
-        isPlaceholder = contents.isPlaceholder
-        savedEncoding = contents.encoding
-
-        textView.string = text
-        // Assigning `string` does not notify the delegate, so `isDirty` has to be
-        // cleared by hand — and the undo stack with it, or ⌘Z would "restore" text
-        // from a previous revision of a file that has since changed on disk.
-        textView.undoManager?.removeAllActions()
-        setDirty(false)
-        hasExternalChange = false
-        // Rule 3: an explanation is not the file, so it must not be savable.
-        textView.isEditable = !isPlaceholder
-        // Set the font after the string: assigning `string` on a plain-text view
-        // re-applies `font` to the whole run, but only if `font` is already set —
-        // ordering it the other way leaves placeholder text at the system default.
-        textView.font = Self.resized(config.font, to: fontSize)
-        textView.textColor = isPlaceholder
-            ? config.effectiveForeground.withAlphaComponent(0.6)
-            : config.effectiveForeground
-        textView.insertionPointColor = config.theme?.cursor ?? config.effectiveForeground
-        highlightSyntax()
-
-        let stamp = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        if let date = stamp?.contentModificationDate, let size = stamp?.fileSize {
-            loadedStamp = (date, size)
-        } else {
-            loadedStamp = nil
-        }
-
-        if preservingScroll {
-            // Force layout before scrolling: `NSTextView` lays out lazily, so the
-            // document is still zero-height at this point and the scroll would be
-            // clamped to the top. Optional-chained rather than force-unwrapped —
-            // no `try!`/`!` outside compile-time constants in this repo (AFK.md).
-            if let container = textView.textContainer {
-                textView.layoutManager?.ensureLayout(for: container)
-            }
-            // AppKit clamps if the file shrank past the old offset, which is the
-            // right answer — land at the new bottom rather than in blank space.
-            scrollView.contentView.scroll(to: origin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Same trick as `TerminalPane.resized` — see `AppConfig.resized(_:to:)` for why
-    /// this cannot go through `NSFont(name:size:)`.
-    /// Internal because `+Document`'s `setFontSize` resizes through it too.
-    static func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
-        AppConfig.resized(base, to: size)
     }
 }
