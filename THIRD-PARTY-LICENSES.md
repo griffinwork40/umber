@@ -29,7 +29,8 @@ Vendored at `vendor/SwiftTerm` (gitignored; materialise it with
 `app/Scripts/bootstrap-vendor.sh`). Umber applies **six local patches** from
 `patches/swiftterm/`, which are modifications to the original work: three fix upstream
 defects (scrollback corruption on narrowing, an alt-buffer resize bleed, and an ungated
-release-build `abort()`), one repackages the Metal shader as a copy resource. The patches
+release-build `abort()`), one repackages the Metal shader as a copy resource, one adds
+DCS Ptmux passthrough, and one gates linefeed's selection-clear on mouse mode. The patches
 are themselves MIT under this notice, and each carries its rationale in `SwiftTerm.pin`.
 
 ```

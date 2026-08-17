@@ -97,6 +97,7 @@ WANT_BUFFER="$(pin_value patched_buffer_swift)"
 WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
 WANT_PARSER="$(pin_value patched_escape_seq_parser)"
 WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
+WANT_PTMUX="$(pin_value ptmux_dcs_handler)"
 
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
@@ -254,6 +255,26 @@ if [[ "$GOT_PARSER" != "$WANT_PARSER" ]]; then
   err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
   err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift"
   err "  # then update patched_escape_seq_parser in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+# --- third-b check: is PtmuxDcsHandler.swift the expected file? ----------------
+# 0005 adds this file new; there is no upstream counterpart. The existence check
+# above catches a missing file (compile error), but a modified file would slip
+# through without this hash check.
+GOT_PTMUX="$(sha256_of "$PTMUX_HANDLER")"
+
+if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift does not match"
+  err "       the pinned hash. The file may have been edited or came from a different"
+  err "       version of the patch."
+  err ""
+  err "  expected: $WANT_PTMUX"
+  err "  found:    $GOT_PTMUX"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift"
+  err "  # then update ptmux_dcs_handler in patches/swiftterm/SwiftTerm.pin"
   exit 3
 fi
 
