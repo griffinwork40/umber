@@ -154,10 +154,13 @@ extension ShellIntegration {
     ///     returned by SwiftTerm's OSC 7 callback. The hostname component is stripped; only
     ///     the path portion is returned (per RFC 8089 §2, a `file:` URI may carry any host
     ///     for localhost equivalents — the terminal only cares about the path).
-    ///   • A bare POSIX path (no scheme) — accepted as a no-op passthrough, so callers need
-    ///     not branch on whether SwiftTerm has already decoded the URL.
+    ///   • A bare absolute POSIX path (no scheme) — accepted as a passthrough, so callers
+    ///     need not branch on whether SwiftTerm has already decoded the URL. Relative paths
+    ///     are rejected (they cannot be valid working directories).
     ///
-    /// Percent-decoding is applied to the path component (`%20` → space, `%C3%A9` → é).
+    /// For `file:` URIs, `.path` returns the already-decoded POSIX path (Foundation
+    /// percent-decodes it internally). No second `.removingPercentEncoding` is applied —
+    /// that would double-decode directories whose literal names contain `%` sequences.
     /// Empty, nil, and structurally invalid inputs all return nil rather than a partial path.
     ///
     /// Pure Foundation — no AppKit, no SwiftTerm. Compiled by `check-shell-integration.sh`
@@ -171,15 +174,14 @@ extension ShellIntegration {
             // the percent-decoded POSIX path. An invalid URL (e.g. stray BEL characters
             // that SwiftTerm has not stripped) returns nil from URL(string:), which we
             // propagate to the caller.
-            guard let url = URL(string: raw),
-                  let decoded = url.path.removingPercentEncoding,
-                  !decoded.isEmpty
+            guard let url = URL(string: raw), !url.path.isEmpty
             else { return nil }
-            path = decoded
+            // .path already percent-decodes (Foundation docs: "the path, unescaped").
+            path = url.path
         } else {
-            // Bare path (no scheme). Accept as-is, applying percent-decoding in case the
-            // shell emitted an encoded bare path.
-            path = raw.removingPercentEncoding ?? raw
+            // Bare path (no scheme). Only absolute paths are valid working directories.
+            guard raw.hasPrefix("/") else { return nil }
+            path = raw
         }
 
         guard !path.isEmpty else { return nil }

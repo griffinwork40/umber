@@ -210,10 +210,16 @@ if spaces != "/Users/test/my dir" {
     fail("osc7-spaces", "expected /Users/test/my dir, got \(String(describing: spaces))")
 }
 
-// Bare path (no scheme) — passthrough
+// Bare absolute path (no scheme) — passthrough
 let bare = ShellIntegration.parseOsc7Directory("/Users/test")
 if bare != "/Users/test" {
     fail("osc7-bare-path", "expected /Users/test, got \(String(describing: bare))")
+}
+
+// Relative path → nil (not a valid working directory)
+let relative = ShellIntegration.parseOsc7Directory("Users/test")
+if relative != nil {
+    fail("osc7-relative-path", "expected nil for relative path, got \(String(describing: relative))")
 }
 
 // Empty string → nil
@@ -248,7 +254,7 @@ if bad == 0 {
     print("  ok  state machine: nil exit code on bare D, non-zero exit codes")
     print("  ok  state machine: second D without C ignored (idle reset)")
     print("  ok  unknown bytes (B) silently ignored")
-    print("  ok  parseOsc7Directory: basic file:// path, percent-encoded UTF-8, spaces, bare path, empty→nil, invalid→nil")
+    print("  ok  parseOsc7Directory: basic file:// path, percent-encoded UTF-8, spaces, bare path, relative→nil, empty→nil, invalid→nil")
     print("  ok  falsification pin: D-before-C guard confirmed load-bearing")
     print("\nall shell-integration cases passed")
 } else {
