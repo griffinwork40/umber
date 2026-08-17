@@ -21,7 +21,7 @@
 //  colour-space conversions on `NSColor` with two consumers each, across files:
 //  `TerminalPane.apply(config:)` installs the palette and logs bg luminance
 //  (`TerminalPane.swift:86,111`), while `AppConfig.appearance` derives the window's
-//  light/dark chrome from it (`Config.swift`, "Derived chrome").
+//  light/dark chrome from it (`Config+Chrome.swift`).
 //
 
 import AppKit

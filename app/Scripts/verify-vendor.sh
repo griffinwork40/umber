@@ -105,15 +105,15 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all four patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all six patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL FOUR patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL SIX patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
-  err "panes on widening), and 0004 stops an upstream debug assertion from walking the whole"
-  err "scrollback and calling abort() in RELEASE builds on every resize; check-reflow.sh and"
-  err "check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
+  err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
+  err "adds DCS Ptmux passthrough, and 0006 keeps the selection alive at a plain prompt;"
+  err "check-reflow.sh and check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
   exit 1
 fi
 

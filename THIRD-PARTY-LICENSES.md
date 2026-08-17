@@ -14,7 +14,7 @@ which shows the work rather than asserting the conclusion.
 
 | Component | Version | License | Copyright |
 |---|---|---|---|
-| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | v1.15.0 + 4 local patches | MIT | Miguel de Icaza; the xterm.js authors; SourceLair; Christopher Jeffrey |
+| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | v1.15.0 + 6 local patches | MIT | Miguel de Icaza; the xterm.js authors; SourceLair; Christopher Jeffrey |
 | [Ghostty](https://github.com/ghostty-org/ghostty) (`libghostty`) | `35e1a01` via libghostty-spm 1.3.2 | MIT | Mitchell Hashimoto, Ghostty contributors |
 | [libghostty-spm](https://github.com/Lakr233/libghostty-spm) | 1.3.2 | MIT | @Lakr233 |
 | [MSDisplayLink](https://github.com/Lakr233/MSDisplayLink) | 2.1.0 | MIT | Lakr Aream |
@@ -26,7 +26,7 @@ its entry here too.
 ### SwiftTerm
 
 Vendored at `vendor/SwiftTerm` (gitignored; materialise it with
-`app/Scripts/bootstrap-vendor.sh`). Umber applies **four local patches** from
+`app/Scripts/bootstrap-vendor.sh`). Umber applies **six local patches** from
 `patches/swiftterm/`, which are modifications to the original work: three fix upstream
 defects (scrollback corruption on narrowing, an alt-buffer resize bleed, and an ungated
 release-build `abort()`), one repackages the Metal shader as a copy resource. The patches
