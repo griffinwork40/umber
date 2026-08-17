@@ -48,10 +48,21 @@ extension FileViewerPane {
 
     /// Install the configured tab width as the text view's tab stop interval.
     func applyTabWidth() {
+        // Guard: compare the desired interval against the one already on the text
+        // view before touching textStorage. apply(config:) calls this on every
+        // config push, including theme changes where tabWidth is unchanged. Without
+        // the guard, every such call performs an O(n) addAttribute walk over the
+        // full document for no visible effect. Swift extensions cannot hold stored
+        // properties, so we derive "already applied?" from the existing paragraph
+        // style rather than a tracking var.
         let charWidth = ("m" as NSString).size(
             withAttributes: [.font: textView.font ?? config.font]).width
+        let desiredInterval = charWidth * CGFloat(config.tabWidth)
+        if let existing = textView.defaultParagraphStyle,
+           abs(existing.defaultTabInterval - desiredInterval) < 0.5 { return }
+
         let ps = NSParagraphStyle.default.mutableCopy() as! NSMutableParagraphStyle
-        ps.defaultTabInterval = charWidth * CGFloat(config.tabWidth)
+        ps.defaultTabInterval = desiredInterval
         ps.tabStops = []    // Clear AppKit's default 28pt stops.
         textView.defaultParagraphStyle = ps
         // Re-apply to the existing text so literal \t chars render at the right width.

@@ -43,11 +43,15 @@ extension FileViewerPane: NSTextViewDelegate {
             let ch = replacement.first!
 
             // Skip-close for closing brackets/quotes: typing a closer when cursor sits on it.
+            // Guard-let ch.utf16.first rather than force-unwrapping: all skippable
+            // closers are BMP today, but a non-BMP entry in isSkippableCloser would
+            // produce an empty utf16 view and crash. The guard makes that safe.
             if Self.isSkippableCloser(ch),
                !isInsideStringOrComment(at: range.location),
                let str = textView.string as NSString?,
                range.location < str.length,
-               str.character(at: range.location) == ch.utf16.first! {
+               let codeUnit = ch.utf16.first,
+               str.character(at: range.location) == codeUnit {
                 textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
                 return false
             }

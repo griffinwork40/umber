@@ -33,7 +33,7 @@ extension FileViewerPane {
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         field.placeholderString = "Line number"
-        field.formatter = lineNumberFormatter
+        field.formatter = Self.lineNumberFormatter
         alert.accessoryView = field
         // Focus the text field so typing starts immediately.
         alert.window.initialFirstResponder = field
@@ -72,11 +72,15 @@ extension FileViewerPane {
     }
 
     /// Accepts positive integers only — no decimals, no negatives.
-    private var lineNumberFormatter: NumberFormatter {
+    ///
+    /// Static so the formatter is allocated once per process rather than once per
+    /// ⌘L invocation. NumberFormatter is expensive to construct (it loads locale
+    /// data), and its configuration here is stateless, so sharing is safe.
+    private static let lineNumberFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.allowsFloats = false
         f.minimum = 1
         f.maximum = NSNumber(value: Int.max)
         return f
-    }
+    }()
 }

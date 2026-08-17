@@ -111,9 +111,12 @@ final class LineNumberRulerView: NSRulerView {
         }
 
         // Frame changed → font zoom, wrap toggle, window resize.
+        // needsCacheRebuild is intentionally NOT set here: frame changes do not
+        // alter line positions (NSText.didChangeNotification owns that). Setting it
+        // here triggered an O(n) UTF-16 scan on every window resize and wrap toggle
+        // with no benefit — the existing cache is still correct.
         observe(NSView.frameDidChangeNotification, object: tv) { [weak self] in
             guard let self else { return }
-            self.needsCacheRebuild = true
             self.deferredThicknessUpdate()
             self.needsDisplay = true
         }
@@ -171,8 +174,13 @@ final class LineNumberRulerView: NSRulerView {
                 forGlyphRange: fragGlyphRange, actualGlyphRange: nil)
             guard charRange.location < textLength else { return }
 
-            let lineStart = (tv.string as NSString).lineRange(
-                for: NSRange(location: charRange.location, length: 0)).location
+            // cachedLineStarts already holds the logical line start for every
+            // line (built by rebuildCacheIfNeeded above). Reusing it avoids the
+            // O(k) UTF-16 scan that NSString.lineRange(for:) performs per fragment,
+            // turning the deduplication probe from O(visible_frags × line_len) to
+            // O(log n) (the binary search inside lineNumber(forCharLocation:)).
+            let lineStart = self.cachedLineStarts[
+                self.lineNumber(forCharLocation: charRange.location) - 1]
             guard !drawnStarts.contains(lineStart) else { return }
             drawnStarts.insert(lineStart)
 
