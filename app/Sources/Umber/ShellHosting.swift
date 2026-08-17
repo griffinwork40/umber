@@ -90,13 +90,17 @@ protocol ShellHosting: SpaceDocument {
     /// nil — blanking the sidebar because a shell exited is worse than showing a
     /// directory that is one `exit` stale.
     ///
-    /// A *property*, not a `directoryDidChange` callback, because there is nothing to
-    /// push from: OSC 7 — the notification-shaped answer, which SwiftTerm already parses
-    /// into `hostCurrentDirectoryUpdate` — never fires under Umber, for the reason
-    /// documented at length in `ShellDirectory.swift`'s header (macOS's emitter is gated
-    /// on `TERM_PROGRAM == Apple_Terminal`, which SwiftTerm does not set). With no event
-    /// to subscribe to, the honest shape is a value the container polls, and
-    /// `SpaceViewController+DirectoryFollow.swift` owns that polling.
+    /// A *property*, not a `directoryDidChange` callback, because polling is the fallback
+    /// rather than the primary path. OSC 7 — the notification-shaped answer, which SwiftTerm
+    /// already parses into `hostCurrentDirectoryUpdate` — fires whenever the user sources
+    /// `shell-integration.zsh`, which emits `ESC ] 7 ; file://hostname/path BEL` in its
+    /// precmd hook. `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`)
+    /// fills that body and stores the path in `_reportedDirectory`. Without the script, a stock
+    /// zsh under Umber emits no OSC 7 (macOS's emitter is gated on `TERM_PROGRAM == Apple_Terminal`,
+    /// which SwiftTerm does not set — documented at length in `ShellDirectory.swift`'s header),
+    /// so the kernel poll remains the honest shape for unintegrated shells. `currentDirectory`
+    /// prefers the OSC 7 value and falls back to the kernel poll, and
+    /// `SpaceViewController+DirectoryFollow.swift` owns that polling timer.
     var currentDirectory: URL? { get }
 }
 
@@ -110,21 +114,30 @@ extension TerminalPane: ShellHosting {
         view.send(txt: text)
     }
 
-    /// Asks the kernel, via `ShellDirectory` — not the emulator, and not the shell.
+    /// Where this pane's shell currently is.
+    ///
+    /// **Primary source: OSC 7** (when the user sources `shell-integration.zsh`).
+    /// `_reportedDirectory` is populated by `TerminalPane.handleOsc7Directory` every
+    /// time the shell emits `ESC ] 7 ; file://… BEL` in its precmd hook. That answer
+    /// is exact, instant, and requires no syscalls — it is the path the shell actually
+    /// has, not the path the kernel thinks the foreground process has.
+    ///
+    /// **Fallback: kernel poll** (when OSC 7 is absent — shells that have not sourced
+    /// the integration script, or between two consecutive OSC 7 reports while a
+    /// command is running). `ShellDirectory.current` asks `tcgetpgrp` + `proc_pidinfo`
+    /// for the foreground process group's cwd — the same mechanism that has always
+    /// driven `SpaceViewController+DirectoryFollow.swift`'s 750ms timer.
     ///
     /// `view.process` is SwiftTerm's `LocalProcess!`
-    /// (`vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacLocalTerminalView.swift:69`), an
-    /// implicitly-unwrapped optional that is genuinely nil between `init` and
-    /// `startProcess`, so it is bound with `guard let` rather than used directly: an
-    /// implicit force-unwrap here would trap on a pane whose shell has not started, which
-    /// is a state the tab strip can show for a whole frame.
-    ///
-    /// `childfd` is the pty's primary side and `shellPid` the login shell
-    /// (`LocalProcess.swift:67,70`); `ShellDirectory` prefers the pty's *foreground*
-    /// process group so the sidebar follows what the user is actually looking at, and
-    /// falls back to the shell itself. Both are read fresh on every call because both go
-    /// stale — the foreground group changes with every command the user runs.
+    /// (`MacLocalTerminalView.swift:69`), nil before `startProcess`, so it is bound
+    /// with `guard let` rather than force-unwrapped: a tab that has not started yet
+    /// must answer nil rather than trap.
     var currentDirectory: URL? {
+        // OSC 7 is primary — prefer an already-normalised shell-reported path.
+        if let reported = _reportedDirectory {
+            return URL(fileURLWithPath: reported)
+        }
+        // Kernel fallback — works on any shell regardless of integration script.
         guard let process = view.process else { return nil }
         return ShellDirectory.current(
             foregroundOf: process.childfd, fallbackPid: process.shellPid)

@@ -12,32 +12,32 @@ import AppKit
 /// ago and one failed — with the strip rendering all three identically. This is the
 /// model behind fixing that.
 ///
-/// **Deliberately larger than what is wired today.** Only `.idle` and `.attention`
-/// can be reached on the current foundation; `.running`, `.succeeded` and `.failed`
-/// are modelled but unreachable, each noted below with the libghostty delegate that
-/// will populate it. That is not speculative design — the replacement of SwiftTerm by
-/// libghostty is already decided (probe plan §6.2, verdict "proceed with D"), and the
-/// telemetry those cases need arrives with it as `TerminalSurfaceCommandFinishedDelegate`
-/// (`exitCode` + `durationNanos`) and `TerminalSurfaceBellDelegate`. Building OSC 133
-/// parsing on SwiftTerm to reach them now would be ~3 days of work written twice, so
-/// the presentation is built and the signals are wired only where they are cheap.
+/// **All five states are now reachable.** `.idle` and `.attention` were wired first
+/// (bell via `UmberTerminalViewDelegate`); `.succeeded` and `.failed` are now wired
+/// via OSC 133 (`ShellIntegration.swift` + `TerminalPane+ShellIntegration.swift`),
+/// fired when the shell sources `Resources/shell-integration.zsh`. `.running` is
+/// modelled for completeness but not yet surfaced in the tab strip — OSC 133 `A`/`C`
+/// are parsed and the state machine advances through it, but no UI reads it today.
+/// libghostty's `TerminalSurfaceCommandFinishedDelegate` remains the richer path
+/// (probe plan §6.2) for the engine that replaces SwiftTerm.
 ///
 /// Ordered by how loudly each one deserves to interrupt, so the strip can compare.
 enum DocumentStatus: Int, Comparable {
     /// Nothing to say. Every document's resting state.
     case idle = 0
 
-    /// Work in progress. **Not wired** — needs a command-start boundary, i.e. OSC 133
-    /// `A`/`C`, which arrives free as libghostty's
-    /// `TerminalSurfaceCommandFinishedDelegate` (§6.2) rather than being parsed here.
+    /// Work in progress. OSC 133 `A`/`C` advances through this state internally in
+    /// `ShellIntegration.State` but no tab-strip presentation is wired yet — the state
+    /// machine tracks it so future UI can read it without re-parsing the sequences.
     case running = 1
 
-    /// Finished cleanly. **Not wired** — same delegate, `exitCode == 0`. Worth having
-    /// separately from `.idle` because "your build is done" is information and
-    /// "nothing is happening" is not.
+    /// Finished cleanly. Wired via OSC 133 `D` → `CommandOutcome.of` → `.succeeded`
+    /// (exit 0, ran ≥ 10s) in `TerminalPane+ShellIntegration.swift`. Requires the
+    /// user to source `Resources/shell-integration.zsh`.
     case succeeded = 2
 
-    /// Finished badly. **Not wired** — same delegate, `exitCode != 0`.
+    /// Finished badly. Wired via OSC 133 `D` → `CommandOutcome.of` → `.failed`
+    /// (any non-zero exit). Requires the user to source `Resources/shell-integration.zsh`.
     case failed = 3
 
     /// The document is asking for you. Wired today, from the terminal bell: an agent

@@ -16,18 +16,19 @@
 //  — they are inverse halves of one contract, and the symlink normalisation the read
 //  applies is exactly what makes a write's echo compare equal and stop the loop.
 //
-//  WHY NOT OSC 7. SwiftTerm already parses OSC 7 and calls
-//  `hostCurrentDirectoryUpdate` (`vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift:1741`,
-//  bridged at `:6798`), and `TerminalPane.hostCurrentDirectoryUpdate` is a wired-but-
-//  empty callback that looks like the obvious home for this. It cannot work. macOS's
-//  OSC 7 emitter is `update_terminal_cwd` in `/etc/zshrc_Apple_Terminal` (`printf
-//  '\e]7;%s\a' "file://$HOST$url_path"` at :38, installed via `add-zsh-hook precmd`
-//  at :43), and `/etc/zshrc:74` sources that file only when `TERM_PROGRAM ==
-//  Apple_Terminal`. SwiftTerm's `Terminal.getEnvironmentVariables`
-//  (`Terminal.swift:5873`) sets no `TERM_PROGRAM` at all, so under Umber a stock zsh
-//  emits **zero** OSC 7 bytes and the callback can never fire. Implementing it would
-//  have been a body with no caller. Asking the kernel instead needs no shell
-//  cooperation, works on any shell, and cannot be defeated by a user's dotfiles.
+//  OSC 7 AND THE KERNEL POLL. The kernel poll implemented here is now the FALLBACK.
+//  `shell-integration.zsh` (Resources/) emits OSC 7 in its precmd hook; SwiftTerm
+//  parses it and calls `TerminalPane.hostCurrentDirectoryUpdate`, which stores the
+//  path in `_reportedDirectory` (`TerminalPane+ShellIntegration.swift`). When that
+//  value is present, `ShellHosting.currentDirectory` answers from it directly — no
+//  syscall, instant, exact. The kernel poll (`current(foregroundOf:fallbackPid:)`)
+//  fires only when `_reportedDirectory` is nil: shells that have not sourced the
+//  integration script, or between OSC 7 reports while a command is running.
+//
+//  The historical reason OSC 7 could not work (stock zsh gates the emitter on
+//  `TERM_PROGRAM == Apple_Terminal`, which Umber does not set) is resolved by
+//  shipping the integration script. The kernel path remains because it works on
+//  any shell and requires no user action.
 //
 
 import Darwin

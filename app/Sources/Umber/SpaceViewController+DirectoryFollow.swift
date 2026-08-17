@@ -9,16 +9,16 @@
 //  stored property lives over there, because Swift extensions cannot add stored
 //  properties; everything that property *does* is here.
 //
-//  WHY A POLLER AND NOT A CALLBACK. There is no event to subscribe to. OSC 7 is the
-//  notification-shaped answer and SwiftTerm already parses it into
-//  `hostCurrentDirectoryUpdate`, but it never fires under Umber: macOS's emitter is
-//  `update_terminal_cwd` in `/etc/zshrc_Apple_Terminal`, sourced by `/etc/zshrc:74`
-//  only when `TERM_PROGRAM == Apple_Terminal`, and SwiftTerm's
-//  `Terminal.getEnvironmentVariables` (`Terminal.swift:5873`) sets no `TERM_PROGRAM`.
-//  Full argument in `ShellDirectory.swift`'s header. Asking the kernel on a timer needs
-//  no shell integration, works on any shell, and cannot be broken by a user's dotfiles
-//  — the cost is a syscall pair every 750ms while a window is key, and nothing at all
-//  when it is not.
+//  WHY A POLLER AND NOT A CALLBACK. The poller is now the FALLBACK for shells that
+//  have not sourced `shell-integration.zsh`. When OSC 7 IS emitted (i.e. the user
+//  sources the script), `TerminalPane._reportedDirectory` is populated on every
+//  precmd, and `ShellHosting.currentDirectory` returns it directly — the poller
+//  still fires but `tick()` compares against `lastPushed` and early-returns without
+//  touching the view (no-op cost: one comparison per 750ms). For shells without the
+//  script, asking the kernel on a timer still needs no shell cooperation, works on
+//  any shell, and cannot be broken by a user's dotfiles — the cost is a syscall pair
+//  every 750ms while a window is key, and nothing when it is not. Full argument in
+//  `ShellDirectory.swift`'s header.
 //
 //  DATA FLOWS ONE WAY, WHICH IS WHAT MAKES THIS SAFE. The UI never moves the tree
 //  itself. "cd Here" and every other navigate affordance write a `cd` to the shell
