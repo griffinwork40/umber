@@ -180,3 +180,23 @@ upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3a
 # This is purely documentary: if verify-vendor.sh ever checks for the file's
 # presence, this is the expected hash. A missing file is a compile error anyway.
 ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
+
+# MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch.
+#
+# What 0006 fixes: upstream's linefeed(source:) callback clears the terminal
+# selection on every LF byte when `allowMouseReporting` is true — which it is by
+# default. Every OTHER allowMouseReporting guard in this file (mouseDown :2462,
+# mouseUp :2510, mouseDragged :2527, scrollWheel :2761) also checks
+# `terminal.mouseMode != .off`, but linefeed was the sole site that omitted it.
+# The effect: at a plain shell prompt (mouseMode == .off), every newline in the
+# output clears the selection before ⌘C can copy it.
+#
+# Severity: SILENT. A tree missing 0006 compiles, runs, and silently clears the
+# user's selection during normal output.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
+patched_mac_terminal_view  = 833799a01864b142dcd7ccc03b74892f0e44e1ec03256f8d27e294cec6b4025f
+
+# MacTerminalView.swift as shipped upstream at v1.15.0.
+upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041

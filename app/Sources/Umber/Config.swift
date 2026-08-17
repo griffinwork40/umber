@@ -47,6 +47,7 @@ private struct ConfigFile: Decodable {
     var scrollback: Int?
     var shell: String?
     var optionAsMeta: Bool?
+    var mouseReporting: Bool?
     var renderer: String?
     var engine: String?
 }
@@ -92,6 +93,12 @@ struct AppConfig {
     var scrollback: Int
     var shell: String
     var optionAsMeta: Bool
+    /// Whether programs may request mouse events (DECSET 1000/1002/1003). Default
+    /// `true`. When `false`, SwiftTerm's `allowMouseReporting` is cleared and clicks
+    /// always start text selection — programs like tmux and vim lose their mouse
+    /// support but the user can select and copy freely. The Shift-click bypass
+    /// (`shiftBypassesMouseReporting`) still works when this is `true`.
+    var mouseReporting: Bool
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
     /// why the default is the conservative one.
     var renderer: Renderer
@@ -205,6 +212,7 @@ struct AppConfig {
             scrollback: 1_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
             optionAsMeta: true,
+            mouseReporting: true,
             renderer: .default,
             engine: .default
         )
@@ -277,6 +285,7 @@ struct AppConfig {
             else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
         }
         if let meta = file.optionAsMeta { config.optionAsMeta = meta }
+        if let mr = file.mouseReporting { config.mouseReporting = mr }
         if let raw = file.renderer {
             if let r = Renderer.named(raw) { config.renderer = r }
             else {

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its four local patches applied.
+# WITH its six local patches applied.
 #
 # Why this exists: vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not a
 # git repo, app/Package.swift:20 is an unpinned `.package(path:)`, and
@@ -66,6 +66,7 @@ PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.
 PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
 PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
 PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -79,7 +80,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -256,4 +257,44 @@ if [[ "$GOT_PARSER" != "$WANT_PARSER" ]]; then
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 5 local patches"
+# --- fourth check: is the linefeed selection-clear patch applied? ---------------
+# 0006 gates linefeed's selection.selectNone() on terminal.mouseMode != .off so
+# that a plain shell prompt (mouseMode == .off) preserves the selection during
+# streaming output. Without it, every LF clears the selection before ⌘C fires.
+MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
+if [[ ! -f "$MTV" ]]; then
+  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Mac/MacTerminalView.swift -- incomplete checkout."
+  exit 1
+fi
+
+WANT_MTV="$(pin_value patched_mac_terminal_view)"
+WANT_MTV_UPSTREAM="$(pin_value upstream_mac_terminal_view)"
+GOT_MTV="$(sha256_of "$MTV")"
+
+if [[ "$GOT_MTV" == "$WANT_MTV_UPSTREAM" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err ""
+  err "Patch 0006 gates linefeed(source:)'s selection.selectNone() on"
+  err "terminal.mouseMode != .off. Without it, every newline in the terminal output"
+  err "clears the user's text selection — copy/paste feels broken even though ⌘C"
+  err "itself works correctly."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
+  exit 2
+fi
+
+if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift matches neither"
+  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err ""
+  err "  expected (patched): $WANT_MTV"
+  err "  found:              $GOT_MTV"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift"
+  err "  # then update patched_mac_terminal_view in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 6 local patches"

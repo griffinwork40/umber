@@ -1,0 +1,22 @@
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -876,8 +876,17 @@
+ 
+     open func linefeed(source: Terminal) {
+-        // Preserve manual selection while output is streaming when mouse reporting is disabled.
+-        if allowMouseReporting {
++        // Clear the selection when a mouse-reporting program is active, to avoid
++        // conflicts between the program's tracking and a dangling terminal selection.
++        // When no program has requested mouse events (mouseMode == .off), preserve
++        // the selection so the user can copy while output is streaming.
++        //
++        // SPIKE-LOCAL PATCH 0006: the upstream guard was `if allowMouseReporting`,
++        // which is true by default and independent of whether a program has actually
++        // requested mouse events. Every other allowMouseReporting guard in this file
++        // (mouseDown :2462, mouseUp :2510, mouseDragged :2527, scrollWheel :2761)
++        // also checks terminal.mouseMode; this was the sole site that omitted it,
++        // causing every LF at a plain shell prompt to clear the selection.
++        if allowMouseReporting && terminal.mouseMode != .off {
+             selection.selectNone()
+         }
+     }
