@@ -16,7 +16,7 @@ import AppKit
 // MARK: - SpaceDocument
 
 extension FileViewerPane: SpaceDocument {
-    var documentView: NSView { scrollView }
+    var documentView: NSView { containerView }
 
     var documentTitle: String { url.lastPathComponent }
 
@@ -84,6 +84,8 @@ extension FileViewerPane: SpaceDocument {
         // attributed runs. Full re-tokenise rather than range-based, because a theme
         // change affects every token.
         highlightSyntax()
+        // Editor chrome — current-line highlight, column guide, trailing whitespace.
+        applyChrome(config: config)
     }
 
     /// The theme's selection background, or nil when AppKit's system pair should stand.

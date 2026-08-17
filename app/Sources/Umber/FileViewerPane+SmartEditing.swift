@@ -18,6 +18,13 @@ extension FileViewerPane: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         setDirty(true)
         highlightEditedParagraph()
+        updateStatusBar()
+    }
+
+    /// Cursor moved — update the status bar and repaint the current-line highlight.
+    func textViewDidChangeSelection(_ notification: Notification) {
+        updateStatusBar()
+        textView.needsDisplay = true
     }
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,

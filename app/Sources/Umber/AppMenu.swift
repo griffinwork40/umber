@@ -174,6 +174,21 @@ extension AppDelegate {
         editMenu.addItem(
             withTitle: "Go to Line…",
             action: Selector(("goToLine:")), keyEquivalent: "l")
+        editMenu.addItem(.separator())
+        // Terminal integration — send information from the editor to the shell.
+        // ⌘⇧C sends the current file's path; ⌘⇧R runs it with a language-detected
+        // command. Both grey out when no file viewer is active or no shell is
+        // available, via `validateMenuItem` in `AppDelegate.swift`.
+        let sendPathItem = NSMenuItem(
+            title: "Send Path to Terminal",
+            action: #selector(sendPathToTerminal(_:)), keyEquivalent: "c")
+        sendPathItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(sendPathItem)
+        let runItem = NSMenuItem(
+            title: "Run in Terminal",
+            action: #selector(runInTerminal(_:)), keyEquivalent: "r")
+        runItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(runItem)
 
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)

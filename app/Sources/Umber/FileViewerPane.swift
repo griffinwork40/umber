@@ -54,7 +54,7 @@ final class FileViewerPane: NSObject {
     // read access and nothing more.
     var config: AppConfig
     let scrollView = NSScrollView()
-    let textView = NSTextView()
+    let textView = EditorTextView()
 
     var fontSize: CGFloat
 
@@ -90,6 +90,14 @@ final class FileViewerPane: NSObject {
     /// Whether this document is currently soft-wrapping. Per-document runtime state
     /// (not persisted). Defaults from config + file extension in `applyWrapping()`.
     var isWrapping = false
+
+    /// The status bar below the editor showing Ln/Col, language, encoding, indent.
+    /// Stored here because extensions cannot hold stored properties.
+    var statusBar: EditorStatusBar?
+
+    /// Container view holding scroll view + status bar, so `documentView` returns
+    /// one view for both. `SpaceDocument` expects a single `NSView`.
+    let containerView = NSView()
 
     /// Write the file back as whatever it was read as. Re-encoding a Latin-1 or
     /// UTF-16 file to UTF-8 behind the user's back is a silent, whole-file diff.
@@ -162,7 +170,16 @@ final class FileViewerPane: NSObject {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
 
-        scrollView.frame = frame
+        // Status bar sits below the scroll view. Both live in a container so the
+        // SpaceDocument protocol's `documentView` returns one view for both.
+        let barHeight = EditorStatusBar.barHeight
+        let bar = EditorStatusBar(frame: NSRect(
+            x: 0, y: 0, width: frame.width, height: barHeight))
+        bar.autoresizingMask = [.width, .maxYMargin]
+        statusBar = bar
+
+        scrollView.frame = NSRect(
+            x: 0, y: barHeight, width: frame.width, height: frame.height - barHeight)
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -172,6 +189,11 @@ final class FileViewerPane: NSObject {
         // background is the point, so this view must actually paint it.
         scrollView.drawsBackground = true
         scrollView.autoresizingMask = [.width, .height]
+
+        containerView.frame = frame
+        containerView.autoresizingMask = [.width, .height]
+        containerView.addSubview(scrollView)
+        containerView.addSubview(bar)
 
         // Line-number gutter. Installed before `apply(config:)` so the first
         // `updateAppearance` call in `apply` has a ruler to reach.

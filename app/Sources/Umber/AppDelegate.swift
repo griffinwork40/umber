@@ -57,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menuItem.state = viewer.isWrapping ? .on : .off
             return true
         }
+        // Terminal-integration items need both a file viewer AND a shell.
+        if sel == #selector(sendPathToTerminal(_:)) || sel == #selector(runInTerminal(_:)) {
+            return focusedSpace?.activeDocument is FileViewerPane
+                && focusedSpace?.focusedShellHost != nil
+        }
         return true
     }
 
@@ -290,4 +295,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         viewer.setWrapping(!viewer.isWrapping)
     }
 
+    /// Edit → Send Path to Terminal (⌘⇧C). Sends the current file's path to the
+    /// focused shell as text, so the user can compose a command around it.
+    @objc func sendPathToTerminal(_ sender: Any?) {
+        guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
+              let shell = focusedSpace?.focusedShellHost else { return }
+        // Single-quote the path to handle spaces and special characters, same
+        // convention as `FileTreeViewController+ContextMenu.swift`'s "cd Here".
+        let escaped = viewer.url.path.replacingOccurrences(of: "'", with: "'\\''")
+        shell.send(text: "'\(escaped)' ")
+    }
+
+    /// Edit → Run in Terminal (⌘⇧R). Sends a language-appropriate run command
+    /// for the current file to the focused shell.
+    @objc func runInTerminal(_ sender: Any?) {
+        guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
+              let shell = focusedSpace?.focusedShellHost else { return }
+        let path = viewer.url.path.replacingOccurrences(of: "'", with: "'\\''")
+        let quoted = "'\(path)'"
+        let ext = viewer.url.pathExtension.lowercased()
+        // Language-detected run command. SyntaxLanguage already knows the file
+        // type; this maps it to the obvious `$RUNNER $FILE` invocation.
+        let command: String
+        switch ext {
+        case "swift":       command = "swift \(quoted)"
+        case "py":          command = "python3 \(quoted)"
+        case "rb":          command = "ruby \(quoted)"
+        case "js", "mjs":   command = "node \(quoted)"
+        case "ts":          command = "npx tsx \(quoted)"
+        case "sh", "bash":  command = "bash \(quoted)"
+        case "zsh":         command = "zsh \(quoted)"
+        case "go":          command = "go run \(quoted)"
+        case "rs":          command = "cargo run"  // Rust files need the project
+        case "c":           command = "cc \(quoted) -o /tmp/a.out && /tmp/a.out"
+        case "cpp", "cc":   command = "c++ \(quoted) -o /tmp/a.out && /tmp/a.out"
+        default:            command = quoted  // Unknown: just send the path
+        }
+        shell.send(text: command + "\n")
+    }
 }
