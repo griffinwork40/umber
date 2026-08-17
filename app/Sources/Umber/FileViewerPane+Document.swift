@@ -84,8 +84,12 @@ extension FileViewerPane: SpaceDocument {
         // attributed runs. Full re-tokenise rather than range-based, because a theme
         // change affects every token.
         highlightSyntax()
-        // Editor chrome — current-line highlight, column guide, trailing whitespace.
+        // Editor chrome — current-line highlight, column guide, trailing whitespace,
+        // indent rainbow. Drives EditorTextView properties from AppConfig.
         applyChrome(config: config)
+        // Sticky scroll overlay — reinstalled on every config push so a toggle in
+        // config.json + ⌘R takes effect immediately.
+        applyStickyScroll()
     }
 
     /// The theme's selection background, or nil when AppKit's system pair should stand.

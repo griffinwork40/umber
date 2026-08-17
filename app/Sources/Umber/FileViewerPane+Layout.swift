@@ -1,7 +1,7 @@
 //
 //  FileViewerPane+Layout.swift
-//  Soft-wrap and tab-width display — the two layout behaviours a code editor
-//  needs that a plain NSTextView does not ship.
+//  Soft-wrap, tab-width display, and sticky-scroll installation — the layout
+//  behaviours a code editor needs that a plain NSTextView does not ship.
 //
 //  Its own file because these methods push `FileViewerPane.swift` past the
 //  350-line ceiling and they form a clean seam: everything here is "how the
@@ -70,5 +70,51 @@ extension FileViewerPane {
             ts.addAttribute(.paragraphStyle, value: ps,
                             range: NSRange(location: 0, length: ts.length))
         }
+    }
+
+    // MARK: - Sticky scroll
+
+    /// Install (or remove) the sticky-scroll overlay above the scroll view.
+    ///
+    /// Called from `apply(config:)` in `+Document.swift` whenever the config
+    /// changes. The overlay is installed as a sibling view of the scroll view
+    /// inside `containerView`, so it does not scroll with the content.
+    ///
+    /// The overlay observes `NSView.boundsDidChangeNotification` from the scroll
+    /// view's `contentView` — the standard hook for "user scrolled" in AppKit.
+    func applyStickyScroll() {
+        // Remove any existing overlay first.
+        containerView.subviews
+            .compactMap { $0 as? StickyScrollOverlay }
+            .forEach { $0.removeFromSuperview() }
+
+        guard config.stickyScroll else { return }
+
+        let overlay = StickyScrollOverlay(textView: textView)
+        // Pin to the top of the scroll view; width tracks the scroll view.
+        let svFrame = scrollView.frame
+        overlay.frame = NSRect(
+            x: svFrame.minX, y: svFrame.maxY - StickyScrollOverlay.overlayHeight,
+            width: svFrame.width, height: StickyScrollOverlay.overlayHeight)
+        overlay.autoresizingMask = [.width, .minYMargin]
+        containerView.addSubview(overlay, positioned: .above, relativeTo: scrollView)
+
+        // Apply current theme colours.
+        overlay.applyTheme(
+            background: config.effectiveBackground,
+            foreground: config.effectiveForeground,
+            font: AppConfig.resized(config.font, to: fontSize))
+
+        // Subscribe to scroll events.
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main) { [weak overlay, weak scrollView] _ in
+                guard let overlay, let sv = scrollView else { return }
+                overlay.scrollViewDidScroll(sv)
+            }
+
+        // Prime the overlay for the current scroll position.
+        overlay.scrollViewDidScroll(scrollView)
     }
 }

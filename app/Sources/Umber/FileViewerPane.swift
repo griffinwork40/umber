@@ -110,6 +110,17 @@ final class FileViewerPane: NSObject {
     /// one view for both. `SpaceDocument` expects a single `NSView`.
     let containerView = NSView()
 
+    /// Currently folded regions, keyed by the storage offset of the "…" placeholder.
+    /// Populated and maintained by `FileViewerPane+Folding.swift`. Cleared on reload
+    /// (a fresh read always brings unfolded text from disk).
+    var foldedRegions: [FoldRegion] = []
+
+    /// The live ⌘⇧O symbol-outline panel, if one is open. Weak storage is not
+    /// possible here because `SymbolOutlinePanel` is an `NSObject` subclass, not a
+    /// protocol — we nil it out manually on dismiss and on reload.
+    /// Stored here because extensions cannot hold stored properties.
+    var symbolOutlinePanel: SymbolOutlinePanel?
+
     /// Write the file back as whatever it was read as. Re-encoding a Latin-1 or
     /// UTF-16 file to UTF-8 behind the user's back is a silent, whole-file diff.
     /// Settable because `+Editing` reassigns it when the user explicitly consents

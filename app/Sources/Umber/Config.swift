@@ -54,6 +54,10 @@ private struct ConfigFile: Decodable {
         var tabWidth: Int?
         var softTabs: Bool?
         var wordWrap: String?
+        var indentRainbow: Bool?
+        var columnGuide: Int?
+        var showTrailingWhitespace: Bool?
+        var stickyScroll: Bool?
     }
     var editor: EditorSpec?
 }
@@ -120,6 +124,18 @@ struct AppConfig {
     var tabWidth: Int
     var softTabs: Bool
     var wordWrap: WordWrapMode
+    /// Indent rainbow: subtle colour bands per indent level. Default: false.
+    /// Configured via `editor.indentRainbow` in config.json.
+    var indentRainbow: Bool
+    /// Column guide position in characters. nil = no guide. Default: 80.
+    /// Configured via `editor.columnGuide` in config.json; 0 means disabled.
+    var columnGuideColumn: Int?
+    /// Visualize trailing whitespace with dim dots. Default: true.
+    /// Configured via `editor.showTrailingWhitespace` in config.json.
+    var showTrailingWhitespace: Bool
+    /// Pin the enclosing scope header at the top of the editor while scrolling.
+    /// Default: true. Configured via `editor.stickyScroll` in config.json.
+    var stickyScroll: Bool
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -181,7 +197,11 @@ struct AppConfig {
             engine: .default,
             tabWidth: 4,
             softTabs: true,
-            wordWrap: .auto
+            wordWrap: .auto,
+            indentRainbow: false,
+            columnGuideColumn: 80,
+            showTrailingWhitespace: true,
+            stickyScroll: true
         )
     }
 
@@ -277,7 +297,11 @@ struct AppConfig {
 
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
-                               wordWrap: e.wordWrap)
+                               wordWrap: e.wordWrap,
+                               indentRainbow: e.indentRainbow,
+                               columnGuide: e.columnGuide,
+                               showTrailingWhitespace: e.showTrailingWhitespace,
+                               stickyScroll: e.stickyScroll)
         }
         return config
     }

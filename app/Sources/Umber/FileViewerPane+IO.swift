@@ -108,6 +108,11 @@ extension FileViewerPane {
         textView.undoManager?.removeAllActions()
         setDirty(false)
         hasExternalChange = false
+        // Fold state is ephemeral — fold regions reference storage offsets from the
+        // previous load, which are meaningless after a fresh read from disk.
+        foldedRegions = []
+        symbolOutlinePanel?.dismiss()
+        symbolOutlinePanel = nil
         // Rule 3: an explanation is not the file, so it must not be savable.
         textView.isEditable = !isPlaceholder
         // Set the font after the string: assigning `string` on a plain-text view

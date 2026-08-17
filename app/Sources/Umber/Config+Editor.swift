@@ -41,7 +41,11 @@ enum WordWrapMode: String {
 extension AppConfig {
     /// Resolve the `editor` block from config primitives, fail-soft per field.
     /// Mutates `self` directly and appends to `warnings` for any degradations.
-    mutating func applyEditor(tabWidth: Int?, softTabs: Bool?, wordWrap: String?) {
+    mutating func applyEditor(tabWidth: Int?, softTabs: Bool?, wordWrap: String?,
+                              indentRainbow: Bool? = nil,
+                              columnGuide: Int? = nil,
+                              showTrailingWhitespace: Bool? = nil,
+                              stickyScroll: Bool? = nil) {
         if let raw = tabWidth {
             if raw >= 1 && raw <= 16 { self.tabWidth = raw }
             else { warnings.append("editor.tabWidth \(raw) out of range 1–16 — using 4") }
@@ -55,5 +59,20 @@ extension AppConfig {
                     + " (expected one of: \(WordWrapMode.configNames)) — using auto")
             }
         }
+        if let ir = indentRainbow { self.indentRainbow = ir }
+        if let cg = columnGuide {
+            // 0 means "disable the guide" — a user's explicit opt-out.
+            // Any other positive value is the column to mark.
+            // Negative values are rejected with a warning.
+            if cg < 0 {
+                warnings.append("editor.columnGuide \(cg) must be >= 0 — keeping current value")
+            } else if cg == 0 {
+                self.columnGuideColumn = nil   // 0 → disabled
+            } else {
+                self.columnGuideColumn = cg
+            }
+        }
+        if let tw = showTrailingWhitespace { self.showTrailingWhitespace = tw }
+        if let ss = stickyScroll { self.stickyScroll = ss }
     }
 }

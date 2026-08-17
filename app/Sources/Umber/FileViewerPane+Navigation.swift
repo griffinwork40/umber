@@ -50,7 +50,7 @@ extension FileViewerPane {
     // MARK: - Line number ↔ character offset
 
     /// Scroll the text view to a 1-based line number and place the cursor there.
-    private func scrollToLine(_ line: Int) {
+    func scrollToLine(_ line: Int) {
         let str = textView.string as NSString
         let length = str.length
         var currentLine = 1
@@ -83,4 +83,37 @@ extension FileViewerPane {
         f.maximum = NSNumber(value: Int.max)
         return f
     }()
+
+    // MARK: - Text structure helpers (shared with +Folding)
+
+    /// The indentation level of a line, measured in leading spaces.
+    /// Tabs count as `config.tabWidth` spaces for consistency with the display.
+    /// Used by the folding engine; lives here because it is pure text arithmetic.
+    func indentLevel(of line: String) -> Int {
+        var count = 0
+        for ch in line {
+            if ch == " " { count += 1 }
+            else if ch == "\t" { count += config.tabWidth }
+            else { break }
+        }
+        return count
+    }
+
+    /// 1-based line number for a given character offset.
+    /// Used by the folding engine when recording header lines; lives here alongside
+    /// `scrollToLine(_:)` which does the inverse (line → offset) walk.
+    func lineNumber(in str: NSString, forOffset offset: Int) -> Int {
+        var lineNum = 1
+        var i = 0
+        while i < min(offset, str.length) {
+            let range = str.lineRange(for: NSRange(location: i, length: 0))
+            if NSMaxRange(range) <= offset {
+                lineNum += 1
+                i = NSMaxRange(range)
+            } else {
+                break
+            }
+        }
+        return lineNum
+    }
 }
