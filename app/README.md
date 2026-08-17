@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are ten `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all four patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all six patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
@@ -407,7 +407,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **four** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **six** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -448,11 +448,23 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **four** local pa
    path, so a passing check would only prove the compiler honours `#if DEBUG`. What guards it
    is the combined `Buffer.swift` hash plus both existing Buffer gates still passing with it
    applied.
+5. `0005-add-dcs-ptmux-passthrough.patch` — adds a `PtmuxDcsHandler` branch to
+   `dispatchDcs()` in `EscapeSequenceParser.swift`, plus a new `PtmuxDcsHandler.swift`, so
+   DCS Ptmux sequences survive tmux's `allow-passthrough on` wrapping: the handler
+   un-doubles tmux's `ESC` encoding and re-feeds the inner sequence, so OSC 52 clipboard,
+   graphics and custom escapes from apps like neovim running inside tmux reach the outer
+   terminal instead of being silently dropped. It is the only patch that adds a **new file**
+   with no upstream counterpart, so its absence is a compile error rather than a silent one.
+6. `0006-gate-linefeed-selection-clear-on-mouse-mode.patch` — gates
+   `linefeed(source:)`'s `selection.selectNone()` on `terminal.mouseMode != .off`
+   (`MacTerminalView.swift:888`). Upstream cleared the terminal selection on **every** LF
+   whenever `allowMouseReporting` was true — which it is by default — so at a plain shell
+   prompt (`mouseMode == .off`) each newline in streaming output wiped the user's selection
+   before ⌘C could copy it, making copy/paste feel broken. Every other `allowMouseReporting`
+   guard in that file already checked `mouseMode`; linefeed was the sole omission.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`../patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch`,
-`../patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch` and
-`../patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch`, all pinned by
+`0001` through `0006` in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -477,13 +489,15 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all four patches)
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
+patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all six patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
 ```
 
-All four patches are required. `verify-vendor.sh` exits `2` naming the specific file if one
+All six patches are required. `verify-vendor.sh` exits `2` naming the specific file if one
 is missing. Note that `0002`, `0003` and `0004` patch the **same file**, so the pin carries a
 single combined `Buffer.swift` hash: a tree with only some of them matches neither the patched
 nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is

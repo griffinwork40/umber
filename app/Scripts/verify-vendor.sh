@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its four local patches applied.
+# WITH its six local patches applied.
 #
 # Why this exists: vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not a
 # git repo, app/Package.swift:20 is an unpinned `.package(path:)`, and
@@ -66,6 +66,7 @@ PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.
 PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
 PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
 PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -79,7 +80,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -96,6 +97,7 @@ WANT_BUFFER="$(pin_value patched_buffer_swift)"
 WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
 WANT_PARSER="$(pin_value patched_escape_seq_parser)"
 WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
+WANT_PTMUX="$(pin_value ptmux_dcs_handler)"
 
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
@@ -104,15 +106,15 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all four patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all six patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL FOUR patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL SIX patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
-  err "panes on widening), and 0004 stops an upstream debug assertion from walking the whole"
-  err "scrollback and calling abort() in RELEASE builds on every resize; check-reflow.sh and"
-  err "check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
+  err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
+  err "adds DCS Ptmux passthrough, and 0006 keeps the selection alive at a plain prompt;"
+  err "check-reflow.sh and check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
   exit 1
 fi
 
@@ -256,4 +258,64 @@ if [[ "$GOT_PARSER" != "$WANT_PARSER" ]]; then
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 5 local patches"
+# --- third-b check: is PtmuxDcsHandler.swift the expected file? ----------------
+# 0005 adds this file new; there is no upstream counterpart. The existence check
+# above catches a missing file (compile error), but a modified file would slip
+# through without this hash check.
+GOT_PTMUX="$(sha256_of "$PTMUX_HANDLER")"
+
+if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift does not match"
+  err "       the pinned hash. The file may have been edited or came from a different"
+  err "       version of the patch."
+  err ""
+  err "  expected: $WANT_PTMUX"
+  err "  found:    $GOT_PTMUX"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift"
+  err "  # then update ptmux_dcs_handler in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+# --- fourth check: is the linefeed selection-clear patch applied? ---------------
+# 0006 gates linefeed's selection.selectNone() on terminal.mouseMode != .off so
+# that a plain shell prompt (mouseMode == .off) preserves the selection during
+# streaming output. Without it, every LF clears the selection before ⌘C fires.
+MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
+if [[ ! -f "$MTV" ]]; then
+  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Mac/MacTerminalView.swift -- incomplete checkout."
+  exit 1
+fi
+
+WANT_MTV="$(pin_value patched_mac_terminal_view)"
+WANT_MTV_UPSTREAM="$(pin_value upstream_mac_terminal_view)"
+GOT_MTV="$(sha256_of "$MTV")"
+
+if [[ "$GOT_MTV" == "$WANT_MTV_UPSTREAM" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err ""
+  err "Patch 0006 gates linefeed(source:)'s selection.selectNone() on"
+  err "terminal.mouseMode != .off. Without it, every newline in the terminal output"
+  err "clears the user's text selection — copy/paste feels broken even though ⌘C"
+  err "itself works correctly."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
+  exit 2
+fi
+
+if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift matches neither"
+  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err ""
+  err "  expected (patched): $WANT_MTV"
+  err "  found:              $GOT_MTV"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift"
+  err "  # then update patched_mac_terminal_view in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 6 local patches"

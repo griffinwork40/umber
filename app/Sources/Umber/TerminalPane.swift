@@ -182,17 +182,15 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
             view.installColors(theme.ansi.map { $0.asSwiftTermColor })
         }
         view.optionAsMetaKey = config.optionAsMeta
+        view.allowMouseReporting = config.mouseReporting
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
         applyRenderer(config.renderer)  // must precede the font — see applyRenderer(_:)
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
         // hitting ⌘R actually changes the size. A live ⌘+ zoom still outranks the
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
-        // `UMBER_DIAG=1` dumps the resolved appearance state to stderr. This app has
-        // no test target, so this is its only observability: it is what caught
-        // the Menlo-instead-of-SF-Mono fallback and the collapsed scrollbar
-        // thumb, both of which were invisible from the source alone. Costs
-        // nothing when the variable is unset.
+        // `UMBER_DIAG=1` dumps the resolved appearance to stderr — the only
+        // observability for a project with no test target. Costs nothing unset.
         if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
             let t = view.getTerminal()
             // Projected thumb once the scrollback is full — the steady state that

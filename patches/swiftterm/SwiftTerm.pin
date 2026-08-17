@@ -25,15 +25,20 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-07-31 there are still exactly TWO differing FILES — Package.swift and
-# Buffer.swift — but they now carry FOUR patches between them: 0001 on Package.swift,
-# and 0002/0003/0004 on Buffer.swift. File count and patch count are not the same
-# number and have not been since 0003; do not infer one from the other.
+# As of 2026-08-17 the tree differs from upstream in FIVE places — Package.swift,
+# Buffer.swift, EscapeSequenceParser.swift and MacTerminalView.swift are modified,
+# and PtmuxDcsHandler.swift is added new by 0005 — carrying SIX patches between them:
+# 0001 on Package.swift, 0002/0003/0004 on Buffer.swift, 0005 on
+# EscapeSequenceParser.swift (plus the new file), and 0006 on MacTerminalView.swift.
+# File count and patch count are not the same number and have not been since 0003;
+# do not infer one from the other.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -177,6 +182,27 @@ patched_escape_seq_parser  = 5f1a11eb0d2523e4bd92b057f7293a3f1fa0f3f2be86efe714a
 upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3aa2f34058e937a
 
 # PtmuxDcsHandler.swift — added by 0005, has no upstream counterpart.
-# This is purely documentary: if verify-vendor.sh ever checks for the file's
-# presence, this is the expected hash. A missing file is a compile error anyway.
+# This is the hash verify-vendor.sh requires. A missing file is a compile error,
+# but a modified file would pass the existence check silently without this pin.
 ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
+
+# MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch.
+#
+# What 0006 fixes: upstream's linefeed(source:) callback clears the terminal
+# selection on every LF byte when `allowMouseReporting` is true — which it is by
+# default. Every OTHER allowMouseReporting guard in the patched file (mouseDown
+# :2472, mouseUp :2520, mouseDragged :2537, scrollWheel :2771) also checks
+# `terminal.mouseMode` — nested one level inside for mouseDragged — but linefeed
+# was the sole site that omitted it.
+# The effect: at a plain shell prompt (mouseMode == .off), every newline in the
+# output clears the selection before ⌘C can copy it.
+#
+# Severity: SILENT. A tree missing 0006 compiles, runs, and silently clears the
+# user's selection during normal output.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
+patched_mac_terminal_view  = b9339625f756b8526561f03dd3c2a6e92d7bb8b9230bd65884eab8ed88ae7fda
+
+# MacTerminalView.swift as shipped upstream at v1.15.0.
+upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041

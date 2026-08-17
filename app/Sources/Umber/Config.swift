@@ -47,6 +47,7 @@ private struct ConfigFile: Decodable {
     var scrollback: Int?
     var shell: String?
     var optionAsMeta: Bool?
+    var mouseReporting: Bool?
     var renderer: String?
     var engine: String?
     struct EditorSpec: Decodable {
@@ -98,6 +99,12 @@ struct AppConfig {
     var scrollback: Int
     var shell: String
     var optionAsMeta: Bool
+    /// Whether programs may request mouse events (DECSET 1000/1002/1003). Default
+    /// `true`. When `false`, SwiftTerm's `allowMouseReporting` is cleared and clicks
+    /// always start text selection — programs like tmux and vim lose their mouse
+    /// support but the user can select and copy freely. The Shift-click bypass
+    /// (`shiftBypassesMouseReporting`) still works when this is `true`.
+    var mouseReporting: Bool
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
     /// why the default is the conservative one.
     var renderer: Renderer
@@ -143,52 +150,6 @@ struct AppConfig {
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
-    // MARK: - Derived chrome
-
-    /// The background the terminal will *actually* paint, theme or no theme.
-    ///
-    /// `theme == nil` means "install nothing and let SwiftTerm's own defaults
-    /// stand", and those default to black (`Colors.swift:37` defaultBackground).
-    /// Every piece of chrome that has to agree with the terminal was open-coding
-    /// `theme?.background ?? .black`; four copies of that fallback is four places
-    /// for the chrome and the content to drift apart.
-    var effectiveBackground: NSColor { theme?.background ?? .black }
-
-    /// As `effectiveBackground`, for AppKit text. SwiftTerm's actual default is `#8A8A8A`,
-    /// not white (`SwiftTerm/Colors.swift:36`); a real theme normally follows its terminal
-    /// foreground, with Classic Repaired's explicit readable-chrome exception.
-    var effectiveForeground: NSColor { theme?.chromeForeground ?? NSColor.fromHex("#8A8A8A")! }
-
-    /// The system appearance the window should adopt, derived from the theme.
-    ///
-    /// This is the setting that makes the *sidebar* match the terminal. The file
-    /// tree is deliberately built out of system parts — `NSSplitViewItem(sidebar
-    /// WithViewController:)` and `outlineView.style = .sourceList` (plan §12.4
-    /// item 5) — so its material, its selection pill, its label colours and its
-    /// scroller knob are all chosen by AppKit from the effective `NSAppearance`.
-    /// Nothing used to set one, so they followed *System Settings*: on a Mac in
-    /// Light Mode that put a light-grey tree with black text and full-colour
-    /// Finder icons directly against a black terminal.
-    ///
-    /// Derived rather than hardcoded to `.darkAqua`: the theme is user hex, so a
-    /// light background is expressible today even though no preset ships one, and
-    /// pinning dark would simply invert the same bug. Deriving it also means the
-    /// vibrant sidebar material samples `window.backgroundColor` — already the
-    /// theme background — so the tree picks up the theme's tint for free, without
-    /// hand-painting a single row.
-    ///
-    /// The comparison is spelled out as `Double` rather than leaning on
-    /// CGFloat/Double bridging: `relativeLuminance` is `CGFloat` (it feeds AppKit
-    /// APIs) and `WCAG.lightChromeCutoff` is `Double` (that file is
-    /// Foundation-only and cannot spell `CGFloat`), and an implicit conversion at
-    /// the comparison site would leave the two types silently doing the coercion
-    /// instead of the reader seeing it happen. `ThemeContrast.swift`'s doc comment
-    /// carries the WCAG rationale for the constant itself — this is the one
-    /// call site that reads it, not a second definition of it (PR #24 review, item 1).
-    var appearance: NSAppearance? {
-        NSAppearance(named: Double(effectiveBackground.relativeLuminance) > WCAG.lightChromeCutoff ? .aqua : .darkAqua)
-    }
-
     static var configURL: URL {
         FileManager.default
             .homeDirectoryForCurrentUser
@@ -215,6 +176,7 @@ struct AppConfig {
             scrollback: 1_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
             optionAsMeta: true,
+            mouseReporting: true,
             renderer: .default,
             engine: .default,
             tabWidth: 4,
@@ -290,6 +252,7 @@ struct AppConfig {
             else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
         }
         if let meta = file.optionAsMeta { config.optionAsMeta = meta }
+        if let mr = file.mouseReporting { config.mouseReporting = mr }
         if let raw = file.renderer {
             if let r = Renderer.named(raw) { config.renderer = r }
             else {
