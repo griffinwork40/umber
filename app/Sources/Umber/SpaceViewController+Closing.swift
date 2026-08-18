@@ -20,7 +20,18 @@
 import AppKit
 
 extension SpaceViewController {
-    func closeActiveDocument() { closeDocument(at: activeIndex) }
+    /// ⌘W routing: if the active tab has a split peer, collapse the split first rather
+    /// than closing the tab. Closing the tab when split would discard both panes in one
+    /// keystroke, which is one action too many — the user pressed the "close one pane"
+    /// chord, not "close the tab and all its panes". The second ⌘W (or ⌘W when unsplit)
+    /// reaches the original `closeDocument(at:)` path.
+    func closeActiveDocument() {
+        if let active = activeDocument, hasSplit(for: active) {
+            closeSplitPane()
+        } else {
+            closeDocument(at: activeIndex)
+        }
+    }
 
     /// Can this whole Space go away? Asks each document in turn and stops at the
     /// first refusal, so closing a window with three dirty files prompts three times
@@ -48,6 +59,11 @@ extension SpaceViewController {
     /// would fire `spaceViewControllerDidCloseLastDocument` mid-teardown, asking the delegate
     /// to close a window that is already closing.
     func tearDownAllDocuments() {
+        // Close split peers first, before their primary documents, so the
+        // splitPeers dictionary is cleared while the primary identity is still
+        // valid as a key. teardownSplit(for:) is idempotent — tabs without a
+        // peer produce the guard-nil early return in +Splits.swift.
+        for document in documents { teardownSplit(for: document) }
         for document in documents { document.documentWillClose() }
     }
 

@@ -68,6 +68,11 @@ final class SpaceViewController: NSSplitViewController {
     /// `startDirectoryFollow()`, so a Space that is never made key never builds one.
     var directoryFollow: DirectoryFollow?
 
+    /// Split peers keyed by primary document identity. NOT in `documents[]` — peers
+    /// don't appear as tabs. Internal so +Splits.swift can write it; all writes go
+    /// through that extension's methods, preserving the one-writer discipline.
+    var splitPeers: [ObjectIdentifier: SpaceDocument] = [:]
+
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
     /// new pane. `let`, so the promotion grants read access only.
@@ -201,7 +206,11 @@ final class SpaceViewController: NSSplitViewController {
         activeIndex = index
         let document = documents[index]
 
-        documentArea.present(documentView: document.documentView)
+        if let peer = splitPeer(for: document) {
+            documentArea.presentSplit(primaryView: document.documentView, splitView: peer.documentView, direction: .horizontal)
+        } else {
+            documentArea.present(documentView: document.documentView)
+        }
         syncDocumentChrome()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
         // Re-check staleness on activation, not just on window-level focus
@@ -236,6 +245,9 @@ final class SpaceViewController: NSSplitViewController {
         // dirty buffer has to be able to say no.
         guard documents[index].documentShouldClose() else { return }
         let document = documents.remove(at: index)
+        // Close any split peer before the primary tears down — teardownSplit removes it
+        // from splitPeers, calls its documentWillClose(), and collapses the split layout.
+        teardownSplit(for: document)
         // The veto is settled, so this close is really happening: release whatever the
         // document holds that ARC cannot. Dropping the reference and removing the view is
         // NOT sufficient for a `GhosttyPane` — libghostty deliberately removed its own

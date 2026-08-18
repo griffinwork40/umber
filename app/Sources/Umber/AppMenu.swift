@@ -261,6 +261,17 @@ extension AppDelegate {
         viewMenu.addItem(
             withTitle: "Toggle Sidebar",
             action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
+        viewMenu.addItem(.separator())
+        // ⌘⇧D — Split Right. Opens a second terminal pane beside the focused one.
+        // Target is nil so AppKit walks the responder chain to `splitHorizontal:` on
+        // SpaceViewController; greyed out automatically when no terminal is in the
+        // active tab. ⌘⇧D chosen for "Divide" — does not collide with existing
+        // bindings. The note at AppMenu.swift:127 about splits is now addressed.
+        let splitItem = NSMenuItem(
+            title: "Split Right",
+            action: Selector(("splitHorizontal:")), keyEquivalent: "d")
+        splitItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(splitItem)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
