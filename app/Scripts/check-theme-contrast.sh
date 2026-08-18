@@ -186,11 +186,19 @@ grep -qE '^[[:space:]]*theme: \.umber,' "$STRIP_CFG" \
 # that a selected range renders in it. That remains daily-drive territory. Comments stripped
 # first and matched on the CONSTRUCT for the reason the preset check below documents at length.
 VIEWER="Sources/Umber/FileViewerPane+Document.swift"
-[[ -f "$VIEWER" ]] || { echo "error: $VIEWER not found." >&2; exit 2; }
+CHROME="Sources/Umber/Config+Chrome.swift"
+TERMINAL="Sources/Umber/TerminalPane.swift"
+[[ -f "$VIEWER" ]]   || { echo "error: $VIEWER not found." >&2; exit 2; }
+[[ -f "$CHROME" ]]   || { echo "error: $CHROME not found." >&2; exit 2; }
+[[ -f "$TERMINAL" ]] || { echo "error: $TERMINAL not found." >&2; exit 2; }
 STRIP_VIEWER="$TMP/viewer-nocomments.swift"
 STRIP_THEME="$TMP/theme-nocomments-fields.swift"
-sed -e 's|//.*$||' "$VIEWER" > "$STRIP_VIEWER"
-sed -e 's|//.*$||' "$THEME" > "$STRIP_THEME"
+STRIP_CHROME="$TMP/chrome-nocomments.swift"
+STRIP_TERMINAL="$TMP/terminal-nocomments.swift"
+sed -e 's|//.*$||' "$VIEWER"   > "$STRIP_VIEWER"
+sed -e 's|//.*$||' "$THEME"    > "$STRIP_THEME"
+sed -e 's|//.*$||' "$CHROME"   > "$STRIP_CHROME"
+sed -e 's|//.*$||' "$TERMINAL" > "$STRIP_TERMINAL"
 grep -qE 'selection = NSColor\.fromHex\(palette\.selection\)' "$STRIP_THEME" \
   || drift+=("Theme no longer builds .selection from the palette — the measured value has stopped crossing the AppKit bridge, which is exactly how it went unused before")
 grep -qE 'selectedTextAttributes' "$STRIP_VIEWER" \
@@ -202,15 +210,24 @@ grep -qE 'selectedTextAttributes' "$STRIP_VIEWER" \
 # green. That is this script's own stated lesson (match the CONSTRUCT, not the vocabulary —
 # see the preset check above) applied to the check that documents it.
 #
-# Anchored to the CALL SITE, not to the helper. Grepping the file for `config.theme?.selection`
-# was tried first and is ALSO blind, for a subtler reason worth keeping: once the lookup moved
-# into `readableSelection(for:)`, those strings survive in the helper even when the assignment
-# stops calling it, so a file-scope grep passes while the wiring is severed. Both blind
-# versions were probed against a mutated copy rather than reasoned about.
-grep -qE 'selectedTextAttributes = Self\.readableSelection\(for: config\)\.map' "$STRIP_VIEWER" \
-  || drift+=("FileViewerPane no longer maps Self.readableSelection(for:) into selectedTextAttributes — the call-site wiring to the measured palette has been severed")
-grep -qE 'SelectionPairing\.isReadable' "$STRIP_VIEWER" \
-  || drift+=("FileViewerPane no longer measures the selection pair — a user override can pair a dark foreground with a preset's dark selection at APCA Lc 0.0 (invisible selected text)")
+# Anchored to the CALL SITE, not to the helper. `effectiveSelectionColors()` was promoted
+# to Config+Chrome.swift (#31) so both panes share the rule; the helper name changed too.
+# Grepping the viewer for the old `Self.readableSelection(for:)` after promotion would PASS
+# while the wiring was severed — which is precisely the failure mode the comment above warns
+# about. The new check matches the shared-method call instead.
+grep -qE 'config\.effectiveSelectionColors\(\)\.map' "$STRIP_VIEWER" \
+  || drift+=("FileViewerPane no longer maps config.effectiveSelectionColors() into selectedTextAttributes — the call-site wiring to the measured palette has been severed")
+# SelectionPairing.isReadable moved to Config+Chrome.swift with the promotion (#31).
+# Grepping the viewer for it would pass only if someone inlined the rule back there, which
+# would be the duplication the promotion was meant to eliminate.
+grep -qE 'SelectionPairing\.isReadable' "$STRIP_CHROME" \
+  || drift+=("Config+Chrome.effectiveSelectionColors() no longer applies SelectionPairing.isReadable — a user override can pair a dark foreground with a preset's dark selection at APCA Lc 0.0 (invisible selected text)")
+# Terminal consumer guard (#31): both bg+fg must be wired. A wiring that sets only bg
+# would mix the theme colour with SwiftTerm's hardcoded black selectedTextForegroundColor.
+grep -qE 'selectedTextBackgroundColor' "$STRIP_TERMINAL" \
+  || drift+=("TerminalPane no longer sets selectedTextBackgroundColor — the terminal is back to SwiftTerm's hardcoded teal (#31 regressed)")
+grep -qE 'selectedTextForegroundColor' "$STRIP_TERMINAL" \
+  || drift+=("TerminalPane no longer sets selectedTextForegroundColor — selected terminal text will render against the hardcoded black, not the theme foreground")
 if (( ${#drift[@]} )); then
   echo "✗ FAIL: the harness's assumptions have drifted from the shipped code:" >&2
   for d in "${drift[@]}"; do echo "    - $d" >&2; done
@@ -225,6 +242,8 @@ say "      dimmer than body text"
 say "  ok  syntax clamp: both branches reachable (umber raw, tokyo-night clamped) and it raises Lc"
 say "  ok  runtime selection pair readable in every palette; unreadable user overrides fall back"
 say "      to the complete system pair; the falsification's Lc 0.0 override is REJECTED"
+say "  ok  terminal selection wired: both bg+fg set in TerminalPane from effectiveSelectionColors"
+say "      (#31 — SwiftTerm's hardcoded teal is replaced by the theme-aware pair)"
 echo
 echo "${out%%$'\n'*}"
 echo "all theme-contrast cases passed"
