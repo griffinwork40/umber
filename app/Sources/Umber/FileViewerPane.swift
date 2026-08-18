@@ -77,6 +77,16 @@ final class FileViewerPane: NSObject {
     /// refresh that finds a dirty buffer — so it cannot be `private(set)`.
     var hasExternalChange = false
 
+    /// Re-entrancy guard for `shouldChangeTextIn:replacementString:`. When the
+    /// delegate calls `textView.insertText(_:replacementRange:)` to inject a
+    /// modified replacement (auto-indent, tab→spaces, auto-pair), AppKit re-enters
+    /// `shouldChangeTextInRanges:replacementStrings:` — which calls our delegate
+    /// method again with the *original* keystroke's replacement, producing infinite
+    /// recursion (11 110 frames deep until the stack guard page is hit, SIGSEGV).
+    /// While this flag is true the delegate returns `true` immediately, letting
+    /// AppKit process the already-transformed text without re-triggering smart editing.
+    var isHandlingSmartEdit = false
+
     /// Resolved theme colours for each syntax role — computed once per config
     /// reload and reused on every keystroke. Nil until the first call to
     /// `syntaxColours()` and reset to nil by `apply(config:)` on theme change.

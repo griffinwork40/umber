@@ -36,17 +36,30 @@ extension FileViewerPane: NSTextViewDelegate {
                   replacementString replacement: String?) -> Bool {
         guard let replacement, !isPlaceholder else { return true }
 
+        // Re-entrancy guard: every `insertText(_:replacementRange:)` call below
+        // re-enters this delegate method via AppKit's `shouldChangeTextInRanges:`.
+        // Without this flag the auto-indent path loops infinitely (the re-entered
+        // call sees "\n" again and re-fires `insertText` with the indented string,
+        // which re-enters again, …), blowing the 8 MB main-thread stack in ~11 000
+        // frames. When the flag is set we are already inside a smart-edit transform
+        // and the replacement has been rewritten — let AppKit accept it as-is.
+        guard !isHandlingSmartEdit else { return true }
+
         // Tab → spaces.
         if replacement == "\t" && config.softTabs {
+            isHandlingSmartEdit = true
             let spaces = String(repeating: " ", count: config.tabWidth)
             textView.insertText(spaces, replacementRange: range)
+            isHandlingSmartEdit = false
             return false
         }
 
         // Auto-indent on Enter.
         if replacement == "\n" {
+            isHandlingSmartEdit = true
             let inserted = autoIndentedNewline(in: textView, at: range)
             textView.insertText(inserted, replacementRange: range)
+            isHandlingSmartEdit = false
             return false
         }
 
@@ -72,11 +85,13 @@ extension FileViewerPane: NSTextViewDelegate {
             if let close = Self.closerFor(ch) {
                 // Don't pair inside strings or comments.
                 if !isInsideStringOrComment(at: range.location) {
+                    isHandlingSmartEdit = true
                     let pair = "\(ch)\(close)"
                     textView.insertText(pair, replacementRange: range)
                     // Place cursor between the pair.
                     textView.setSelectedRange(
                         NSRange(location: range.location + 1, length: 0))
+                    isHandlingSmartEdit = false
                     return false
                 }
             }
@@ -94,8 +109,10 @@ extension FileViewerPane: NSTextViewDelegate {
                 let close = Character(closeScalar)
                 if Self.closerFor(open) == close {
                     // Delete both characters.
+                    isHandlingSmartEdit = true
                     textView.insertText("",
                         replacementRange: NSRange(location: before, length: 2))
+                    isHandlingSmartEdit = false
                     return false
                 }
             }
