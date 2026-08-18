@@ -101,9 +101,22 @@ extension FileManager {
     /// replaced by a *file* of the same name, and `fileExists(atPath:)` alone would
     /// say yes — then the sidebar tree would enumerate a non-directory and show
     /// nothing, with no hint as to why.
+    ///
+    /// `access(path, X_OK)` guards against a directory that exists and IS a
+    /// directory but lacks execute permission — a `chmod 000` temp dir, or a
+    /// volume mounted read-only with no `+x` on the root. `fileExists` says yes;
+    /// `chdir` then fails silently inside SwiftTerm's `forkpty` child
+    /// (`Pty.swift:103`: `_ = chdir(cCurrentDirectory)`), starting the shell in
+    /// the app's own cwd with no diagnostic. Darwin's `access(2)` checks the
+    /// *real* UID/GID, not the effective one, which is what we want here: the
+    /// shell we are about to fork will run as the real user (#8).
     func isUsableSpaceRoot(atPath path: String) -> Bool {
         var isDirectory: ObjCBool = false
-        return fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        guard fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+        // X_OK on a directory means "can enter (chdir into) it".
+        return path.withCString { access($0, X_OK) == 0 }
     }
 }
 
