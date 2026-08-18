@@ -68,6 +68,11 @@ final class SpaceViewController: NSSplitViewController {
     /// `startDirectoryFollow()`, so a Space that is never made key never builds one.
     var directoryFollow: DirectoryFollow?
 
+    /// Split peers keyed by primary document identity. NOT in `documents[]` — peers
+    /// don't appear as tabs. Internal (not `private(set)`) because +Splits.swift needs
+    /// subscript-set and removeValue. Writes go through that extension — convention-enforced.
+    var splitPeers: [ObjectIdentifier: (document: SpaceDocument, direction: SplitContainerView.Direction)] = [:]
+
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
     /// new pane. `let`, so the promotion grants read access only.
@@ -134,29 +139,11 @@ final class SpaceViewController: NSSplitViewController {
 
     /// Install a document this container did not construct, and make it active.
     ///
-    /// The polymorphic entry point `addTerminalDocument` above lacked: it hardcodes a
-    /// `TerminalPane(config:frame:workingDirectory:)` and returns the concrete type, so a
-    /// second engine-backed kind (`GhosttyPane`, plan §4) had nowhere to be handed in
-    /// (`libghostty-swap-sequencing-2026-07-28.md` §2, site 2). Everything the container
-    /// owes *any* document — the delegate wire-up, the list, activation — is here and
-    /// stated once; a caller supplies only the thing this container cannot know, which is
-    /// how to build the document.
-    ///
-    /// `addTerminalDocument` deliberately survives as the ⌘T path and calls through here
-    /// rather than being replaced by it: ⌘T means "a terminal rooted at this Space",
-    /// which is a policy this container owns and a generic entry point cannot express.
-    /// Taking `SpaceDocument` and not `ShellHosting`, because the container installs
-    /// documents; hosting a shell is irrelevant to installing one, and `openFile` will
-    /// route through here too the moment the editor column is regenericized (§8's
-    /// deferred list).
-    ///
-    /// `beforeActivating` exists for one caller and one reason: a document that spawns a
-    /// process must be able to do so while the view geometry is still what it was when the
-    /// document was constructed, because activation can resize the container (the tab
-    /// strip appears at the second document). See `addTerminalDocument` for the full
-    /// argument. It is a closure rather than a `start()` protocol member so the container
-    /// stays ignorant of what any kind needs to do in that window — it only guarantees
-    /// *when* the window is.
+    /// The polymorphic entry point: takes any `SpaceDocument` so `addTerminalDocument`
+    /// (⌘T) and `openFile` share one path for delegate wiring, list append, activation.
+    /// `beforeActivating` lets a process-backed document start while the view geometry
+    /// is still settled (activation can resize the container when the strip appears);
+    /// see `addTerminalDocument` for the full argument.
     func add(document: SpaceDocument, beforeActivating: () -> Void = {}) {
         // Wired through `SpaceDocumentReporting`, deliberately NOT `as? TerminalPane`. A
         // concrete cast here would compile and then leave a `GhosttyPane`'s delegate nil
@@ -201,7 +188,11 @@ final class SpaceViewController: NSSplitViewController {
         activeIndex = index
         let document = documents[index]
 
-        documentArea.present(documentView: document.documentView)
+        if let entry = splitPeers[ObjectIdentifier(document)] {
+            documentArea.presentSplit(primaryView: document.documentView, splitView: entry.document.documentView, direction: entry.direction)
+        } else {
+            documentArea.present(documentView: document.documentView)
+        }
         syncDocumentChrome()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
         // Re-check staleness on activation, not just on window-level focus
@@ -236,6 +227,9 @@ final class SpaceViewController: NSSplitViewController {
         // dirty buffer has to be able to say no.
         guard documents[index].documentShouldClose() else { return }
         let document = documents.remove(at: index)
+        // Close any split peer before the primary tears down — teardownSplit removes it
+        // from splitPeers, calls its documentWillClose(), and collapses the split layout.
+        teardownSplit(for: document)
         // The veto is settled, so this close is really happening: release whatever the
         // document holds that ARC cannot. Dropping the reference and removing the view is
         // NOT sufficient for a `GhosttyPane` — libghostty deliberately removed its own
@@ -289,11 +283,31 @@ final class SpaceViewController: NSSplitViewController {
         view.window?.isDocumentEdited = hasEditedDocuments
     }
 
+    // MARK: - Menu validation
+
+    /// Gate split/focus menu items — without this, AppKit auto-enables every item whose
+    /// @objc selector is answered, even when the action would silently no-op.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(splitHorizontal(_:)):
+            guard let doc = activeDocument else { return false }
+            return doc is ShellHosting && !hasSplit(for: doc)
+        case #selector(splitVertical(_:)):
+            return false  // v1: vertical splits not implemented
+        case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
+             #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
+            return activeDocument.map { hasSplit(for: $0) } ?? false
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
     // MARK: - Config / lifecycle
 
     func apply(config: AppConfig) {
         self.config = config
         for document in documents { document.apply(config: config) }
+        for (_, entry) in splitPeers { entry.document.apply(config: config) }  // peers not in documents[]
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
     }
@@ -319,19 +333,16 @@ final class SpaceViewController: NSSplitViewController {
         // that today, but the dot state is cheap to keep honest. After the line above, so
         // the cleared status is what gets drawn rather than the stale one.
         syncDocumentChrome()
-        // Propagate window-level focus-in to the active document so DECSET 1004 focus
-        // events reach the terminal. SwiftTerm only fires `setTerminalFocus` from
-        // `becomeFirstResponder`/`resignFirstResponder` — switching macOS window tabs
-        // (Spaces) without changing first-responder leaves tmux focus-events blind.
-        // Active document only: background tabs are not visible, so delivering CSI I to
-        // them is a spurious focus-in that confuses programs already tracking focus state.
-        // SwiftTerm gates the send on `sendFocus` (DECSET 1004), so a pane without focus
-        // events enabled is a no-op (`Terminal.swift:580`). `GhosttyPane` inherits the
-        // protocol default no-op — libghostty handles window focus via its own
-        // NSNotification observer registered in `AppTerminalView.viewDidMoveToWindow`.
-        // Resign-key counterpart (sends false to ALL documents) lives in
-        // `windowDidResignKey()` in `SpaceViewController+DirectoryFollow.swift` — every
-        // terminal loses focus when the window leaves, visible or not.
+        // Propagate window-level focus-in so DECSET 1004 focus events reach the terminal.
+        // SwiftTerm only fires `setTerminalFocus` from `becomeFirstResponder`/
+        // `resignFirstResponder` — switching macOS window tabs without changing first-
+        // responder leaves tmux focus-events blind. Active document + its split peer only:
+        // background tabs are not visible, so CSI I there is a spurious focus-in. SwiftTerm
+        // gates the send on `sendFocus` (DECSET 1004), so a pane without focus events is a
+        // no-op. Resign-key counterpart lives in `windowDidResignKey()` in +DirectoryFollow.
         activeDocument?.notifyWindowFocus(true)
+        if let active = activeDocument, let peer = splitPeer(for: active) {
+            peer.notifyWindowFocus(true)
+        }
     }
 }

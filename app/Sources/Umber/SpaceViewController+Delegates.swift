@@ -51,8 +51,16 @@ extension SpaceViewController: SpaceDocumentDelegate {
     func documentDidTerminate(_ document: SpaceDocument) {
         // The shell exited — close that document specifically, not the active one:
         // a background tab's shell can exit while you are looking at another.
-        guard let index = documents.firstIndex(where: { $0 === document }) else { return }
-        closeDocument(at: index)
+        if let index = documents.firstIndex(where: { $0 === document }) {
+            closeDocument(at: index)
+            return
+        }
+        // The document is a split PEER (not in documents[]). Collapse the split and
+        // release the peer. terminateSplitPeer is defined in +Splits.swift, where the
+        // splitPeers dictionary writer lives (private(set) setter is file-scoped to
+        // SpaceViewController.swift, so removals must go through a method in that
+        // extension file that mutates the dictionary indirectly via teardownSplit).
+        terminateSplitPeer(document)
     }
 
     func document(_ document: SpaceDocument, didChangeTitle title: String) {

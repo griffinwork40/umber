@@ -31,7 +31,10 @@ import AppKit
 // `SpaceViewController` constructs one, and it is not `public`.
 final class DocumentAreaViewController: NSViewController {
     let strip = DocumentTabStrip(frame: .zero)
-    let container = NSView()
+    // SplitContainerView rather than a plain NSView: it holds 1 or 2 child views
+    // with a draggable divider, using the same manual frame-based layout this file
+    // already uses — no Auto Layout, no NSSplitView (see the header comment above).
+    let container = SplitContainerView()
 
     private var isStripVisible = false
 
@@ -57,15 +60,34 @@ final class DocumentAreaViewController: NSViewController {
         viewDidLayout()
     }
 
+    /// Present a single document view, with no split. Delegates to the container's
+    /// split-aware API so it stays the single authority on what is displayed.
     func present(documentView: NSView) {
-        for subview in container.subviews where subview !== documentView {
-            subview.removeFromSuperview()
-        }
-        if documentView.superview !== container {
-            documentView.frame = container.bounds
-            container.addSubview(documentView)
-        }
-        documentView.frame = container.bounds
+        if container.isSplit { container.removeSplit() }
+        container.setPrimary(documentView)
+    }
+
+    /// Present a two-pane split: primary on the left (or bottom for vertical).
+    ///
+    /// Called from SpaceViewController.selectDocument(at:) when the selected tab has
+    /// a split peer. Clears any existing split first so switching between two split
+    /// tabs does not leave a stale peer in the container.
+    func presentSplit(
+        primaryView: NSView, splitView: NSView,
+        direction: SplitContainerView.Direction
+    ) {
+        if container.isSplit { container.removeSplit() }
+        container.setPrimary(primaryView)
+        container.addSplit(splitView, direction: direction)
+    }
+
+    /// Collapse the split, returning to single-pane display.
+    ///
+    /// Called from closeSplitPane(), teardownSplit(for:), and terminateSplitPeer(_:)
+    /// in +Splits.swift. The container's removeSplit() removes the peer view from the
+    /// hierarchy — that is the single owner of the removeFromSuperview call.
+    func dismissSplit() {
+        container.removeSplit()
     }
 
     override func viewDidLayout() {
@@ -77,6 +99,10 @@ final class DocumentAreaViewController: NSViewController {
             x: 0, y: bounds.height - stripHeight, width: bounds.width, height: stripHeight)
         container.frame = NSRect(
             x: 0, y: 0, width: bounds.width, height: bounds.height - stripHeight)
-        for subview in container.subviews { subview.frame = container.bounds }
+        // Children are distributed by SplitContainerView.layout(). Call it
+        // immediately rather than deferring via needsLayout so terminal rows/cols
+        // are correct on the same pass that resized the container — deferred layout
+        // would leave the terminal with a stale frame until the next run loop tick.
+        container.layout()
     }
 }

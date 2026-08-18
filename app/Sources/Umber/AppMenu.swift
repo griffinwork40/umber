@@ -261,57 +261,42 @@ extension AppDelegate {
         viewMenu.addItem(
             withTitle: "Toggle Sidebar",
             action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
+        viewMenu.addItem(.separator())
+        // Splits — tmux-inspired: ⌘⇧\ (pipe) splits right, ⌘⇧- splits down.
+        // Target is nil so AppKit walks the responder chain to
+        // `splitHorizontal:`/`splitVertical:` on SpaceViewController; greyed out
+        // by `validateUserInterfaceItem` when inappropriate (no terminal, already
+        // split, or vertical not yet implemented).
+        let splitItem = NSMenuItem(
+            title: "Split Right",
+            action: Selector(("splitHorizontal:")), keyEquivalent: "\\")
+        splitItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(splitItem)
+        let splitDownItem = NSMenuItem(
+            title: "Split Down",
+            action: Selector(("splitVertical:")), keyEquivalent: "-")
+        splitDownItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(splitDownItem)
+        viewMenu.addItem(.separator())
+        // Pane focus — tmux-inspired h/j/k/l with ⌘⇧. Walks the responder chain
+        // to `moveFocusLeft:`…`moveFocusRight:` on SpaceViewController; greyed out
+        // by `validateUserInterfaceItem` when no split exists in the active tab.
+        let focusItems: [(String, String, String)] = [
+            ("Focus Pane Left", "h", "moveFocusLeft:"),
+            ("Focus Pane Down", "j", "moveFocusDown:"),
+            ("Focus Pane Up", "k", "moveFocusUp:"),
+            ("Focus Pane Right", "l", "moveFocusRight:"),
+        ]
+        for (title, key, sel) in focusItems {
+            let item = NSMenuItem(
+                title: title, action: Selector((sel)), keyEquivalent: key)
+            item.keyEquivalentModifierMask = [.command, .shift]
+            viewMenu.addItem(item)
+        }
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
-        // Navigate menu — document-level movement, deliberately NOT folded into the
-        // Window menu. That menu carries the standard role, and its native tab
-        // commands (Show All Tabs, Move Tab to New Window) act on *Spaces*; putting
-        // document navigation beside them would present two different tab levels as
-        // one list.
-        let navigateItem = NSMenuItem()
-        let navigateMenu = NSMenu(title: "Navigate")
-        // ⌘⇧P — Command Palette. Sublime's most-imitated invention: fuzzy-search
-        // all editor commands from a floating panel. ⌘⇧P is the universal chord for
-        // it (VS Code, Zed, Cursor all use it), and it does not collide with any
-        // existing binding in this app. Answers in every window — palette is a
-        // singleton, not tied to a document kind.
-        let paletteItem = NSMenuItem(
-            title: "Command Palette…",
-            action: #selector(showCommandPalette(_:)), keyEquivalent: "p")
-        paletteItem.keyEquivalentModifierMask = [.command, .shift]
-        navigateMenu.addItem(paletteItem)
-        // ⌘⇧O — Jump to Symbol. Regex-based symbol extraction per language; opens a
-        // floating, keyboard-driven outline panel. Target nil so AppKit walks the
-        // responder chain to `FileViewerPane.showSymbolOutline:`, and the item greys
-        // out automatically over a terminal (nothing in the terminal chain answers it).
-        let symbolItem = NSMenuItem(
-            title: "Jump to Symbol…",
-            action: Selector(("showSymbolOutline:")), keyEquivalent: "o")
-        symbolItem.keyEquivalentModifierMask = [.command, .shift]
-        navigateMenu.addItem(symbolItem)
-        navigateMenu.addItem(.separator())
-        let nextTabItem = NSMenuItem(
-            title: "Next Tab", action: #selector(nextDocument(_:)),
-            keyEquivalent: Self.functionKeyEquivalent(NSRightArrowFunctionKey))
-        nextTabItem.keyEquivalentModifierMask = [.command, .option]
-        navigateMenu.addItem(nextTabItem)
-        let previousTabItem = NSMenuItem(
-            title: "Previous Tab", action: #selector(previousDocument(_:)),
-            keyEquivalent: Self.functionKeyEquivalent(NSLeftArrowFunctionKey))
-        previousTabItem.keyEquivalentModifierMask = [.command, .option]
-        navigateMenu.addItem(previousTabItem)
-        navigateMenu.addItem(.separator())
-        // ⌘1…⌘9 only — ⌘0 is Actual Size and predates this menu.
-        for index in 1...9 {
-            let item = NSMenuItem(
-                title: "Tab \(index)", action: #selector(selectDocumentByIndex(_:)),
-                keyEquivalent: String(index))
-            item.tag = index
-            navigateMenu.addItem(item)
-        }
-        navigateItem.submenu = navigateMenu
-        mainMenu.addItem(navigateItem)
+        buildNavigateMenu(in: mainMenu)
 
         // Window menu — giving it the standard role is what makes the native tab
         // commands (Show All Tabs, Move Tab to New Window, …) appear.
@@ -331,7 +316,9 @@ extension AppDelegate {
     /// `intent == [.command]`, *exact* equality on the masked modifier set, so
     /// adding Option cannot collide with the ⌘←/⌘→ line-editing bytes (^A/^E) —
     /// the event falls through instead (plan §12.4 item 4).
-    private static func functionKeyEquivalent(_ functionKey: Int) -> String {
+    /// Internal, not `private`: `AppMenu+Navigate.swift` needs the same helper for
+    /// ⌘⌥← / ⌘⌥→, and `private` stops at this file's edge.
+    static func functionKeyEquivalent(_ functionKey: Int) -> String {
         String(utf16CodeUnits: [unichar(functionKey)], count: 1)
     }
 }

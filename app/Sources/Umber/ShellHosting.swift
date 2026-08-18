@@ -196,6 +196,12 @@ extension SpaceViewController {
     /// happened to be the front tab — the failure would be invisible, and the
     /// feature would look broken exactly when the file tree is most in use.
     ///
+    /// **Split-aware.** In a two-pane split both the primary and the peer are visible
+    /// simultaneously; the right shell to target is whichever one holds the first
+    /// responder. Walk the window's responder to find it: if it is a descendant of the
+    /// peer's view, the peer wins; if it is a descendant of the primary's view (or
+    /// neither, which is the non-split case), the existing active-document path applies.
+    ///
     /// **Deliberately not widened to `SpaceDocument`.** This is the one cast in the
     /// container that must stay narrow: `FileViewerPane` satisfies `SpaceDocument`, so a
     /// `SpaceDocument?` here would let the file tree inject a filesystem path into a
@@ -204,6 +210,30 @@ extension SpaceViewController {
     /// fallback total over shells only, which is exactly what the feature means
     /// (`libghostty-swap-sequencing-2026-07-28.md` §2; `next-sequencing-2026-07-28.md` §1).
     var focusedShellHost: ShellHosting? {
-        (activeDocument as? ShellHosting) ?? shellHosts.last
+        // In a split, check whether the first responder lives in the peer's view.
+        // If so, the peer is the intended target even though the primary is "active".
+        if let active = activeDocument,
+           let peer = splitPeer(for: active) as? ShellHosting {
+            let fr = view.window?.firstResponder
+            if isDescendant(fr, of: peer.documentView) { return peer }
+        }
+        return (activeDocument as? ShellHosting) ?? shellHosts.last
+    }
+
+    /// True when `candidate` is in the view subtree of `parent`.
+    ///
+    /// Walks the NSResponder chain rather than using isDescendant(of:) directly
+    /// because firstResponder may be an NSView or an NSText that lives inside the
+    /// terminal view hierarchy. Both SwiftTerm and libghostty manage their own
+    /// internal first-responder views; this handles either without naming them.
+    func isDescendant(_ candidate: NSResponder?, of parent: NSView) -> Bool {
+        var r: NSResponder? = candidate
+        while let current = r {
+            if let v = current as? NSView, v === parent || v.isDescendant(of: parent) {
+                return true
+            }
+            r = current.nextResponder
+        }
+        return false
     }
 }
