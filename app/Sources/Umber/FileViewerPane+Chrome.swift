@@ -40,36 +40,59 @@ final class EditorTextView: NSTextView {
     /// The colour for trailing-whitespace dots.
     var trailingWhitespaceColor: NSColor = NSColor.white.withAlphaComponent(0.15)
 
+    /// Cached monospace character width for the column guide; invalidated on
+    /// font change. Measuring `"m"` per frame was flagged in PR #45 review.
+    private var cachedCharWidth: CGFloat?
+    override var font: NSFont? {
+        didSet { cachedCharWidth = nil }
+    }
+
+    /// Cached monospace cell width, keyed on font identity — a pointer compare,
+    /// not a measurement. Catches ObjC `setFont:` bypassing the Swift `didSet`.
+    private var cachedCharFont: NSFont?
+    private func charWidth(for f: NSFont) -> CGFloat {
+        if let w = cachedCharWidth, cachedCharFont === f { return w }
+        let w = ("m" as NSString).size(withAttributes: [.font: f]).width
+        cachedCharWidth = w
+        cachedCharFont = f
+        return w
+    }
+
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
         guard let lm = layoutManager, let tc = textContainer else { return }
 
         // -- Current line highlight --
+        // Only draw the line highlight when the view has content — lineRange
+        // requires a valid location. The column guide and trailing-whitespace
+        // drawing below have their own guards and must run even on an empty file.
         let insertion = selectedRange().location
         let str = (string as NSString)
-        guard str.length > 0 else { return }
-        let lineRange = str.lineRange(for: NSRange(location: min(insertion, str.length - 1), length: 0))
-        let glyphRange = lm.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-        // boundingRect gives the visual extent of the line's glyphs, but we want
-        // full-width so the highlight stretches edge to edge.
-        let lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
-        let fullWidthRect = NSRect(
-            x: 0,
-            y: lineRect.origin.y + textContainerInset.height,
-            width: bounds.width,
-            height: lineRect.height)
+        let lineRange: NSRange? = str.length > 0
+            ? str.lineRange(for: NSRange(location: min(insertion, str.length - 1), length: 0))
+            : nil
+        if let lineRange {
+            let glyphRange = lm.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            // boundingRect gives the visual extent of the line's glyphs, but we want
+            // full-width so the highlight stretches edge to edge.
+            let lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            let fullWidthRect = NSRect(
+                x: 0,
+                y: lineRect.origin.y + textContainerOrigin.y,
+                width: bounds.width,
+                height: lineRect.height)
 
-        if fullWidthRect.intersects(rect) {
-            currentLineColor.setFill()
-            fullWidthRect.fill()
+            if fullWidthRect.intersects(rect) {
+                currentLineColor.setFill()
+                fullWidthRect.fill()
+            }
         }
 
         // -- Column guide --
         if let col = columnGuide, col > 0 {
-            let charWidth = ("m" as NSString).size(
-                withAttributes: [.font: font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]).width
-            let guideX = textContainerOrigin.x + tc.lineFragmentPadding + charWidth * CGFloat(col)
+            let cw = charWidth(for: font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
+            let guideX = textContainerOrigin.x + tc.lineFragmentPadding + cw * CGFloat(col)
             let guideLine = NSRect(x: guideX, y: rect.origin.y, width: 1 / (window?.backingScaleFactor ?? 2), height: rect.height)
             if guideLine.intersects(rect) {
                 columnGuideColor.setFill()
@@ -184,7 +207,11 @@ final class EditorStatusBar: NSView {
         wantsLayer = true
         layer?.backgroundColor = background.blended(
             withFraction: 0.07, of: isLight ? .black : .white)?.cgColor ?? background.cgColor
-        label.textColor = foreground.withAlphaComponent(0.55)
+        // 0.72 — the same alpha proven safe for all three gated themes by
+        // `check-theme-contrast-harness.swift` (§5j, ALPHA_INACTIVE). At the
+        // original 0.55, umber measured APCA Lc ~44 on the status bar background,
+        // below the Lc 45 floor the repo enforces for readable text.
+        label.textColor = foreground.withAlphaComponent(0.72)
     }
 }
 
@@ -207,11 +234,8 @@ extension FileViewerPane {
         updateStatusBar()
     }
 
-    /// Coalesce rapid-fire selection changes into a single status bar refresh.
-    /// Each call cancels any pending update and schedules a new one at the end
-    /// of the current run-loop turn, so typing, auto-indent and auto-pair
-    /// (which fire multiple `textViewDidChangeSelection` per keystroke) pay the
-    /// line-counting cost at most once.
+    /// Coalesce rapid-fire selection changes into one status bar refresh at the
+    /// end of the run-loop turn, so auto-indent/auto-pair pay the cost once.
     func scheduleStatusBarUpdate() {
         pendingStatusBarUpdate?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.updateStatusBar() }
@@ -225,21 +249,16 @@ extension FileViewerPane {
         lineStartCache = nil
     }
 
-    /// Build a sorted array of every line-start byte offset in the string.
-    /// O(n) in file length, but runs at most once per edit — cursor movements
-    /// reuse the cache until the next `textDidChange` invalidates it.
+    /// O(n) once per edit — cursor movements reuse until `invalidateLineStartCache`.
     private func buildLineStartCache(for str: NSString) -> [Int] {
         var starts = [0]
         var i = 0
         while i < str.length {
             let range = str.lineRange(for: NSRange(location: i, length: 0))
             let next = NSMaxRange(range)
-            if next > i && next <= str.length {
-                // `next` is the start of the following line (past the terminator).
-                // Only record it if there actually is a following line — if next ==
-                // str.length on an unterminated final line, the file has no more lines.
-                if next < str.length { starts.append(next) }
-            }
+            // Record the start of the following line; skip if we're at the end
+            // of an unterminated final line (next == str.length, no more lines).
+            if next > i, next < str.length { starts.append(next) }
             i = next > i ? next : i + 1  // guard against zero-width ranges
         }
         return starts
@@ -278,8 +297,8 @@ extension FileViewerPane {
         bar.column = col
 
         // Language from file extension.
-        if let lang = languageForExtension(url.pathExtension) {
-            bar.language = Self.displayName(for: url.pathExtension, family: lang.family)
+        if languageForExtension(url.pathExtension) != nil {
+            bar.language = Self.displayName(for: url.pathExtension)
         } else {
             bar.language = "Plain Text"
         }
@@ -299,7 +318,7 @@ extension FileViewerPane {
     }
 
     /// Human-readable language name for the status bar.
-    private static func displayName(for ext: String, family: LanguageFamily) -> String {
+    private static func displayName(for ext: String) -> String {
         switch ext.lowercased() {
         case "swift": return "Swift"
         case "js", "jsx", "mjs", "cjs": return "JavaScript"

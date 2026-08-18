@@ -90,6 +90,11 @@ extension FileViewerPane {
     /// `refresh(diskChanged:)` on a clean buffer, and `+Editing`'s "Discard Mine and
     /// Reload" branch. It stays the single way bytes reach the screen.
     func reload(preservingScroll: Bool) {
+        // Invalidate before assigning the new string: `textView.string =` does not
+        // fire `textDidChange`, so the cache built for the old content would survive
+        // and make `updateStatusBar` report line 1 for every cursor position until
+        // the first edit.
+        invalidateLineStartCache()
         let origin = scrollView.contentView.bounds.origin
         let contents = read()
         let text = contents.text
