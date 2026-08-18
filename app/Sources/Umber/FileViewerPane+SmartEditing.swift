@@ -32,21 +32,34 @@ extension FileViewerPane: NSTextViewDelegate {
         textView.needsDisplay = true
     }
 
-    func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,
+    func textView(_ tv: NSTextView, shouldChangeTextIn range: NSRange,
                   replacementString replacement: String?) -> Bool {
         guard let replacement, !isPlaceholder else { return true }
 
+        // Re-entrancy guard: every `insertText(_:replacementRange:)` call below
+        // re-enters this delegate method via AppKit's `shouldChangeTextInRanges:`.
+        // Without this flag the auto-indent path loops infinitely (the re-entered
+        // call sees "\n" again and re-fires `insertText` with the indented string,
+        // which re-enters again, …), blowing the 8 MB main-thread stack in ~11 000
+        // frames. When the flag is set we are already inside a smart-edit transform
+        // and the replacement has been rewritten — let AppKit accept it as-is.
+        guard !isHandlingSmartEdit else { return true }
+
         // Tab → spaces.
         if replacement == "\t" && config.softTabs {
+            isHandlingSmartEdit = true
+            defer { isHandlingSmartEdit = false }
             let spaces = String(repeating: " ", count: config.tabWidth)
-            textView.insertText(spaces, replacementRange: range)
+            tv.insertText(spaces, replacementRange: range)
             return false
         }
 
         // Auto-indent on Enter.
         if replacement == "\n" {
-            let inserted = autoIndentedNewline(in: textView, at: range)
-            textView.insertText(inserted, replacementRange: range)
+            isHandlingSmartEdit = true
+            defer { isHandlingSmartEdit = false }
+            let inserted = autoIndentedNewline(in: tv, at: range)
+            tv.insertText(inserted, replacementRange: range)
             return false
         }
 
@@ -60,11 +73,11 @@ extension FileViewerPane: NSTextViewDelegate {
             // produce an empty utf16 view and crash. The guard makes that safe.
             if Self.isSkippableCloser(ch),
                !isInsideStringOrComment(at: range.location),
-               let str = textView.string as NSString?,
+               let str = tv.string as NSString?,
                range.location < str.length,
                let codeUnit = ch.utf16.first,
                str.character(at: range.location) == codeUnit {
-                textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+                tv.setSelectedRange(NSRange(location: range.location + 1, length: 0))
                 return false
             }
 
@@ -72,10 +85,12 @@ extension FileViewerPane: NSTextViewDelegate {
             if let close = Self.closerFor(ch) {
                 // Don't pair inside strings or comments.
                 if !isInsideStringOrComment(at: range.location) {
+                    isHandlingSmartEdit = true
+                    defer { isHandlingSmartEdit = false }
                     let pair = "\(ch)\(close)"
-                    textView.insertText(pair, replacementRange: range)
+                    tv.insertText(pair, replacementRange: range)
                     // Place cursor between the pair.
-                    textView.setSelectedRange(
+                    tv.setSelectedRange(
                         NSRange(location: range.location + 1, length: 0))
                     return false
                 }
@@ -84,7 +99,7 @@ extension FileViewerPane: NSTextViewDelegate {
 
         // Delete-pair: backspace between an empty pair → remove both.
         if replacement.isEmpty && range.length == 1 && range.location > 0 {
-            let str = textView.string as NSString
+            let str = tv.string as NSString
             let before = range.location - 1
             let after = range.location
             if after < str.length {
@@ -94,7 +109,9 @@ extension FileViewerPane: NSTextViewDelegate {
                 let close = Character(closeScalar)
                 if Self.closerFor(open) == close {
                     // Delete both characters.
-                    textView.insertText("",
+                    isHandlingSmartEdit = true
+                    defer { isHandlingSmartEdit = false }
+                    tv.insertText("",
                         replacementRange: NSRange(location: before, length: 2))
                     return false
                 }
