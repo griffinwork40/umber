@@ -179,6 +179,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
             // guarantees that invariant before we get here.
             view.installColors(theme.ansi.map { $0.asSwiftTermColor })
         }
+        // Theme-aware selection (#31). Both bg+fg required: SwiftTerm replaces both
+        // unconditionally (AppleTerminalView.swift:751-752). Nil → system pair.
+        let sel = config.effectiveSelectionColors()
+        view.selectedTextBackgroundColor = sel?.background ?? NSColor.selectedTextBackgroundColor
+        view.selectedTextForegroundColor = sel?.foreground ?? NSColor.selectedTextColor
         view.optionAsMetaKey = config.optionAsMeta
         view.allowMouseReporting = config.mouseReporting
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)

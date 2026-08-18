@@ -44,9 +44,9 @@ extension FileViewerPane: SpaceDocument {
         // unthemed editor the stock highlight is a system blue that has no relationship to a
         // warm umber background.
         //
-        // Only the BACKGROUND is set. Overriding the selected text's foreground would be the
-        // obvious next line and it is deliberately absent — the normal foreground is meant to
-        // show through, which is the same trick iTerm2 plays in `TextViewPorthole.swift`.
+        // Only the BACKGROUND is set here. Overriding the selected text's foreground would be
+        // the obvious next line and it is deliberately absent — the normal foreground is meant
+        // to show through, which is the same trick iTerm2 plays in `TextViewPorthole.swift`.
         // `selectedTextAttributes` REPLACES rather than merges, so omitting `.foregroundColor`
         // is what makes that happen; AppKit does not substitute `.selectedTextColor` back in.
         //
@@ -62,8 +62,12 @@ extension FileViewerPane: SpaceDocument {
         // system background would leave the normal foreground in place; under dark Aqua that
         // measured Lc 17.8 instead of the system pair's 86.1. Supplying both halves preserves
         // AppKit's Increase Contrast and appearance-aware choice.
-        textView.selectedTextAttributes = Self.readableSelection(for: config).map {
-            [.backgroundColor: $0]
+        //
+        // `effectiveSelectionColors()` is the shared rule, promoted to `Config+Chrome.swift`
+        // (#31) — only the background half is installed here; SwiftTerm requires both halves
+        // explicitly (AppleTerminalView.swift:751-752) so the terminal path sets both.
+        textView.selectedTextAttributes = config.effectiveSelectionColors().map {
+            [.backgroundColor: $0.background]
         } ?? [
             .backgroundColor: NSColor.selectedTextBackgroundColor,
             .foregroundColor: NSColor.selectedTextColor,
@@ -90,26 +94,6 @@ extension FileViewerPane: SpaceDocument {
         // Sticky scroll overlay — reinstalled on every config push so a toggle in
         // config.json + ⌘R takes effect immediately.
         applyStickyScroll()
-    }
-
-    /// The theme's selection background, or nil when AppKit's system pair should stand.
-    ///
-    /// The AppKit half of `SelectionPairing`, kept to a lookup: cross the two colours into
-    /// hex (`NSColor.hexString` converts to sRGB first, so a catalog colour like the
-    /// no-theme `.white` cannot trap here) and ask the pure rule. Everything decidable is
-    /// decided there, where `check-theme-contrast.sh` can compile it standalone.
-    ///
-    /// Deliberately NOT on `AppConfig` beside `effectiveBackground`/`effectiveForeground`,
-    /// though that is where it will belong: those exist because four call sites were
-    /// open-coding the same fallback, and selection has exactly ONE consumer today. Promote
-    /// it when the terminals are told too (#31) — and by then `Config.swift` is at 327/350,
-    /// so that promotion is the `Config+Chrome.swift` extraction #29 already prescribes,
-    /// rather than three more lines squeezed under the ceiling.
-    static func readableSelection(for config: AppConfig) -> NSColor? {
-        guard let selection = config.theme?.selection,
-              let sel = RGB(hex: selection.hexString),
-              let fg = RGB(hex: config.effectiveForeground.hexString) else { return nil }
-        return SelectionPairing.isReadable(foreground: fg, on: sel) ? selection : nil
     }
 
     var currentFontSize: CGFloat { fontSize }

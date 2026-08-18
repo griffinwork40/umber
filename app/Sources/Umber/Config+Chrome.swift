@@ -14,6 +14,12 @@
 //  that carries its rationale — the stale-ANSI correction, the sidebar-appearance
 //  derivation, and the one call site that reads `WCAG.lightChromeCutoff`.
 //
+//  `effectiveSelectionColors(for:)` was promoted here from `FileViewerPane+Document.swift`
+//  when the terminal engine was told about `ThemePalette.selection` (#31) — that
+//  second consumer (TerminalPane) was exactly the threshold the original comment
+//  predicted: "promote it when the terminals are told too (#31)". Both `FileViewerPane`
+//  and `TerminalPane` call this method; neither owns the rule.
+//
 
 import AppKit
 
@@ -60,5 +66,31 @@ extension AppConfig {
     /// call site that reads it, not a second definition of it (PR #24 review, item 1).
     var appearance: NSAppearance? {
         NSAppearance(named: Double(effectiveBackground.relativeLuminance) > WCAG.lightChromeCutoff ? .aqua : .darkAqua)
+    }
+
+    /// The selection background to install, paired with the theme foreground — or nil
+    /// when the system pair should stand.
+    ///
+    /// Promoted from `FileViewerPane+Document.swift` when `TerminalPane` became the
+    /// second consumer (#31). The original comment there said "promote it when the
+    /// terminals are told too" — this is that promotion.
+    ///
+    /// Returns `nil` in two cases: no theme (`"preset": "classic"`) and a theme whose
+    /// selection this foreground cannot be read on. Both callers treat nil identically:
+    /// fall back to the complete system pair (`NSColor.selectedTextBackgroundColor` /
+    /// `NSColor.selectedTextColor`). That pair is appearance-aware and honours
+    /// "Increase Contrast", so it is a better fallback than any fixed colour.
+    ///
+    /// The AppKit half of `SelectionPairing`: cross the two colours into hex
+    /// (`NSColor.hexString` converts to sRGB first, so catalog colours like the
+    /// no-theme `.white` cannot trap here) and ask the pure rule in `ThemeContrast.swift`.
+    /// Everything decidable is decided there, where `check-theme-contrast.sh` can
+    /// compile it standalone.
+    func effectiveSelectionColors() -> (background: NSColor, foreground: NSColor)? {
+        guard let selection = theme?.selection,
+              let sel = RGB(hex: selection.hexString),
+              let fg = RGB(hex: effectiveForeground.hexString) else { return nil }
+        guard SelectionPairing.isReadable(foreground: fg, on: sel) else { return nil }
+        return (background: selection, foreground: effectiveForeground)
     }
 }
