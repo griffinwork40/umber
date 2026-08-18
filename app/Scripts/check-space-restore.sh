@@ -147,6 +147,21 @@ check("an array of non-strings degrades to empty", OpenSpaceRoots.urls.map(\.pat
 
 UserDefaults.standard.removeObject(forKey: key)
 
+// access(path, X_OK) guard: a directory that exists but has no execute bit
+// must be rejected. Without the guard, fileExists says yes, chdir fails
+// silently inside SwiftTerm's forkpty child (Pty.swift:103:
+// `_ = chdir(cCurrentDirectory)`), and the shell starts in the app's cwd
+// with no diagnostic. chmod is run as root-is-not-required: the real-UID
+// access(2) check matches what the forked shell will see (#8).
+let noExec = sandbox.appendingPathComponent("no-exec-dir")
+try? fm.createDirectory(at: noExec, withIntermediateDirectories: true)
+// 0o000 = no read, no write, no execute for anyone.
+try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: noExec.path)
+OpenSpaceRoots.urls = [alpha, noExec]
+check("rejects a directory without execute permission", names(OpenSpaceRoots.urls), ["alpha"])
+// Restore permissions so the sandbox cleanup (removeItem) can actually delete it.
+try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExec.path)
+
 // The check must not have touched the real app's remembered Spaces. A bundle-less
 // binary gets its own defaults domain, so this asserts that assumption rather
 // than trusting it. Compared as a delta against the snapshot taken before any of
