@@ -295,15 +295,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         viewer.setWrapping(!viewer.isWrapping)
     }
 
+    /// Shell-safe single-quoted path: escapes embedded single-quotes and strips
+    /// \n/\r so a filename with a newline cannot inject a second shell command.
+    private func shellQuoted(_ url: URL) -> String {
+        let safe = url.path
+            .replacingOccurrences(of: "'", with: "'\\''")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+        return "'\(safe)'"
+    }
+
     /// Edit → Send Path to Terminal (⌘⇧C). Sends the current file's path to the
     /// focused shell as text, so the user can compose a command around it.
     @objc func sendPathToTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
-        // Single-quote the path to handle spaces and special characters, same
-        // convention as `FileTreeViewController+ContextMenu.swift`'s "cd Here".
-        let escaped = viewer.url.path.replacingOccurrences(of: "'", with: "'\\''")
-        shell.send(text: "'\(escaped)' ")
+        shell.send(text: "\(shellQuoted(viewer.url)) ")
     }
 
     /// Edit → Run in Terminal (⌘⇧R). Sends a language-appropriate run command
@@ -311,8 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func runInTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
-        let path = viewer.url.path.replacingOccurrences(of: "'", with: "'\\''")
-        let quoted = "'\(path)'"
+        let quoted = shellQuoted(viewer.url)
         let ext = viewer.url.pathExtension.lowercased()
         // Language-detected run command. SyntaxLanguage already knows the file
         // type; this maps it to the obvious `$RUNNER $FILE` invocation.
@@ -326,9 +332,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "sh", "bash":  command = "bash \(quoted)"
         case "zsh":         command = "zsh \(quoted)"
         case "go":          command = "go run \(quoted)"
-        case "rs":          command = "cargo run"  // Rust files need the project
-        case "c":           command = "cc \(quoted) -o /tmp/a.out && /tmp/a.out"
-        case "cpp", "cc":   command = "c++ \(quoted) -o /tmp/a.out && /tmp/a.out"
+        case "rs":
+            // cargo run with no path runs the shell cwd's project, not this file.
+            // --manifest-path pins it to the file's own directory.
+            command = "cargo run --manifest-path \(shellQuoted(viewer.url.deletingLastPathComponent()))/Cargo.toml"
+        case "c":
+            // Unique temp path avoids races when two C files compile concurrently.
+            let out = "/tmp/umber-\(UUID().uuidString).out"
+            command = "cc \(quoted) -o '\(out)' && '\(out)'; rm -f '\(out)'"
+        case "cpp", "cc":
+            let out = "/tmp/umber-\(UUID().uuidString).out"
+            command = "c++ \(quoted) -o '\(out)' && '\(out)'; rm -f '\(out)'"
         default:            command = quoted  // Unknown: just send the path
         }
         shell.send(text: command + "\n")

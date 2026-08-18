@@ -76,15 +76,16 @@ final class EditorTextView: NSTextView {
                 guideLine.fill()
             }
         }
+
+        // Draw trailing-whitespace dots. Must come after the column guide so
+        // dots land above the guide line in the compositing order.
+        drawTrailingWhitespace(in: rect)
     }
 
-    /// Draw trailing whitespace dots AFTER the text, so they overlay correctly.
-    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
-    }
-
-    /// Called by the layout manager after drawing glyphs. We hook this to draw
-    /// trailing whitespace indicators.
+    /// Called by drawBackground(in:) after the column guide to draw trailing
+    /// whitespace indicators — hooked there because drawBackground is already
+    /// our override point and firing here keeps the dots composited in the right
+    /// Z-order (above background, below glyphs).
     func drawTrailingWhitespace(in rect: NSRect) {
         guard showTrailingWhitespace,
               let lm = layoutManager, let tc = textContainer else { return }
@@ -102,10 +103,13 @@ final class EditorTextView: NSTextView {
 
             // Find trailing whitespace (spaces and tabs before the line ending).
             var trailStart = NSMaxRange(lineRange)
-            // Skip past the newline character(s)
+            // Skip past the newline character(s). CRLF files end each line with
+            // two characters (0x0D 0x0A), so we must peel both — otherwise the
+            // lone \r is classified as trailing whitespace and draws a spurious dot.
             if trailStart > lineRange.location {
-                let lastChar = str.character(at: trailStart - 1)
-                if lastChar == 0x0A || lastChar == 0x0D { trailStart -= 1 }
+                if str.character(at: trailStart - 1) == 0x0A { trailStart -= 1 }
+                if trailStart > lineRange.location,
+                   str.character(at: trailStart - 1) == 0x0D { trailStart -= 1 }
             }
             let contentEnd = trailStart
             while trailStart > lineRange.location {
@@ -172,11 +176,14 @@ final class EditorStatusBar: NSView {
         label.stringValue = "Ln \(line), Col \(column)  ·  \(language)  ·  \(encoding)  ·  \(indentMode)"
     }
 
-    func applyTheme(background: NSColor, foreground: NSColor) {
+    func applyTheme(background: NSColor, foreground: NSColor, isLight: Bool) {
         // A slightly lifted background separates the bar from the editor body.
+        // On dark themes blend toward white (lift); on light themes blend toward
+        // black (darken) — blending toward white on a light background produces
+        // a bar indistinguishable from the editor itself.
         wantsLayer = true
         layer?.backgroundColor = background.blended(
-            withFraction: 0.07, of: .white)?.cgColor ?? background.cgColor
+            withFraction: 0.07, of: isLight ? .black : .white)?.cgColor ?? background.cgColor
         label.textColor = foreground.withAlphaComponent(0.55)
     }
 }
@@ -196,7 +203,7 @@ extension FileViewerPane {
         textView.columnGuideColor = fg.withAlphaComponent(0.08)
         textView.trailingWhitespaceColor = fg.withAlphaComponent(0.15)
         textView.insertionPointColor = config.theme?.cursor ?? fg
-        statusBar?.applyTheme(background: bg, foreground: fg)
+        statusBar?.applyTheme(background: bg, foreground: fg, isLight: isLight)
         updateStatusBar()
     }
 
@@ -214,7 +221,15 @@ extension FileViewerPane {
         var i = 0
         while i < clampedLoc {
             let range = str.lineRange(for: NSRange(location: i, length: 0))
-            if NSMaxRange(range) <= clampedLoc {
+            // Advance `line` only when we are truly past a line terminator.
+            // The original `<=` incorrectly fired when maxRange == clampedLoc at
+            // an unterminated EOF (e.g. "hello" with cursor at 5), reporting
+            // Ln 2 Col 1 instead of Ln 1 Col 6. The extra `clampedLoc < str.length`
+            // guard ensures we only count a completed line when the cursor sits
+            // inside a later line, not when it sits at the very end of the last
+            // unterminated line.
+            if NSMaxRange(range) < clampedLoc ||
+               (NSMaxRange(range) == clampedLoc && clampedLoc < str.length) {
                 line += 1
                 i = NSMaxRange(range)
             } else {
