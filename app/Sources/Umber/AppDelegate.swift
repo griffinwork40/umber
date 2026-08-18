@@ -62,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return focusedSpace?.activeDocument is FileViewerPane
                 && focusedSpace?.focusedShellHost != nil
         }
+        // ⌘D — only enabled over a file viewer, not a terminal.
+        if sel == #selector(selectNextOccurrence(_:)) {
+            return focusedSpace?.activeDocument is FileViewerPane
+        }
+        // ⌘⇧P — always available (palette surfaces all commands).
+        if sel == #selector(showCommandPalette(_:)) { return true }
         return true
     }
 
@@ -233,8 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The Space whose window has focus, falling back to the most recently opened.
     /// Same resolution order as `focusedSpace`; this one keeps the window controller
     /// because `openFolder` needs its `root`, which `SpaceViewController` does not
-    /// expose.
-    private var focusedSpaceWindow: SpaceWindowController? {
+    /// expose. Internal (not private) so `AppDelegate+EditorActions.swift` can reach it.
+    var focusedSpaceWindow: SpaceWindowController? {
         SpaceWindowController.open.first { $0.window === NSApp.keyWindow }
             ?? SpaceWindowController.open.last
     }
@@ -284,4 +290,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for document in allDocuments { document.resetFontSize() }
     }
 
+    // Wave 2 + Wave 3 editor actions → AppDelegate+EditorActions.swift
 }

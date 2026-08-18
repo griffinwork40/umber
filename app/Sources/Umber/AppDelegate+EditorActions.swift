@@ -8,6 +8,10 @@
 //  Also holds the shared `shellQuoted(_:)` helper and `findAncestorFile(named:from:)`
 //  used by the terminal-integration actions.
 //
+//  **Wave 3 actions**
+//    · `selectNextOccurrence(_:)` — ⌘D, routes through the responder chain
+//    · `showCommandPalette(_:)`   — ⌘⇧P, opens the floating command palette
+//
 
 import AppKit
 
@@ -85,6 +89,23 @@ extension AppDelegate {
         default:            command = quoted  // Unknown: just send the path
         }
         shell.send(text: command + "\n")
+    }
+
+    // MARK: - Wave 3 actions
+
+    /// Edit → Select Next Occurrence (⌘D). Routes through the responder chain —
+    /// `FileViewerPane` answers `selectNextOccurrence:`; terminals don't, so the
+    /// item greys itself out over a terminal automatically.
+    @objc func selectNextOccurrence(_ sender: Any?) {
+        NSApp.sendAction(#selector(FileViewerPane.selectNextOccurrence(_:)), to: nil, from: sender)
+    }
+
+    /// Navigate → Command Palette (⌘⇧P). Opens the floating command palette above
+    /// the current window.
+    @objc func showCommandPalette(_ sender: Any?) {
+        guard let window = NSApp.keyWindow ?? SpaceWindowController.open.first?.window
+        else { return }
+        CommandPalette.shared.toggle(in: window)
     }
 
     // MARK: - Helpers

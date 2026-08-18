@@ -1,165 +1,15 @@
 //
 //  FileViewerPane+Chrome.swift
-//  Editor chrome that makes the viewer feel alive: current-line highlight,
-//  column guide, trailing-whitespace visualization, and a status bar showing
-//  cursor position, language, encoding and indent mode.
+//  Editor chrome: status bar and the config-wiring that applies theme colours to
+//  EditorTextView, EditorStatusBar, and the FileViewerPane.
 //
-//  Its own file because none of this touches the save path, the syntax
-//  highlighter, or the dirty flag — it is pure "how the editor looks when
-//  you are staring at it", and it would push `FileViewerPane.swift` back
-//  toward the ceiling if folded in.
+//  `EditorTextView` (current-line highlight, column guide, indent rainbow,
+//  trailing-whitespace dots) lives in `EditorTextView.swift`, extracted when
+//  this file reached 392 LOC. The seam is clean: EditorTextView.swift owns
+//  "how the text area draws itself"; this file owns "how the pane wires it up".
 //
 
 import AppKit
-
-// MARK: - Current-line highlight
-
-/// A custom `NSTextView` subclass that draws a subtle highlight on the line
-/// containing the insertion point. Subclassing is the only way to intercept
-/// `drawBackground(in:)` — `NSTextView` does not expose a delegate hook for it.
-///
-/// Also draws a column guide (vertical line at a configurable column) and dims
-/// trailing whitespace so it is visible without being distracting.
-@MainActor
-final class EditorTextView: NSTextView {
-    /// The column at which to draw a vertical guide line, or nil for none.
-    /// Set from `apply(config:)` once config fields exist; hard-coded to 80
-    /// until then.
-    var columnGuide: Int? = 80
-
-    /// Whether to visualize trailing whitespace with dim dots.
-    var showTrailingWhitespace = true
-
-    /// The background colour for the current line — a very slight lift from the
-    /// editor background. Recalculated on every `apply(config:)`.
-    var currentLineColor: NSColor = NSColor.white.withAlphaComponent(0.04)
-
-    /// The colour for the column guide line.
-    var columnGuideColor: NSColor = NSColor.white.withAlphaComponent(0.08)
-
-    /// The colour for trailing-whitespace dots.
-    var trailingWhitespaceColor: NSColor = NSColor.white.withAlphaComponent(0.15)
-
-    /// Cached monospace character width for the column guide; invalidated on
-    /// font change. Measuring `"m"` per frame was flagged in PR #45 review.
-    private var cachedCharWidth: CGFloat?
-    override var font: NSFont? {
-        didSet { cachedCharWidth = nil }
-    }
-
-    /// Cached monospace cell width, keyed on font identity — a pointer compare,
-    /// not a measurement. Catches ObjC `setFont:` bypassing the Swift `didSet`.
-    private var cachedCharFont: NSFont?
-    private func charWidth(for f: NSFont) -> CGFloat {
-        if let w = cachedCharWidth, cachedCharFont === f { return w }
-        let w = ("m" as NSString).size(withAttributes: [.font: f]).width
-        cachedCharWidth = w
-        cachedCharFont = f
-        return w
-    }
-
-    override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
-
-        guard let lm = layoutManager, let tc = textContainer else { return }
-
-        // -- Current line highlight --
-        // Only draw the line highlight when the view has content — lineRange
-        // requires a valid location. The column guide and trailing-whitespace
-        // drawing below have their own guards and must run even on an empty file.
-        let insertion = selectedRange().location
-        let str = (string as NSString)
-        let lineRange: NSRange? = str.length > 0
-            ? str.lineRange(for: NSRange(location: min(insertion, str.length - 1), length: 0))
-            : nil
-        if let lineRange {
-            let glyphRange = lm.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            // boundingRect gives the visual extent of the line's glyphs, but we want
-            // full-width so the highlight stretches edge to edge.
-            let lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
-            let fullWidthRect = NSRect(
-                x: 0,
-                y: lineRect.origin.y + textContainerOrigin.y,
-                width: bounds.width,
-                height: lineRect.height)
-
-            if fullWidthRect.intersects(rect) {
-                currentLineColor.setFill()
-                fullWidthRect.fill()
-            }
-        }
-
-        // -- Column guide --
-        if let col = columnGuide, col > 0 {
-            let cw = charWidth(for: font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
-            let guideX = textContainerOrigin.x + tc.lineFragmentPadding + cw * CGFloat(col)
-            let guideLine = NSRect(x: guideX, y: rect.origin.y, width: 1 / (window?.backingScaleFactor ?? 2), height: rect.height)
-            if guideLine.intersects(rect) {
-                columnGuideColor.setFill()
-                guideLine.fill()
-            }
-        }
-
-        // Draw trailing-whitespace dots. Must come after the column guide so
-        // dots land above the guide line in the compositing order.
-        drawTrailingWhitespace(in: rect)
-    }
-
-    /// Called by drawBackground(in:) after the column guide to draw trailing
-    /// whitespace indicators — hooked there because drawBackground is already
-    /// our override point and firing here keeps the dots composited in the right
-    /// Z-order (above background, below glyphs).
-    func drawTrailingWhitespace(in rect: NSRect) {
-        guard showTrailingWhitespace,
-              let lm = layoutManager, let tc = textContainer else { return }
-
-        let str = string as NSString
-        guard str.length > 0 else { return }
-
-        // Only process lines visible in the dirty rect for performance.
-        let glyphRange = lm.glyphRange(forBoundingRect: rect, in: tc)
-        let charRange = lm.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-
-        var lineStart = charRange.location
-        while lineStart < NSMaxRange(charRange) && lineStart < str.length {
-            let lineRange = str.lineRange(for: NSRange(location: lineStart, length: 0))
-
-            // Find trailing whitespace (spaces and tabs before the line ending).
-            var trailStart = NSMaxRange(lineRange)
-            // Skip past the newline character(s). CRLF files end each line with
-            // two characters (0x0D 0x0A), so we must peel both — otherwise the
-            // lone \r is classified as trailing whitespace and draws a spurious dot.
-            if trailStart > lineRange.location {
-                if str.character(at: trailStart - 1) == 0x0A { trailStart -= 1 }
-                if trailStart > lineRange.location,
-                   str.character(at: trailStart - 1) == 0x0D { trailStart -= 1 }
-            }
-            let contentEnd = trailStart
-            while trailStart > lineRange.location {
-                let ch = str.character(at: trailStart - 1)
-                if ch != 0x20 && ch != 0x09 { break }  // space or tab
-                trailStart -= 1
-            }
-
-            if trailStart < contentEnd {
-                // Draw a small dot for each trailing whitespace character.
-                let dotSize: CGFloat = 2.5
-                trailingWhitespaceColor.setFill()
-                for i in trailStart..<contentEnd {
-                    let glyphIdx = lm.glyphIndexForCharacter(at: i)
-                    let loc = lm.location(forGlyphAt: glyphIdx)
-                    let fragRect = lm.lineFragmentRect(forGlyphAt: glyphIdx, effectiveRange: nil)
-                    let x = textContainerOrigin.x + fragRect.origin.x + loc.x + 2
-                    let y = textContainerOrigin.y + fragRect.origin.y + loc.y - dotSize / 2 - 1
-                    let dotRect = NSRect(x: x, y: y, width: dotSize, height: dotSize)
-                    NSBezierPath(ovalIn: dotRect).fill()
-                }
-            }
-
-            lineStart = NSMaxRange(lineRange)
-        }
-    }
-}
 
 // MARK: - Status bar
 
@@ -230,6 +80,11 @@ extension FileViewerPane {
         textView.columnGuideColor = fg.withAlphaComponent(0.08)
         textView.trailingWhitespaceColor = fg.withAlphaComponent(0.15)
         textView.insertionPointColor = config.theme?.cursor ?? fg
+        // Indent rainbow + column guide + trailing whitespace from config.
+        textView.indentRainbow = config.indentRainbow
+        textView.tabWidthForRainbow = config.tabWidth
+        textView.columnGuide = config.columnGuideColumn
+        textView.showTrailingWhitespace = config.showTrailingWhitespace
         statusBar?.applyTheme(background: bg, foreground: fg, isLight: isLight)
         updateStatusBar()
     }
@@ -344,6 +199,17 @@ extension FileViewerPane {
         case "xml": return "XML"
         case "svg": return "SVG"
         case "md", "markdown", "mdx": return "Markdown"
+        // Wave 2 additions
+        case "lua": return "Lua"
+        case "php": return "PHP"
+        case "dart": return "Dart"
+        case "ex": return "Elixir"
+        case "exs": return "Elixir Script"
+        case "pl", "pm": return "Perl"
+        case "hs", "lhs": return "Haskell"
+        case "scala", "sc": return "Scala"
+        case "r": return "R"
+        case "rmd", "rmarkdown": return "R Markdown"
         default: return ext.uppercased()
         }
     }
