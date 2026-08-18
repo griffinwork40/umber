@@ -1,8 +1,8 @@
 //
 //  FileViewerPane+Chrome.swift
 //  Editor chrome that makes the viewer feel alive: current-line highlight,
-//  bracket-match highlight, column guide, trailing-whitespace visualization,
-//  and a status bar showing cursor position, language, encoding and indent mode.
+//  column guide, trailing-whitespace visualization, and a status bar showing
+//  cursor position, language, encoding and indent mode.
 //
 //  Its own file because none of this touches the save path, the syntax
 //  highlighter, or the dirty flag — it is pure "how the editor looks when
@@ -207,37 +207,72 @@ extension FileViewerPane {
         updateStatusBar()
     }
 
+    /// Coalesce rapid-fire selection changes into a single status bar refresh.
+    /// Each call cancels any pending update and schedules a new one at the end
+    /// of the current run-loop turn, so typing, auto-indent and auto-pair
+    /// (which fire multiple `textViewDidChangeSelection` per keystroke) pay the
+    /// line-counting cost at most once.
+    func scheduleStatusBarUpdate() {
+        pendingStatusBarUpdate?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.updateStatusBar() }
+        pendingStatusBarUpdate = work
+        DispatchQueue.main.async(execute: work)
+    }
+
+    /// Invalidate the cached line-start offsets so the next `updateStatusBar`
+    /// rebuilds them. Called from `textDidChange` in `+SmartEditing.swift`.
+    func invalidateLineStartCache() {
+        lineStartCache = nil
+    }
+
+    /// Build a sorted array of every line-start byte offset in the string.
+    /// O(n) in file length, but runs at most once per edit — cursor movements
+    /// reuse the cache until the next `textDidChange` invalidates it.
+    private func buildLineStartCache(for str: NSString) -> [Int] {
+        var starts = [0]
+        var i = 0
+        while i < str.length {
+            let range = str.lineRange(for: NSRange(location: i, length: 0))
+            let next = NSMaxRange(range)
+            if next > i && next <= str.length {
+                // `next` is the start of the following line (past the terminator).
+                // Only record it if there actually is a following line — if next ==
+                // str.length on an unterminated final line, the file has no more lines.
+                if next < str.length { starts.append(next) }
+            }
+            i = next > i ? next : i + 1  // guard against zero-width ranges
+        }
+        return starts
+    }
+
     /// Refresh the status bar with current cursor position and file metadata.
-    /// Called on every selection change (via `+SmartEditing`'s delegate) and on
+    /// Called via `scheduleStatusBarUpdate()` on every selection change and on
     /// config reload.
+    ///
+    /// Uses a cached line-start index (built once per edit, O(n)) and binary
+    /// search (O(log n) per cursor move) instead of walking from offset 0 on
+    /// every call. At the 4 MiB file cap (~83k lines), this avoids 83k
+    /// `lineRange` calls per keystroke — the cost flagged in the PR #45 review.
     func updateStatusBar() {
         guard let bar = statusBar else { return }
         let str = textView.string as NSString
         let loc = textView.selectedRange().location
-        // Compute line and column from the insertion point.
-        var line = 1
-        var col = 1
         let clampedLoc = min(loc, str.length)
-        var i = 0
-        while i < clampedLoc {
-            let range = str.lineRange(for: NSRange(location: i, length: 0))
-            // Advance `line` only when we are truly past a line terminator.
-            // The original `<=` incorrectly fired when maxRange == clampedLoc at
-            // an unterminated EOF (e.g. "hello" with cursor at 5), reporting
-            // Ln 2 Col 1 instead of Ln 1 Col 6. The extra `clampedLoc < str.length`
-            // guard ensures we only count a completed line when the cursor sits
-            // inside a later line, not when it sits at the very end of the last
-            // unterminated line.
-            if NSMaxRange(range) < clampedLoc ||
-               (NSMaxRange(range) == clampedLoc && clampedLoc < str.length) {
-                line += 1
-                i = NSMaxRange(range)
-            } else {
-                col = clampedLoc - i + 1
-                break
-            }
+
+        // Build the line-start cache on first call after an edit (or load).
+        let starts = lineStartCache ?? buildLineStartCache(for: str)
+        lineStartCache = starts
+
+        // Binary search: find the last line whose start offset <= clampedLoc.
+        // `starts` is sorted ascending. `upperBound - 1` gives the line index.
+        var lo = 0, hi = starts.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if starts[mid] <= clampedLoc { lo = mid + 1 } else { hi = mid }
         }
-        if i == clampedLoc { col = 1 }  // cursor at line start
+        let lineIdx = lo - 1  // 0-based index into `starts`
+        let line = lineIdx + 1  // 1-based for display
+        let col = clampedLoc - starts[lineIdx] + 1
 
         bar.line = line
         bar.column = col

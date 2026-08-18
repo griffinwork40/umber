@@ -295,8 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         viewer.setWrapping(!viewer.isWrapping)
     }
 
-    /// Shell-safe single-quoted path: escapes embedded single-quotes and strips
-    /// \n/\r so a filename with a newline cannot inject a second shell command.
+    /// Shell-safe single-quoted path: escapes `'` and strips `\n`/`\r`.
     private func shellQuoted(_ url: URL) -> String {
         let safe = url.path
             .replacingOccurrences(of: "'", with: "'\\''")
@@ -305,8 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return "'\(safe)'"
     }
 
-    /// Edit → Send Path to Terminal (⌘⇧C). Sends the current file's path to the
-    /// focused shell as text, so the user can compose a command around it.
+    /// Edit → Send Path to Terminal (⌘⇧C). Sends the file's path to the shell.
     @objc func sendPathToTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
@@ -314,7 +312,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Edit → Run in Terminal (⌘⇧R). Sends a language-appropriate run command
-    /// for the current file to the focused shell.
+    /// for the current file to the focused shell and executes it immediately —
+    /// no confirmation dialog, same as Xcode ⌘R and Script Editor ⌘R.
+    /// `validateMenuItem` gates it behind an active `FileViewerPane` + a live
+    /// shell host; the three deliberate acts (open, focus, ⌘⇧R) are the guard.
     @objc func runInTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
@@ -332,9 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "sh", "bash":  command = "bash \(quoted)"
         case "zsh":         command = "zsh \(quoted)"
         case "go":          command = "go run \(quoted)"
-        case "rs":
-            // cargo run with no path runs the shell cwd's project, not this file.
-            // --manifest-path pins it to the file's own directory.
+        case "rs":  // --manifest-path pins cargo to this file's directory, not the shell cwd.
             command = "cargo run --manifest-path \(shellQuoted(viewer.url.deletingLastPathComponent()))/Cargo.toml"
         case "c":
             // Unique temp path avoids races when two C files compile concurrently.

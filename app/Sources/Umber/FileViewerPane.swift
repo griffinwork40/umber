@@ -95,6 +95,17 @@ final class FileViewerPane: NSObject {
     /// Stored here because extensions cannot hold stored properties.
     var statusBar: EditorStatusBar?
 
+    /// Cached byte offsets of each line start (index 0 = line 1 = offset 0).
+    /// Invalidated by `invalidateLineStartCache()` on every `textDidChange`, then
+    /// rebuilt lazily by `updateStatusBar()`. Turns the O(n) line walk into an
+    /// O(log n) binary search over an O(n)-once cache — the walk still happens once
+    /// per edit, but not once per cursor movement or selection change.
+    var lineStartCache: [Int]?
+
+    /// Pending status bar update — cancelled and replaced on each rapid-fire
+    /// selection change so the O(log n) lookup runs at most once per run-loop turn.
+    var pendingStatusBarUpdate: DispatchWorkItem?
+
     /// Container view holding scroll view + status bar, so `documentView` returns
     /// one view for both. `SpaceDocument` expects a single `NSView`.
     let containerView = NSView()
