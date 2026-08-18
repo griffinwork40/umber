@@ -265,7 +265,8 @@ extension AppDelegate {
         // Splits — tmux-inspired: ⌘⇧\ (pipe) splits right, ⌘⇧- splits down.
         // Target is nil so AppKit walks the responder chain to
         // `splitHorizontal:`/`splitVertical:` on SpaceViewController; greyed out
-        // automatically when no terminal is in the active tab.
+        // by `validateUserInterfaceItem` when inappropriate (no terminal, already
+        // split, or vertical not yet implemented).
         let splitItem = NSMenuItem(
             title: "Split Right",
             action: Selector(("splitHorizontal:")), keyEquivalent: "\\")
@@ -279,7 +280,7 @@ extension AppDelegate {
         viewMenu.addItem(.separator())
         // Pane focus — tmux-inspired h/j/k/l with ⌘⇧. Walks the responder chain
         // to `moveFocusLeft:`…`moveFocusRight:` on SpaceViewController; greyed out
-        // when no split exists in the active tab.
+        // by `validateUserInterfaceItem` when no split exists in the active tab.
         let focusItems: [(String, String, String)] = [
             ("Focus Pane Left", "h", "moveFocusLeft:"),
             ("Focus Pane Down", "j", "moveFocusDown:"),

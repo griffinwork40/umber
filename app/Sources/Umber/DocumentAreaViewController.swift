@@ -83,9 +83,9 @@ final class DocumentAreaViewController: NSViewController {
 
     /// Collapse the split, returning to single-pane display.
     ///
-    /// Called from closeSplitPane() and teardownSplit(for:) in +Splits.swift after
-    /// the peer view has been torn down. The container's removeSplit() removes the
-    /// peer view from its hierarchy; this just tells the container to re-layout.
+    /// Called from closeSplitPane(), teardownSplit(for:), and terminateSplitPeer(_:)
+    /// in +Splits.swift. The container's removeSplit() removes the peer view from the
+    /// hierarchy — that is the single owner of the removeFromSuperview call.
     func dismissSplit() {
         container.removeSplit()
     }

@@ -47,7 +47,6 @@ final class SplitContainerView: NSView {
     private let dividerView = NSView()
 
     /// Drag bookkeeping — nil when no drag is in progress.
-    private var dragStartRatio: CGFloat?
     private var dragStartPoint: NSPoint?
 
     /// Minimum size each pane must stay at, so the divider cannot be dragged to
@@ -106,9 +105,8 @@ final class SplitContainerView: NSView {
         layout()
     }
 
-    /// Remove the split peer. Returns the removed view so the caller can tear it
-    /// down (documentWillClose + removeFromSuperview is the caller's responsibility
-    /// for the returned view). Returns nil if not currently split.
+    /// Remove the split peer and its view from the hierarchy. Returns the removed
+    /// view (still valid, just detached). Returns nil if not currently split.
     @discardableResult
     func removeSplit() -> NSView? {
         guard let peer = splitView else { return nil }
@@ -116,6 +114,7 @@ final class SplitContainerView: NSView {
         peer.removeFromSuperview()
         needsLayout = true
         layout()
+        window?.invalidateCursorRects(for: self)  // clear the resize cursor
         return peer
     }
 
@@ -132,7 +131,7 @@ final class SplitContainerView: NSView {
             // Clamp the ratio so both panes keep at least minPaneSize.
             let available = direction == .horizontal ? b.width : b.height
             let minRatio = Self.minPaneSize / max(available, 1)
-            let maxRatio = 1 - minRatio
+            let maxRatio = max(1 - minRatio, minRatio)  // floor: window too narrow to fit both
             let ratio = min(max(dividerRatio, minRatio), maxRatio)
 
             switch direction {
@@ -140,7 +139,7 @@ final class SplitContainerView: NSView {
                 // Non-flipped coordinates: x=0 is LEFT. Primary is on the left.
                 let leftWidth = (b.width * ratio).rounded(.down)
                 let rightX = leftWidth + 1  // 1pt divider
-                let rightWidth = b.width - rightX
+                let rightWidth = max(b.width - rightX, 0)  // floor at 0 for very narrow windows
                 primary.frame = NSRect(x: 0, y: 0, width: leftWidth, height: b.height)
                 dividerView.frame = NSRect(x: leftWidth, y: 0, width: 1, height: b.height)
                 peer.frame = NSRect(x: rightX, y: 0, width: rightWidth, height: b.height)
@@ -151,7 +150,7 @@ final class SplitContainerView: NSView {
                 // This matches the plan doc's "primary gets bottom half" note.
                 let bottomHeight = (b.height * ratio).rounded(.down)
                 let topY = bottomHeight + 1
-                let topHeight = b.height - topY
+                let topHeight = max(b.height - topY, 0)
                 primary.frame = NSRect(x: 0, y: 0, width: b.width, height: bottomHeight)
                 dividerView.frame = NSRect(x: 0, y: bottomHeight, width: b.width, height: 1)
                 peer.frame = NSRect(x: 0, y: topY, width: b.width, height: topHeight)
@@ -183,7 +182,6 @@ final class SplitContainerView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if isNearDivider(point) {
-            dragStartRatio = dividerRatio
             dragStartPoint = point
         } else {
             super.mouseDown(with: event)
@@ -191,7 +189,7 @@ final class SplitContainerView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard dragStartRatio != nil, let start = dragStartPoint else {
+        guard let start = dragStartPoint else {
             super.mouseDragged(with: event)
             return
         }
@@ -215,7 +213,6 @@ final class SplitContainerView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        dragStartRatio = nil
         dragStartPoint = nil
         super.mouseUp(with: event)
     }

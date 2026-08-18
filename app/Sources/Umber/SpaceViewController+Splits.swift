@@ -22,7 +22,7 @@ extension SpaceViewController {
 
     // MARK: - Split creation
 
-    /// ⌘⇧D — split the active terminal horizontally, opening a new pane to the right.
+    /// ⌘⇧\ — split the active terminal horizontally, opening a new pane to the right.
     ///
     /// Wired from AppMenu.swift. Uses the same construction path as addTerminalDocument
     /// (SpaceViewController+DocumentConstruction.swift) so both engines are handled,
@@ -99,7 +99,8 @@ extension SpaceViewController {
         guard let primary = activeDocument,
               let peer = splitPeers.removeValue(forKey: ObjectIdentifier(primary)) else { return }
         peer.documentWillClose()
-        peer.documentView.removeFromSuperview()
+        // dismissSplit() → container.removeSplit() owns removeFromSuperview on the peer —
+        // one owner for the hierarchy change, not two (PR #48 review M2).
         documentArea.dismissSplit()
         // Restore focus to the primary pane.
         primary.documentDidBecomeActive()
@@ -171,8 +172,7 @@ extension SpaceViewController {
         for primary in documents where splitPeers[ObjectIdentifier(primary)] === document {
             splitPeers.removeValue(forKey: ObjectIdentifier(primary))
             document.documentWillClose()
-            document.documentView.removeFromSuperview()
-            documentArea.dismissSplit()
+            documentArea.dismissSplit()  // owns removeFromSuperview on the peer
             primary.documentDidBecomeActive()
             return
         }
@@ -189,7 +189,6 @@ extension SpaceViewController {
     func teardownSplit(for document: SpaceDocument) {
         guard let peer = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
         peer.documentWillClose()
-        peer.documentView.removeFromSuperview()
-        documentArea.dismissSplit()
+        documentArea.dismissSplit()  // owns removeFromSuperview on the peer
     }
 }

@@ -69,8 +69,8 @@ final class SpaceViewController: NSSplitViewController {
     var directoryFollow: DirectoryFollow?
 
     /// Split peers keyed by primary document identity. NOT in `documents[]` — peers
-    /// don't appear as tabs. Internal so +Splits.swift can write it; all writes go
-    /// through that extension's methods, preserving the one-writer discipline.
+    /// don't appear as tabs. Internal (not `private(set)`) because +Splits.swift needs
+    /// subscript-set and removeValue. Writes go through that extension — convention-enforced.
     var splitPeers: [ObjectIdentifier: SpaceDocument] = [:]
 
     /// Internal for the same reason `config` above is: document construction lives in
@@ -139,29 +139,11 @@ final class SpaceViewController: NSSplitViewController {
 
     /// Install a document this container did not construct, and make it active.
     ///
-    /// The polymorphic entry point `addTerminalDocument` above lacked: it hardcodes a
-    /// `TerminalPane(config:frame:workingDirectory:)` and returns the concrete type, so a
-    /// second engine-backed kind (`GhosttyPane`, plan §4) had nowhere to be handed in
-    /// (`libghostty-swap-sequencing-2026-07-28.md` §2, site 2). Everything the container
-    /// owes *any* document — the delegate wire-up, the list, activation — is here and
-    /// stated once; a caller supplies only the thing this container cannot know, which is
-    /// how to build the document.
-    ///
-    /// `addTerminalDocument` deliberately survives as the ⌘T path and calls through here
-    /// rather than being replaced by it: ⌘T means "a terminal rooted at this Space",
-    /// which is a policy this container owns and a generic entry point cannot express.
-    /// Taking `SpaceDocument` and not `ShellHosting`, because the container installs
-    /// documents; hosting a shell is irrelevant to installing one, and `openFile` will
-    /// route through here too the moment the editor column is regenericized (§8's
-    /// deferred list).
-    ///
-    /// `beforeActivating` exists for one caller and one reason: a document that spawns a
-    /// process must be able to do so while the view geometry is still what it was when the
-    /// document was constructed, because activation can resize the container (the tab
-    /// strip appears at the second document). See `addTerminalDocument` for the full
-    /// argument. It is a closure rather than a `start()` protocol member so the container
-    /// stays ignorant of what any kind needs to do in that window — it only guarantees
-    /// *when* the window is.
+    /// The polymorphic entry point: takes any `SpaceDocument` so `addTerminalDocument`
+    /// (⌘T) and `openFile` share one path for delegate wiring, list append, activation.
+    /// `beforeActivating` lets a process-backed document start while the view geometry
+    /// is still settled (activation can resize the container when the strip appears);
+    /// see `addTerminalDocument` for the full argument.
     func add(document: SpaceDocument, beforeActivating: () -> Void = {}) {
         // Wired through `SpaceDocumentReporting`, deliberately NOT `as? TerminalPane`. A
         // concrete cast here would compile and then leave a `GhosttyPane`'s delegate nil
@@ -301,11 +283,30 @@ final class SpaceViewController: NSSplitViewController {
         view.window?.isDocumentEdited = hasEditedDocuments
     }
 
+    // MARK: - Menu validation
+
+    /// Gate split/focus menu items — without this, AppKit auto-enables every item whose
+    /// @objc selector is answered, even when the action would silently no-op.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(splitHorizontal(_:)):
+            return activeDocument is ShellHosting && !hasSplit(for: activeDocument!)
+        case #selector(splitVertical(_:)):
+            return false  // v1: vertical splits not implemented
+        case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
+             #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
+            return activeDocument.map { hasSplit(for: $0) } ?? false
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
     // MARK: - Config / lifecycle
 
     func apply(config: AppConfig) {
         self.config = config
         for document in documents { document.apply(config: config) }
+        for (_, peer) in splitPeers { peer.apply(config: config) }  // peers not in documents[]
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
     }
