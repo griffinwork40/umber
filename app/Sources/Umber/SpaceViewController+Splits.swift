@@ -115,6 +115,51 @@ extension SpaceViewController {
         splitPeers[ObjectIdentifier(document)] != nil
     }
 
+    // MARK: - Focus movement (tmux-inspired ⌘⇧H/J/K/L)
+
+    /// ⌘⇧H — move focus to the left pane.
+    ///
+    /// In v1 (one horizontal split per tab), this moves focus from the peer (right)
+    /// to the primary (left). No-op when unsplit or when the primary already has focus.
+    @objc func moveFocusLeft(_ sender: Any?) { moveFocus(toward: .left) }
+
+    /// ⌘⇧L — move focus to the right pane.
+    @objc func moveFocusRight(_ sender: Any?) { moveFocus(toward: .right) }
+
+    /// ⌘⇧K — move focus upward. v1 stub: no vertical splits yet.
+    @objc func moveFocusUp(_ sender: Any?) { moveFocus(toward: .up) }
+
+    /// ⌘⇧J — move focus downward. v1 stub: no vertical splits yet.
+    @objc func moveFocusDown(_ sender: Any?) { moveFocus(toward: .down) }
+
+    private enum FocusDirection { case left, right, up, down }
+
+    /// Move keyboard focus between the primary pane and its split peer.
+    ///
+    /// v1 has exactly one split per tab, always horizontal, so left/right toggle
+    /// between primary and peer while up/down are no-ops. When vertical splits land,
+    /// this is the single site that needs the direction logic.
+    private func moveFocus(toward direction: FocusDirection) {
+        guard let primary = activeDocument,
+              let peer = splitPeer(for: primary) else { return }
+
+        let fr = view.window?.firstResponder
+        let peerHasFocus = isDescendant(fr, of: peer.documentView)
+
+        switch direction {
+        case .left:
+            // In a horizontal split the primary is on the left.
+            if peerHasFocus { primary.documentDidBecomeActive() }
+        case .right:
+            // The peer is on the right.
+            if !peerHasFocus { peer.documentDidBecomeActive() }
+        case .up, .down:
+            // v1: no vertical splits — toggle anyway so the keys are not dead.
+            if peerHasFocus { primary.documentDidBecomeActive() }
+            else { peer.documentDidBecomeActive() }
+        }
+    }
+
     // MARK: - Peer-initiated termination
 
     /// Called from SpaceViewController+Delegates when a split peer's shell exits.
