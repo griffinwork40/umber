@@ -18,6 +18,18 @@ extension FileViewerPane: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         setDirty(true)
         highlightEditedParagraph()
+        // Invalidate cached line starts so the next status bar update recomputes.
+        invalidateLineStartCache()
+        scheduleStatusBarUpdate()
+    }
+
+    /// Cursor moved — update the status bar and repaint the current-line highlight.
+    /// The status bar update is coalesced to the end of the current run-loop turn
+    /// so rapid-fire selection events (auto-indent, auto-pair, programmatic
+    /// `setSelectedRange` calls) do not each pay the line-counting cost.
+    func textViewDidChangeSelection(_ notification: Notification) {
+        scheduleStatusBarUpdate()
+        textView.needsDisplay = true
     }
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,

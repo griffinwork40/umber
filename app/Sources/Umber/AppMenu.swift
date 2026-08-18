@@ -167,6 +167,15 @@ extension AppDelegate {
             editMenu.addItem(item)
         }
         editMenu.addItem(.separator())
+        // ⌘D — Select Next Occurrence. The entry point to multi-cursor editing.
+        // Target is nil so AppKit walks the responder chain; `FileViewerPane`
+        // answers `selectNextOccurrence:`; terminals don't, so the item greys
+        // out automatically when a terminal tab is focused.
+        let selectNextItem = NSMenuItem(
+            title: "Select Next Occurrence",
+            action: #selector(selectNextOccurrence(_:)), keyEquivalent: "d")
+        editMenu.addItem(selectNextItem)
+        editMenu.addItem(.separator())
         // Go to Line. ⌘L, the chord Xcode, BBEdit, Nova, CotEditor and Sublime all
         // use. `target: nil` so AppKit walks the responder chain — `FileViewerPane`
         // answers `goToLine:`, terminals do not, and the item greys itself out over
@@ -174,6 +183,36 @@ extension AppDelegate {
         editMenu.addItem(
             withTitle: "Go to Line…",
             action: Selector(("goToLine:")), keyEquivalent: "l")
+        editMenu.addItem(.separator())
+        // Terminal integration — send information from the editor to the shell.
+        // ⌘⇧C sends the current file's path; ⌘⇧R runs it with a language-detected
+        // command. Both grey out when no file viewer is active or no shell is
+        // available, via `validateMenuItem` in `AppDelegate.swift`.
+        let sendPathItem = NSMenuItem(
+            title: "Send Path to Terminal",
+            action: #selector(sendPathToTerminal(_:)), keyEquivalent: "c")
+        sendPathItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(sendPathItem)
+        let runItem = NSMenuItem(
+            title: "Run in Terminal",
+            action: #selector(runInTerminal(_:)), keyEquivalent: "r")
+        runItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(runItem)
+        editMenu.addItem(.separator())
+        // Code folding — indent-based, no AST. ⌘⌥[ collapses the block at the cursor;
+        // ⌘⌥] expands it. Target is nil so AppKit walks the responder chain to the
+        // focused FileViewerPane (which answers `foldAtCursor:` / `unfoldAtCursor:`);
+        // items grey out automatically when a terminal is front.
+        let foldItem = NSMenuItem(
+            title: "Fold Block",
+            action: Selector(("foldAtCursor:")), keyEquivalent: "[")
+        foldItem.keyEquivalentModifierMask = [.command, .option]
+        editMenu.addItem(foldItem)
+        let unfoldItem = NSMenuItem(
+            title: "Unfold Block",
+            action: Selector(("unfoldAtCursor:")), keyEquivalent: "]")
+        unfoldItem.keyEquivalentModifierMask = [.command, .option]
+        editMenu.addItem(unfoldItem)
 
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
@@ -232,6 +271,26 @@ extension AppDelegate {
         // one list.
         let navigateItem = NSMenuItem()
         let navigateMenu = NSMenu(title: "Navigate")
+        // ⌘⇧P — Command Palette. Sublime's most-imitated invention: fuzzy-search
+        // all editor commands from a floating panel. ⌘⇧P is the universal chord for
+        // it (VS Code, Zed, Cursor all use it), and it does not collide with any
+        // existing binding in this app. Answers in every window — palette is a
+        // singleton, not tied to a document kind.
+        let paletteItem = NSMenuItem(
+            title: "Command Palette…",
+            action: #selector(showCommandPalette(_:)), keyEquivalent: "p")
+        paletteItem.keyEquivalentModifierMask = [.command, .shift]
+        navigateMenu.addItem(paletteItem)
+        // ⌘⇧O — Jump to Symbol. Regex-based symbol extraction per language; opens a
+        // floating, keyboard-driven outline panel. Target nil so AppKit walks the
+        // responder chain to `FileViewerPane.showSymbolOutline:`, and the item greys
+        // out automatically over a terminal (nothing in the terminal chain answers it).
+        let symbolItem = NSMenuItem(
+            title: "Jump to Symbol…",
+            action: Selector(("showSymbolOutline:")), keyEquivalent: "o")
+        symbolItem.keyEquivalentModifierMask = [.command, .shift]
+        navigateMenu.addItem(symbolItem)
+        navigateMenu.addItem(.separator())
         let nextTabItem = NSMenuItem(
             title: "Next Tab", action: #selector(nextDocument(_:)),
             keyEquivalent: Self.functionKeyEquivalent(NSRightArrowFunctionKey))

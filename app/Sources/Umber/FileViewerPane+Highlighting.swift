@@ -23,166 +23,23 @@
 //  paragraph, not the whole file. Compiled `NSRegularExpression` objects are cached
 //  at file scope so the per-keystroke cost is matches-only, not compile-then-match.
 //
+//  **Wave 2: multi-line block re-highlighting.** The #1 known limitation (block
+//  comments and raw strings spanning paragraphs mis-colour after edits) is fixed by
+//  `highlightEditedParagraph` expanding its re-highlight window whenever the edit
+//  lands near a block-comment delimiter. Block-comment boundary helpers live in
+//  `FileViewerPane+BlockReHighlight.swift`, extracted when this file hit 480 LOC.
+//  The seam is clean: that file answers "where is the block-comment boundary?" and
+//  this one answers "how do I paint what I find?".
+//
 //  Language detection (extension → family + keywords) lives in `SyntaxLanguage.swift`,
 //  pulled out when this file hit the 350-line ceiling. The seam is clean: that file
 //  answers "what language is this file?" and this one answers "how do I paint it?".
 //
 
+// Token model, tokenise(), findAll(), and regexCache live in SyntaxTokeniser.swift.
+// Block-comment helpers live in FileViewerPane+BlockReHighlight.swift.
+
 import AppKit
-
-// MARK: - Tokeniser
-
-/// A token: a range in the source text and its syntax role.
-private struct Token {
-    let range: NSRange
-    let role: SyntaxRole
-}
-
-/// Tokenise a string for a given language family and keyword set.
-///
-/// Returns tokens sorted by location. Tokens never overlap — a string inside a
-/// comment is a comment, not a string. This is enforced by the ordering: comments
-/// and strings are matched first, and the `occupied` set prevents later patterns
-/// from claiming ranges already taken.
-private func tokenise(_ text: NSString, family: LanguageFamily, keywords: Set<String>) -> [Token] {
-    var tokens: [Token] = []
-    // Tracks character offsets already claimed. A simple bitset would be faster for
-    // very large files, but `IndexSet` is correct and clear, and the 4 MiB cap means
-    // the worst case is well bounded.
-    var occupied = IndexSet()
-
-    func add(_ range: NSRange, _ role: SyntaxRole) {
-        guard range.length > 0 else { return }
-        let proposed = range.lowerBound..<range.upperBound
-        guard !occupied.intersects(integersIn: proposed) else { return }
-        tokens.append(Token(range: range, role: role))
-        occupied.insert(integersIn: proposed)
-    }
-
-    let len = text.length
-    let fullRange = NSRange(location: 0, length: len)
-
-    // --- Phase 1: comments (highest priority — nothing overrides a comment) ---
-    switch family {
-    case .cLike:
-        // Block comments: /* ... */
-        findAll(#"/\*[\s\S]*?\*/"#, in: text, range: fullRange).forEach { add($0, .comment) }
-        // Line comments: //
-        findAll(#"//[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
-    case .python:
-        // Docstrings (triple-quoted) as comments — matched before strings.
-        findAll(#""{3}[\s\S]*?"{3}"#, in: text, range: fullRange).forEach { add($0, .comment) }
-        findAll(#"'{3}[\s\S]*?'{3}"#, in: text, range: fullRange).forEach { add($0, .comment) }
-        findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
-    case .ruby:
-        findAll(#"^=begin[\s\S]*?^=end"#, in: text, range: fullRange).forEach { add($0, .comment) }
-        findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
-    case .shell:
-        findAll(#"#[^\r\n]*"#, in: text, range: fullRange).forEach { add($0, .comment) }
-    case .html:
-        findAll(#"<!--[\s\S]*?-->"#, in: text, range: fullRange).forEach { add($0, .comment) }
-    case .markdown:
-        // No comments in markdown; headings, bold, etc. are structural, not syntax.
-        break
-    }
-
-    // --- Phase 2: strings (next priority) ---
-    switch family {
-    case .cLike, .shell:
-        // Double-quoted strings (with escaped quote support).
-        findAll(#""(?:[^"\\]|\\.)*""#, in: text, range: fullRange).forEach { add($0, .string) }
-        // Single-quoted strings.
-        findAll(#"'(?:[^'\\]|\\.)*'"#, in: text, range: fullRange).forEach { add($0, .string) }
-        // Backtick template literals (JS/TS — harmless false positives in others).
-        findAll(#"`(?:[^`\\]|\\.)*`"#, in: text, range: fullRange).forEach { add($0, .string) }
-    case .python, .ruby:
-        findAll(#""(?:[^"\\]|\\.)*""#, in: text, range: fullRange).forEach { add($0, .string) }
-        findAll(#"'(?:[^'\\]|\\.)*'"#, in: text, range: fullRange).forEach { add($0, .string) }
-    case .html:
-        findAll(#""[^"]*""#, in: text, range: fullRange).forEach { add($0, .string) }
-        findAll(#"'[^']*'"#, in: text, range: fullRange).forEach { add($0, .string) }
-    case .markdown:
-        // Inline code spans.
-        findAll(#"`[^`]+`"#, in: text, range: fullRange).forEach { add($0, .string) }
-    }
-
-    // --- Phase 3: numbers ---
-    // Hex, binary, octal, float, integer — broad enough for every family.
-    findAll(#"\b0[xX][0-9a-fA-F_]+\b"#, in: text, range: fullRange).forEach { add($0, .number) }
-    findAll(#"\b0[bB][01_]+\b"#, in: text, range: fullRange).forEach { add($0, .number) }
-    findAll(#"\b0[oO][0-7_]+\b"#, in: text, range: fullRange).forEach { add($0, .number) }
-    findAll(#"\b\d[\d_]*\.[\d_]+(?:[eE][+-]?\d+)?\b"#, in: text, range: fullRange)
-        .forEach { add($0, .number) }
-    findAll(#"\b\d[\d_]*\b"#, in: text, range: fullRange).forEach { add($0, .number) }
-
-    // Boolean/nil literals — these read as numbers in every language that has them.
-    let boolNil: Set<String>
-    switch family {
-    case .cLike: boolNil = ["true", "false", "nil", "null", "undefined",
-                            "True", "False", "None", "nullptr", "YES", "NO"]
-    case .python: boolNil = ["True", "False", "None"]
-    case .ruby:   boolNil = ["true", "false", "nil"]
-    case .shell:  boolNil = ["true", "false"]
-    case .html, .markdown: boolNil = []
-    }
-    for lit in boolNil {
-        findAll("\\b\(NSRegularExpression.escapedPattern(for: lit))\\b",
-                in: text, range: fullRange).forEach { add($0, .number) }
-    }
-
-    // --- Phase 4: keywords ---
-    for kw in keywords {
-        findAll("\\b\(NSRegularExpression.escapedPattern(for: kw))\\b",
-                in: text, range: fullRange).forEach { add($0, .keyword) }
-    }
-
-    // --- Phase 5: types (capitalised identifiers) ---
-    switch family {
-    case .cLike, .python, .ruby:
-        findAll(#"\b[A-Z][a-zA-Z0-9_]*\b"#, in: text, range: fullRange).forEach { add($0, .type) }
-    default:
-        break
-    }
-
-    // --- Phase 5b: markdown-specific roles ---
-    if family == .markdown {
-        // Headings as keywords.
-        findAll(#"^#{1,6}\s+.*$"#, in: text, range: fullRange).forEach { add($0, .keyword) }
-        // Bold / italic markers as types (gives them the cyan tint).
-        findAll(#"\*{1,3}[^*\n]+\*{1,3}"#, in: text, range: fullRange).forEach { add($0, .type) }
-        findAll(#"_{1,3}[^_\n]+_{1,3}"#, in: text, range: fullRange).forEach { add($0, .type) }
-    }
-
-    // --- Phase 5c: HTML tag names as keywords ---
-    if family == .html {
-        findAll(#"</?[a-zA-Z][\w.-]*"#, in: text, range: fullRange).forEach { add($0, .keyword) }
-        // Attribute names as types.
-        findAll(#"\b[a-z][\w-]*(?=\s*=)"#, in: text, range: fullRange).forEach { add($0, .type) }
-    }
-
-    return tokens
-}
-
-/// Cache for compiled regular expressions — the pattern set is fixed per language family,
-/// so compiling once and reusing eliminates the per-keystroke `NSRegularExpression` init cost.
-/// `nonisolated(unsafe)` is correct here: highlighting only ever runs on the main actor
-/// (called from `@MainActor` methods on `FileViewerPane`), so there is no concurrent access.
-private nonisolated(unsafe) var regexCache: [String: NSRegularExpression] = [:]
-
-/// All non-overlapping matches of a pattern in a string.
-private func findAll(_ pattern: String, in text: NSString,
-                     range: NSRange) -> [NSRange] {
-    let regex: NSRegularExpression
-    if let cached = regexCache[pattern] {
-        regex = cached
-    } else {
-        guard let compiled = try? NSRegularExpression(
-            pattern: pattern, options: [.anchorsMatchLines]) else { return [] }
-        regexCache[pattern] = compiled
-        regex = compiled
-    }
-    return regex.matches(in: text as String, range: range).map(\.range)
-}
 
 // MARK: - Application
 
@@ -255,8 +112,26 @@ extension FileViewerPane {
         storage.endEditing()
     }
 
-    /// Re-highlight only the edited paragraph. Called from `textDidChange` so that
-    /// typing does not re-tokenise the entire file.
+    /// Re-highlight the edited region. Called from `textDidChange` so that typing
+    /// does not re-tokenise the entire file.
+    ///
+    /// **Wave 2 block-comment fix.** The previous implementation re-highlighted only
+    /// the single edited paragraph, which left block comments and raw strings that
+    /// span paragraphs mis-coloured after edits near their delimiters. This version
+    /// expands the window:
+    ///
+    ///  1. Start at the edited paragraph.
+    ///  2. If the family has block comments AND the paragraph text contains a
+    ///     block-comment delimiter, walk up and down the text looking for a line
+    ///     that cannot be inside a block comment (i.e. it does not contain a
+    ///     continuation and itself starts at column 0 without being part of a block).
+    ///     In practice, we expand up to `maxExpansionLines` lines in each direction
+    ///     and re-tokenise the resulting span as one unit.
+    ///  3. If the expanded window hits the ceiling (whole file), fall through to
+    ///     `highlightSyntax()` so the user still sees correct colours, just slower.
+    ///
+    /// The expansion is bounded so that a 100k-line file does not re-tokenise the
+    /// whole thing on every keystroke near a stray `/*`.
     func highlightEditedParagraph() {
         guard !isPlaceholder else { return }
         let ext = url.pathExtension
@@ -265,25 +140,93 @@ extension FileViewerPane {
 
         guard let storage = textView.textStorage else { return }
         let text = storage.string as NSString
+        let length = text.length
+
         // Find the paragraph range around the insertion point.
         let selection = textView.selectedRange()
-        let loc = min(selection.location, text.length > 0 ? text.length - 1 : 0)
-        let paraRange = text.paragraphRange(for: NSRange(location: loc, length: 0))
+        let loc = min(selection.location, length > 0 ? length - 1 : 0)
+        var paraRange = text.paragraphRange(for: NSRange(location: loc, length: 0))
+
+        // --- Block-comment expansion ---
+        // How many lines we scan up/down before giving up and doing a full highlight.
+        let maxExpansionLines = 100
+
+        if hasBlockComments(lang.family) {
+            let paraText = text.substring(with: paraRange)
+            if containsBlockDelimiter(paraText, family: lang.family) {
+                // Expand upward from the paragraph start.
+                var expandedStart = paraRange.location
+                var upLines = 0
+                while expandedStart > 0 && upLines < maxExpansionLines {
+                    let prevEnd = expandedStart - 1
+                    let prevPara = text.paragraphRange(
+                        for: NSRange(location: prevEnd, length: 0))
+                    let prevText = text.substring(with: prevPara)
+                    expandedStart = prevPara.location
+                    upLines += 1
+                    // Stop at a line that cannot be inside a block comment.
+                    if !mightBeInsideBlockComment(prevText, family: lang.family) { break }
+                }
+
+                // Expand downward from the paragraph end.
+                var expandedEnd = NSMaxRange(paraRange)
+                var downLines = 0
+                while expandedEnd < length && downLines < maxExpansionLines {
+                    let nextPara = text.paragraphRange(
+                        for: NSRange(location: expandedEnd, length: 0))
+                    let nextText = text.substring(with: nextPara)
+                    expandedEnd = NSMaxRange(nextPara)
+                    downLines += 1
+                    if !mightBeInsideBlockComment(nextText, family: lang.family) { break }
+                }
+
+                // If expansion hit both ceilings, fall back to a full highlight.
+                if upLines >= maxExpansionLines && downLines >= maxExpansionLines {
+                    highlightSyntax()
+                    return
+                }
+
+                paraRange = NSRange(
+                    location: expandedStart,
+                    length: expandedEnd - expandedStart)
+            }
+        }
+
+        // Re-highlight the resolved range (either the bare paragraph or the expanded span).
+        applyHighlight(over: paraRange, text: text, lang: lang, colours: colours, storage: storage)
+    }
+
+    // MARK: - Helpers
+
+    /// Apply tokens to `storage` over `range`. The tokeniser runs on a text slice;
+    /// all returned ranges are offset to storage-global before applying.
+    private func applyHighlight(
+        over range: NSRange,
+        text: NSString,
+        lang: (family: LanguageFamily, keywords: Set<String>),
+        colours: [SyntaxRole: NSColor],
+        storage: NSTextStorage
+    ) {
+        let clampedRange = NSRange(
+            location: range.location,
+            length: min(range.length, text.length - range.location))
+        guard clampedRange.length > 0 else { return }
 
         storage.beginEditing()
-        storage.addAttribute(.foregroundColor, value: config.effectiveForeground, range: paraRange)
-        // Tokenise only the paragraph text so ~57 regex patterns do not run over
-        // the full file on every keystroke. Returned ranges are paragraph-local;
-        // offset to storage-global before applying.
-        let paraText = text.substring(with: paraRange) as NSString
-        let tokens = tokenise(paraText, family: lang.family, keywords: lang.keywords)
+        storage.addAttribute(.foregroundColor, value: config.effectiveForeground,
+                             range: clampedRange)
+        let sliceText = text.substring(with: clampedRange) as NSString
+        let tokens = tokenise(sliceText, family: lang.family, keywords: lang.keywords)
         for token in tokens {
-            let globalRange = NSRange(location: paraRange.location + token.range.location,
-                                     length: token.range.length)
+            let globalRange = NSRange(
+                location: clampedRange.location + token.range.location,
+                length: token.range.length)
             if let colour = colours[token.role] {
                 storage.addAttribute(.foregroundColor, value: colour, range: globalRange)
             }
         }
         storage.endEditing()
     }
+
+    // mightBeInsideBlockComment(_:family:) lives in FileViewerPane+BlockReHighlight.swift
 }
