@@ -81,8 +81,14 @@ final class FileViewerPane: NSObject {
     /// delegate calls `textView.insertText(_:replacementRange:)` to inject a
     /// modified replacement (auto-indent, tab→spaces, auto-pair), AppKit re-enters
     /// `shouldChangeTextInRanges:replacementStrings:` — which calls our delegate
-    /// method again with the *original* keystroke's replacement, producing infinite
-    /// recursion (11 110 frames deep until the stack guard page is hit, SIGSEGV).
+    /// method again. For Enter and Tab the re-entered replacement is the same
+    /// single character (`"\n"` / `"\t"`), producing infinite recursion (11 110
+    /// frames deep until the stack guard page is hit, SIGSEGV). For auto-pair the
+    /// re-entered replacement is the pair string (two characters, e.g. `"()"`),
+    /// which would not re-trigger the single-character guard at line 67 of
+    /// SmartEditing — the flag is defensive completeness there, not strictly
+    /// required for correctness today, but correct to keep given that the guard
+    /// eliminates the class rather than each specific case individually.
     /// While this flag is true the delegate returns `true` immediately, letting
     /// AppKit process the already-transformed text without re-triggering smart editing.
     var isHandlingSmartEdit = false

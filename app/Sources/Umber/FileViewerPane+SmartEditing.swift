@@ -32,7 +32,7 @@ extension FileViewerPane: NSTextViewDelegate {
         textView.needsDisplay = true
     }
 
-    func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange,
+    func textView(_ tv: NSTextView, shouldChangeTextIn range: NSRange,
                   replacementString replacement: String?) -> Bool {
         guard let replacement, !isPlaceholder else { return true }
 
@@ -48,18 +48,18 @@ extension FileViewerPane: NSTextViewDelegate {
         // Tab → spaces.
         if replacement == "\t" && config.softTabs {
             isHandlingSmartEdit = true
+            defer { isHandlingSmartEdit = false }
             let spaces = String(repeating: " ", count: config.tabWidth)
-            textView.insertText(spaces, replacementRange: range)
-            isHandlingSmartEdit = false
+            tv.insertText(spaces, replacementRange: range)
             return false
         }
 
         // Auto-indent on Enter.
         if replacement == "\n" {
             isHandlingSmartEdit = true
-            let inserted = autoIndentedNewline(in: textView, at: range)
-            textView.insertText(inserted, replacementRange: range)
-            isHandlingSmartEdit = false
+            defer { isHandlingSmartEdit = false }
+            let inserted = autoIndentedNewline(in: tv, at: range)
+            tv.insertText(inserted, replacementRange: range)
             return false
         }
 
@@ -73,11 +73,11 @@ extension FileViewerPane: NSTextViewDelegate {
             // produce an empty utf16 view and crash. The guard makes that safe.
             if Self.isSkippableCloser(ch),
                !isInsideStringOrComment(at: range.location),
-               let str = textView.string as NSString?,
+               let str = tv.string as NSString?,
                range.location < str.length,
                let codeUnit = ch.utf16.first,
                str.character(at: range.location) == codeUnit {
-                textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+                tv.setSelectedRange(NSRange(location: range.location + 1, length: 0))
                 return false
             }
 
@@ -86,12 +86,12 @@ extension FileViewerPane: NSTextViewDelegate {
                 // Don't pair inside strings or comments.
                 if !isInsideStringOrComment(at: range.location) {
                     isHandlingSmartEdit = true
+                    defer { isHandlingSmartEdit = false }
                     let pair = "\(ch)\(close)"
-                    textView.insertText(pair, replacementRange: range)
+                    tv.insertText(pair, replacementRange: range)
                     // Place cursor between the pair.
-                    textView.setSelectedRange(
+                    tv.setSelectedRange(
                         NSRange(location: range.location + 1, length: 0))
-                    isHandlingSmartEdit = false
                     return false
                 }
             }
@@ -99,7 +99,7 @@ extension FileViewerPane: NSTextViewDelegate {
 
         // Delete-pair: backspace between an empty pair → remove both.
         if replacement.isEmpty && range.length == 1 && range.location > 0 {
-            let str = textView.string as NSString
+            let str = tv.string as NSString
             let before = range.location - 1
             let after = range.location
             if after < str.length {
@@ -110,9 +110,9 @@ extension FileViewerPane: NSTextViewDelegate {
                 if Self.closerFor(open) == close {
                     // Delete both characters.
                     isHandlingSmartEdit = true
-                    textView.insertText("",
+                    defer { isHandlingSmartEdit = false }
+                    tv.insertText("",
                         replacementRange: NSRange(location: before, length: 2))
-                    isHandlingSmartEdit = false
                     return false
                 }
             }
