@@ -26,14 +26,14 @@ extension CommandPalette {
         PaletteCommand("New Tab",                  key: "⌘T",    action: #selector(AppDelegate.newDocument(_:))),
         PaletteCommand("Close Tab",                key: "⌘W",    action: #selector(AppDelegate.closeDocument(_:))),
         // Navigate
-        PaletteCommand("Go to Line…",              key: "⌘L",    action: Selector(("goToLine:"))),
+        PaletteCommand("Go to Line…",              key: "⌘L",    action: #selector(AppDelegate.goToLine(_:))),
         PaletteCommand("Next Tab",                 key: "⌘⌥→",   action: #selector(AppDelegate.nextDocument(_:))),
         PaletteCommand("Previous Tab",             key: "⌘⌥←",   action: #selector(AppDelegate.previousDocument(_:))),
         // Edit
         PaletteCommand("Undo",                     key: "⌘Z",    action: Selector(("undo:"))),
         PaletteCommand("Redo",                     key: "⌘⇧Z",   action: Selector(("redo:"))),
         PaletteCommand("Select All",               key: "⌘A",    action: #selector(NSText.selectAll(_:))),
-        PaletteCommand("Select Next Occurrence",   key: "⌘D",    action: Selector(("selectNextOccurrence:"))),
+        PaletteCommand("Select Next Occurrence",   key: "⌘D",    action: #selector(AppDelegate.selectNextOccurrence(_:))),
         // Find (tags must match NSFindPanelAction raw values — see AppMenu.swift)
         PaletteCommand("Find…",                    key: "⌘F",
                        action: #selector(NSTextView.performFindPanelAction(_:)),
@@ -51,7 +51,7 @@ extension CommandPalette {
         PaletteCommand("Bigger Font",              key: "⌘+",    action: #selector(AppDelegate.biggerFont(_:))),
         PaletteCommand("Smaller Font",             key: "⌘-",    action: #selector(AppDelegate.smallerFont(_:))),
         PaletteCommand("Actual Size",              key: "⌘0",    action: #selector(AppDelegate.resetFont(_:))),
-        PaletteCommand("Toggle Word Wrap",                        action: Selector(("toggleWordWrap:"))),
+        PaletteCommand("Toggle Word Wrap",                        action: #selector(AppDelegate.toggleWordWrap(_:))),
         PaletteCommand("Toggle Sidebar",           key: "⌘B",    action: #selector(NSSplitViewController.toggleSidebar(_:))),
         PaletteCommand("Enter Full Screen",        key: "⌃⌘F",   action: #selector(NSWindow.toggleFullScreen(_:))),
         // Terminal integration

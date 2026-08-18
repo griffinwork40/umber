@@ -22,6 +22,14 @@
 
 import AppKit
 
+// MARK: - File-level regex cache
+
+/// Cached compiled regular expressions for `symbolsMatching` and the markdown heading
+/// pattern. Avoiding per-call `NSRegularExpression` init eliminates recompilation on
+/// every ⌘⇧O invocation. `nonisolated(unsafe)` is safe: `extractSymbols` only runs
+/// on the main actor via `FileViewerPane.showSymbolOutline`.
+private nonisolated(unsafe) var symbolRegexCache: [String: NSRegularExpression] = [:]
+
 // MARK: - Symbol extraction (pure, Foundation-only)
 
 /// A single extractable symbol from a source file.
@@ -98,7 +106,14 @@ func extractSymbols(from text: String, family: LanguageFamily) -> [Symbol] {
     case .markdown:
         // Markdown headings: the natural "outline" of a markdown file.
         let headingPattern = #"^(#{1,6})\s+(.+)$"#
-        guard let regex = try? NSRegularExpression(pattern: headingPattern) else { break }
+        let regex: NSRegularExpression
+        if let cached = symbolRegexCache[headingPattern] {
+            regex = cached
+        } else {
+            guard let compiled = try? NSRegularExpression(pattern: headingPattern) else { break }
+            symbolRegexCache[headingPattern] = compiled
+            regex = compiled
+        }
         for (idx, line) in lines.enumerated() {
             let ns = line as NSString
             let matches = regex.matches(in: line, range: NSRange(location: 0, length: ns.length))
@@ -153,7 +168,9 @@ private func symbolsMatching(
     var seen = IndexSet()               // line indices already claimed
     var result: [Symbol] = []
     let compiled: [(NSRegularExpression, SymbolKind)] = patterns.compactMap { p in
+        if let cached = symbolRegexCache[p.pattern] { return (cached, p.kind) }
         guard let regex = try? NSRegularExpression(pattern: p.pattern) else { return nil }
+        symbolRegexCache[p.pattern] = regex
         return (regex, p.kind)
     }
     for (idx, line) in lines.enumerated() {

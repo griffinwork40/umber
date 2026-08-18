@@ -2,42 +2,12 @@
 //  FileViewerPane+Folding.swift
 //  Indent-based code folding and symbol-outline wiring for the file viewer.
 //
-//  **Code folding** — click a triangle in the gutter to collapse or expand a block.
-//  The approach is indent-based (no AST): a line at indent level N followed by at
-//  least one line at level > N is the start of a foldable region. This works for
-//  Python, YAML, Swift, Go, and most other languages without needing a grammar.
+//  Folding is NSTextStorage-based (TextKit 1): the body of a fold is replaced
+//  with a "…" placeholder and stored in `foldedRegions`. Unfold restores the
+//  original text. Stored properties (`foldedRegions`, `symbolOutlinePanel`) live
+//  on `FileViewerPane` itself; this extension provides the logic only.
 //
-//  Architecture note: stored properties cannot live in extensions. The folding
-//  engine needs two: `foldedRegions` (currently folded spans) and
-//  `symbolOutlinePanel` (the live ⌘⇧O panel). Both live on `FileViewerPane` itself
-//  and are declared there as `var foldedRegions` / `var symbolOutlinePanel`. This
-//  file provides the logic that drives them.
-//
-//  **How folding works with NSTextView (TextKit 1)**
-//  NSTextView has no built-in folding API. We implement it by:
-//    1. Computing the character range of the fold body (lines after the header line,
-//       up to the next line at the same or shallower indent).
-//    2. Replacing that range in the `NSTextStorage` with a single "…" placeholder.
-//    3. Storing the original text in `foldedRegions` keyed by the storage position
-//       of the placeholder.
-//    4. On unfold: replacing the placeholder with the stored text.
-//
-//  Folding mutates the text storage — which means the undo manager records it.
-//  We wrap the edit in `beginEditing` / `endEditing` and mark the pane dirty.
-//  The fold state is ephemeral (not persisted across closes).
-//
-//  **Gutter triangles** are drawn by `LineNumberRulerView` if it can reach the fold
-//  engine. We use a notification-based coupling so `LineNumberRulerView` stays
-//  AppKit-only and import-free of Umber types.
-//
-//  **⌘⇧O symbol outline** lives in this file because it needs `foldedRegions` to
-//  translate folded-offset line numbers back to original line numbers, and because
-//  the panel's stored reference lives on FileViewerPane alongside the fold state.
-//
-//  Keyboard shortcuts:
-//    ⌘⌥[   fold the block at the cursor
-//    ⌘⌥]   unfold the block at the cursor (or all, if nothing is folded there)
-//    ⌘⇧O   open symbol outline
+//  Keyboard shortcuts: ⌘⌥[ fold · ⌘⌥] unfold · ⌘⇧O symbol outline
 //
 
 import AppKit
@@ -92,6 +62,7 @@ extension FileViewerPane {
 
         // Replace the body with a single "…" placeholder.
         // We wrap in a no-undo-registration to keep the fold/unfold as a single action.
+        guard NSMaxRange(bodyRange) <= str.length else { return }
         textView.undoManager?.registerUndo(withTarget: self) { target in
             target.unfoldRegionAt(location: bodyRange.location)
         }
@@ -162,6 +133,7 @@ extension FileViewerPane {
             in: str, afterLine: lineRange, headerIndent: headerIndent) else { return }
 
         let originalText = str.substring(with: bodyRange)
+        guard NSMaxRange(bodyRange) <= str.length else { return }
         textView.undoManager?.registerUndo(withTarget: self) { target in
             target.unfoldRegionAt(location: bodyRange.location)
         }
@@ -264,8 +236,11 @@ extension FileViewerPane {
             return
         }
 
+        let capturedLocation = region.placeholderLocation
+        let capturedText = region.originalText
+        let capturedHeaderLine = region.headerLine
         textView.undoManager?.registerUndo(withTarget: self) { target in
-            target.foldAtCursor(nil)
+            target.refoldRegion(at: capturedLocation, text: capturedText, headerLine: capturedHeaderLine)
         }
         storage.beginEditing()
         storage.replaceCharacters(in: placeholderRange, with: region.originalText)
@@ -297,6 +272,34 @@ extension FileViewerPane {
             storage.addAttribute(.foregroundColor, value: dimColour, range: r)
         }
         storage.endEditing()
+    }
+
+    /// Re-fold at a known location/text — undo target for `unfoldRegionAt(location:)`.
+    func refoldRegion(at location: Int, text: String, headerLine: Int) {
+        guard let storage = textView.textStorage else { return }
+        let bodyRange = NSRange(location: location, length: (text as NSString).length)
+        guard NSMaxRange(bodyRange) <= (storage.string as NSString).length else { return }
+        for region in foldedRegions where region.placeholderLocation == location { return }
+        textView.undoManager?.registerUndo(withTarget: self) { target in
+            target.unfoldRegionAt(location: location)
+        }
+        storage.beginEditing()
+        storage.replaceCharacters(in: bodyRange, with: "…")
+        storage.addAttribute(.foregroundColor,
+                             value: config.effectiveForeground.withAlphaComponent(0.4),
+                             range: NSRange(location: location, length: 1))
+        storage.endEditing()
+        // Mirror shift of unfoldRegionAt: replacing N chars with 1 char shifts
+        // all subsequent regions backward.
+        let delta = (text as NSString).length - 1
+        for i in foldedRegions.indices {
+            if foldedRegions[i].placeholderLocation > location {
+                foldedRegions[i].placeholderLocation -= delta
+            }
+        }
+        foldedRegions.append(FoldRegion(placeholderLocation: location, originalText: text, headerLine: headerLine))
+        setDirty(true); rulerView?.needsDisplay = true
+        applyFoldPlaceholderColours()
     }
 
     /// The body range to fold: consecutive lines after `afterLine` whose indent

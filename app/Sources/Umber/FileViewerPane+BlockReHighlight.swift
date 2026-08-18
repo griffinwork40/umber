@@ -99,7 +99,7 @@ func mightBeInsideBlockComment(_ line: String, family: LanguageFamily) -> Bool {
         return trimmed.isEmpty
     case .ruby:
         return line.hasPrefix("=begin") || line.hasPrefix("=end")
-    default:
+    case .shell, .markdown:
         return false
     }
 }

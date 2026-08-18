@@ -169,6 +169,7 @@ final class StickyScrollOverlay: NSView {
         // enclosing scope opener.
         var searchIdx = firstVisibleLine.location
         var found: String? = nil
+        var linesWalked = 0
 
         while searchIdx > 0 {
             searchIdx -= 1
@@ -184,7 +185,8 @@ final class StickyScrollOverlay: NSView {
             // Don't walk more than 200 lines — past that we're in a file where the
             // enclosing context is too far away to be useful, and the walk cost is
             // not worth it.
-            if firstVisibleLine.location - prevLine.location > 200 * 80 { break }
+            linesWalked += 1
+            if linesWalked > 200 { break }
             searchIdx = prevLine.location
         }
 

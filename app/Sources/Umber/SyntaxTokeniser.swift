@@ -184,7 +184,7 @@ func tokenise(_ text: NSString, family: LanguageFamily, keywords: Set<String>) -
 /// so compiling once and reusing eliminates the per-keystroke `NSRegularExpression` init cost.
 /// `nonisolated(unsafe)` is correct here: highlighting only ever runs on the main actor
 /// (called from `@MainActor` methods on `FileViewerPane`), so there is no concurrent access.
-nonisolated(unsafe) var regexCache: [String: NSRegularExpression] = [:]
+fileprivate nonisolated(unsafe) var regexCache: [String: NSRegularExpression] = [:]
 
 /// All non-overlapping matches of a pattern in a string.
 func findAll(_ pattern: String, in text: NSString,
