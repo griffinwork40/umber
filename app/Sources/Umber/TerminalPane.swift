@@ -33,8 +33,8 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// What the tab strip should be saying about this pane.
     ///
     /// Only `.idle` and `.attention` are reachable today; see `DocumentStatus` for
-    /// which libghostty delegate fills each of the others in and why building OSC 133
-    /// parsing here now would be work done twice (probe plan §6.2).
+    /// which states are defined and why. OSC 133 is now parsed (probe plan §6.2 is done),
+    /// and `.succeeded`/`.failed` are reachable via `TerminalPane+ShellIntegration`.
     // Internal setter: cross-file extension `TerminalPane+ShellIntegration` sets this on OSC 133 D.
     var status: DocumentStatus = .idle {
         didSet {
@@ -51,13 +51,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// (`SpaceViewController.addTerminalDocument(start:workingDirectory:)`).
     ///
     /// Stored as a property of the *pane* rather than taken as a `start()` argument
-    /// on purpose, and that is the engine-agnostic half of this fix. The plan of
-    /// record already commits to replacing SwiftTerm with libghostty
-    /// (`.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §6.2: the
-    /// default `.exec` backend "spawns the child process itself and honours
-    /// `workingDirectory`"), so a future `GhosttyPane` reads this same property and
-    /// hands it to a surface configuration instead. Keeping the root out of the
-    /// SwiftTerm-specific call site is what makes that a one-line swap.
+    /// on purpose, and that is the engine-agnostic half of this fix. A second engine-backed
+    /// pane would read this same property and hand it to the engine's own surface
+    /// configuration (`.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §6.2).
+    /// Keeping the root out of the SwiftTerm-specific call site is what makes that a
+    /// one-line swap.
     private let workingDirectory: URL
 
     /// `workingDirectory` is deliberately **not** defaulted, and deliberately **not**

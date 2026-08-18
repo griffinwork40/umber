@@ -41,11 +41,6 @@ enum StarterConfig {
       "// renderer-note": "OPT-IN because upstream calls the GPU path experimental and its speedup here has not been measured. Falls back to coretext by itself if it cannot start, and says so on stderr. Change it and hit Cmd-R; run app/Scripts/check-metal-renderer.sh if you suspect it silently fell back.",
       "renderer": "coretext",
 
-      "// engine": "swiftterm (default) | ghostty. Which terminal core backs a NEW tab. swiftterm is the vendored SwiftTerm this app was built on; ghostty is libghostty, which is actively maintained and gives shell integration (OSC 7 working-directory and OSC 133 command-status reporting) that swiftterm structurally cannot.",
-      "// engine-note": "OPT-IN, and read only when a tab is created — edit it and hit Cmd-R and the NEXT Cmd-T uses it, while the tab in front of you keeps its core (swapping an engine under a live shell would discard its scrollback). That is deliberate: it means you can run both cores side by side in one window and compare them on the same work. ghostty is still un-gated for the one bug class that matters most here (buffer reflow when you narrow a window), so it is not the default yet.",
-      "// engine-caveat": "renderer above applies to swiftterm only; libghostty draws with its own renderer and ignores it.",
-      "engine": "swiftterm",
-
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",

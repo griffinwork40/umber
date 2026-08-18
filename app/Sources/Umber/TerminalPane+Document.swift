@@ -2,10 +2,10 @@
 //  TerminalPane+Document.swift
 //  SpaceDocument conformance for the SwiftTerm terminal pane.
 //
-//  Parallel to `FileViewerPane+Document.swift` and `GhosttyPane+Document.swift`:
-//  each document kind carries its own conformance in its own file. Extracted from
-//  `SpaceDocument.swift` when that file hit the 350-line ceiling — the protocol
-//  and its supporting types stay there; the per-conformer witnesses live here.
+//  Parallel to `FileViewerPane+Document.swift`: each document kind carries its own
+//  conformance in its own file. Extracted from `SpaceDocument.swift` when that file
+//  hit the 350-line ceiling — the protocol and its supporting types stay there;
+//  the per-conformer witnesses live here.
 //
 
 import AppKit

@@ -48,9 +48,8 @@ extension SpaceViewController {
     /// iterated the documents on this path: `windowShouldClose` asked permission,
     /// `windowWillClose` persisted the root list, and the documents themselves were left to
     /// ARC. That was invisible while every document held only AppKit views and a pty the OS
-    /// reclaims — and became a real leak the moment one of them held a manually-freed
-    /// libghostty surface. ⌘⇧W on a Space of five Ghostty tabs leaked five surfaces and five
-    /// shells.
+    /// reclaims — and became a real leak once documents held resources that need explicit
+    /// teardown (the shell process, for one: SwiftTerm's `terminate()` must send SIGHUP).
     ///
     /// Deliberately NOT routed through `closeDocument(at:)` in a loop. That function re-asks
     /// `documentShouldClose()`, which `spaceShouldClose()` has already asked and had answered

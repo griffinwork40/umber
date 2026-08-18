@@ -50,13 +50,13 @@ enum CommandOutcome: Equatable {
     ///
     /// - Parameters:
     ///   - exitCode: OSC 133 `D`'s status, or nil when the marker carried none.
-    ///   - durationNanos: how long the command ran, as libghostty reports it.
+    ///   - durationNanos: how long the command ran, in nanoseconds.
     ///   - isActiveDocument: is the user looking at this tab right now?
     static func of(exitCode: Int?, durationNanos: UInt64, isActiveDocument: Bool) -> CommandOutcome {
         // The user is already reading this tab, so they can see the result. A marker here is
-        // noise at best and, at worst, teaches the user that the marker means nothing. Exactly
-        // the guard the bell already uses (`GhosttyPane.terminalDidRingBell`), and for the same
-        // reason: the marker's entire job is to label a tab you are NOT looking at.
+        // noise at best and, at worst, teaches the user that the marker means nothing. Same
+        // reasoning as the bell guard: the marker's entire job is to label a tab you are NOT
+        // looking at.
         if isActiveDocument { return .ignore }
 
         // No exit code is not evidence of failure. An OSC 133 `D` can arrive without one — a

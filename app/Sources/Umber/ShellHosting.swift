@@ -52,10 +52,9 @@ import SwiftTerm
 ///
 /// The two members are also inverses, which is the test for whether a member belongs:
 /// `currentDirectory` reads where the shell is, `send(text:)` moves it. cwd-follow needs
-/// both halves and nothing more, and a second conformer (`GhosttyPane`, plan §4) still
-/// satisfies the whole feature — path-insert, `cd Here`, and sidebar-follows-shell — by
-/// answering just these two, reading its cwd from libghostty's own pwd delegate instead
-/// of from `proc_pidinfo`.
+/// both halves and nothing more. A second conformer would satisfy the whole feature —
+/// path-insert, `cd Here`, and sidebar-follows-shell — by answering just these two,
+/// reading its cwd from the engine's own pwd delegate instead of from `proc_pidinfo`.
 ///
 /// `FileViewerPane` must still never conform. That was true when this protocol had one
 /// member and the second makes it more true, not less: a file viewer asked for a working
@@ -73,8 +72,8 @@ protocol ShellHosting: SpaceDocument {
     /// call `pane.view.send(txt:)` — a SwiftTerm-concrete API reached through a
     /// concrete pane's concrete view — which meant the file-tree feature was coupled
     /// to the emulator, not to the idea of a shell (plan §2, "Note also that
-    /// `pane.view.send(txt:)` is a **SwiftTerm-concrete** call"). A future
-    /// `GhosttyPane` satisfies this with libghostty's own text write instead.
+    /// `pane.view.send(txt:)` is a **SwiftTerm-concrete** call"). A second engine-backed
+    /// conformer would satisfy this through the engine's own text-write API instead.
     ///
     /// No newline is implied — the caller decides whether the text is submitted or
     /// left on the prompt for editing. The one caller today deliberately leaves it
@@ -224,8 +223,8 @@ extension SpaceViewController {
     ///
     /// Walks the NSResponder chain rather than using isDescendant(of:) directly
     /// because firstResponder may be an NSView or an NSText that lives inside the
-    /// terminal view hierarchy. Both SwiftTerm and libghostty manage their own
-    /// internal first-responder views; this handles either without naming them.
+    /// terminal view hierarchy. Terminal engines manage their own internal first-responder
+    /// views; this handles any of them without naming a specific engine type.
     func isDescendant(_ candidate: NSResponder?, of parent: NSView) -> Bool {
         var r: NSResponder? = candidate
         while let current = r {

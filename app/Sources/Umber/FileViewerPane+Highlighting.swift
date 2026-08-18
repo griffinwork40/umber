@@ -12,9 +12,9 @@
 //  **Why regex and not tree-sitter.** Three of this repo's four vendored patches fix
 //  bugs found by *reading* vendored source. tree-sitter's grammars are prebuilt C
 //  artifacts that cannot be read, and the AFK.md already records that trade as a real
-//  cost (libghostty §). A regex tokenizer is ~200 lines of auditable Swift that covers
-//  every language an agent workspace opens daily. It will mis-colour a raw string
-//  literal or a nested block comment; it will never silently ship an upstream defect.
+//  cost. A regex tokenizer is ~200 lines of auditable Swift that covers every language
+//  an agent workspace opens daily. It will mis-colour a raw string literal or a nested
+//  block comment; it will never silently ship an upstream defect.
 //
 //  **Performance.** Highlighting runs on the full text after `reload` and on config
 //  change. For the 4 MiB / ~100k line cap `FileViewerPane` already enforces, this is

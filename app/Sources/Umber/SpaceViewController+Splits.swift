@@ -53,18 +53,12 @@ extension SpaceViewController {
         // the first OSC 7 fires (new tab, pre-first-prompt).
         let peerDirectory = (primary as? ShellHosting)?.currentDirectory ?? root
 
-        // Build the peer via the same engine switch as addTerminalDocument
-        // (SpaceViewController+DocumentConstruction.swift:53-61). The frame uses
+        // Build the peer the same way addTerminalDocument does. The frame uses
         // the current container bounds so the initial size is sane before the split
         // layout runs for the first time.
         let frame = documentArea.container.bounds
-        let peer: SpaceDocument
-        switch config.engine {
-        case .swiftTerm:
-            peer = TerminalPane(config: config, frame: frame, workingDirectory: peerDirectory)
-        case .ghostty:
-            peer = GhosttyPane(config: config, frame: frame, workingDirectory: peerDirectory)
-        }
+        let peer: SpaceDocument = TerminalPane(
+            config: config, frame: frame, workingDirectory: peerDirectory)
 
         // Wire the delegate so the peer can report title changes and exit.
         (peer as? any SpaceDocumentReporting)?.documentDelegate = self
@@ -77,7 +71,7 @@ extension SpaceViewController {
         // Start the shell. The beforeActivating ordering from addTerminalDocument is
         // not needed here — the peer lives beside the primary, not replacing it, so
         // the tab strip geometry is already settled.
-        (peer as? any ShellStarting)?.start()
+        (peer as? TerminalPane)?.start()
 
         // Hand the peer's view to the container so it appears in the split layout.
         documentArea.presentSplit(

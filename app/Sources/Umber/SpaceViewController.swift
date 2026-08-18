@@ -145,13 +145,10 @@ final class SpaceViewController: NSSplitViewController {
     /// is still settled (activation can resize the container when the strip appears);
     /// see `addTerminalDocument` for the full argument.
     func add(document: SpaceDocument, beforeActivating: () -> Void = {}) {
-        // Wired through `SpaceDocumentReporting`, deliberately NOT `as? TerminalPane`. A
-        // concrete cast here would compile and then leave a `GhosttyPane`'s delegate nil
-        // — it would render in a strip that never retitles it, which is §8.2's
-        // "silently inert rather than loudly broken" failure reintroduced at the exact
-        // site meant to retire it. Conditional rather than a `SpaceDocument` requirement
-        // so `FileViewerPane` (repaint-only, via its own `FileViewerPaneDelegate`) is not
-        // forced to carry a property it would leave nil.
+        // Wired through `SpaceDocumentReporting` rather than `as? TerminalPane`.
+        // Conditional rather than a `SpaceDocument` requirement so `FileViewerPane`
+        // (repaint-only, via its own `FileViewerPaneDelegate`) is not forced to carry
+        // a property it would leave nil.
         (document as? any SpaceDocumentReporting)?.documentDelegate = self
         documents.append(document)
         beforeActivating()
@@ -232,9 +229,7 @@ final class SpaceViewController: NSSplitViewController {
         teardownSplit(for: document)
         // The veto is settled, so this close is really happening: release whatever the
         // document holds that ARC cannot. Dropping the reference and removing the view is
-        // NOT sufficient for a `GhosttyPane` — libghostty deliberately removed its own
-        // deinit safety net (`Surface/TerminalSurface.swift:405-410`), so a surface that is
-        // never explicitly freed leaks along with the shell it spawned. See
+        // not sufficient — the shell process must be explicitly terminated (SIGHUP). See
         // `SpaceDocument.documentWillClose()`.
         document.documentWillClose()
         document.documentView.removeFromSuperview()

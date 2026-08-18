@@ -50,22 +50,17 @@ extension NSColor {
 
     /// The inverse of `fromHex`, as `#rrggbb`.
     ///
-    /// Exists because libghostty's configuration takes every colour as a **string** —
-    /// `TerminalConfigCommand.background(String)`, `.cursorColor(String)`,
-    /// `.palette(index:color:)` — rather than as a typed colour
-    /// (`Configuration/TerminalConfiguration.swift:22-34`). SwiftTerm takes a typed
-    /// `SwiftTerm.Color` instead, which is what `asSwiftTermColor` below is for; the two
-    /// engines want the same `Theme` in two different shapes, and both conversions belong
-    /// here beside the parsing rather than in whichever pane needed one first.
+    /// Exists because some engines take colours as strings rather than typed values,
+    /// while SwiftTerm takes a typed `SwiftTerm.Color` (what `asSwiftTermColor` below
+    /// is for). Both conversions belong here beside the parsing rather than in whichever
+    /// pane needed one first, so neither engine's pane has to reimplement hex formatting.
     ///
     /// Converted to sRGB first for the same reason the other two conversions do it: the
     /// no-theme fallback is `NSColor.black`, which lives in a generic grey colour space
     /// where `.redComponent` traps rather than returning 0.
     ///
-    /// Emitted WITH the leading `#`. libghostty's own shipped presets are inconsistent
-    /// about it (`TerminalTheme+Defaults.swift` mixes `"F7F7F7"` and `"#000000"`), so the
-    /// prefixed form is chosen because it is the one both spellings in that file agree is
-    /// accepted, and it round-trips through `fromHex` above.
+    /// Emitted WITH the leading `#`. The prefixed form is chosen because it is unambiguous
+    /// and round-trips through `fromHex` above without any normalisation step.
     var hexString: String {
         let c = usingColorSpace(.sRGB) ?? self
         let r = Int((c.redComponent * 255).rounded())

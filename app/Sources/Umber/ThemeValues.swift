@@ -10,11 +10,11 @@
 //  wants checking, because "is this legible" is a number and a number nobody computed
 //  is a taste claim wearing a lab coat.
 //
-//  Why hex strings rather than parsed colours: the two engines want the same palette in
-//  two different shapes — SwiftTerm takes a typed `SwiftTerm.Color`, libghostty takes a
-//  `String` (`GhosttyPane+Appearance.swift`, and `NSColor.hexString`'s note in
-//  `Theme.swift`). Hex is the common ancestor of both, it is what every upstream theme
-//  publishes, and it is what a gate can assert on without linking a UI framework.
+//  Why hex strings rather than parsed colours: different engines want the same palette in
+//  different shapes — SwiftTerm takes a typed `SwiftTerm.Color`, others take a plain
+//  `String` (see `NSColor.hexString`'s note in `Theme.swift`). Hex is the common ancestor
+//  of both, it is what every upstream theme publishes, and it is what a gate can assert on
+//  without linking a UI framework.
 //
 //  The OKLCH triple each colour was derived from is recorded in the comment beside it.
 //  That is the actual design decision; the hex is a rendering of it. Full derivation,
@@ -35,12 +35,12 @@ struct ThemePalette {
     let foreground: String
     let cursor: String
     /// The selection background. Consumed by the **editor** since 2026-08-03
-    /// (`FileViewerPane+Document.swift`), and still not by either terminal engine — both can
-    /// express it (`TerminalView.selectedTextBackgroundColor`; libghostty's
-    /// `.selectionBackground`) and neither is told. That half of the gap stands, and the
-    /// reason it went unnoticed for so long is worth keeping: the value was measured here from
-    /// the start but `Theme` had no matching field, so it never crossed the AppKit bridge and
-    /// no consumer could have read it even if one had tried.
+    /// (`FileViewerPane+Document.swift`), and still not by the terminal engine —
+    /// SwiftTerm can express it (`TerminalView.selectedTextBackgroundColor`) but
+    /// is not told. That half of the gap stands, and the reason it went unnoticed for
+    /// so long is worth keeping: the value was measured here from the start but `Theme`
+    /// had no matching field, so it never crossed the AppKit bridge and no consumer
+    /// could have read it even if one had tried.
     let selection: String
     /// Exactly 16: 8 normal then 8 bright. SwiftTerm's `installColors` silently does
     /// nothing if the array is not 16 long, so `Config` validates before `Theme` builds.

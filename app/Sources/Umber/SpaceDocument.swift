@@ -18,8 +18,6 @@ import AppKit
 /// fired when the shell sources `Resources/shell-integration.zsh`. `.running` is
 /// modelled for completeness but not yet surfaced in the tab strip — OSC 133 `A`/`C`
 /// are parsed and the state machine advances through it, but no UI reads it today.
-/// libghostty's `TerminalSurfaceCommandFinishedDelegate` remains the richer path
-/// (probe plan §6.2) for the engine that replaces SwiftTerm.
 ///
 /// Ordered by how loudly each one deserves to interrupt, so the strip can compare.
 enum DocumentStatus: Int, Comparable {
@@ -137,24 +135,22 @@ protocol SpaceDocument: AnyObject {
     /// On the protocol rather than on `TerminalPane` because it is not a terminal
     /// concept: a file viewer whose file was rewritten under it is in exactly the same
     /// position — something happened in a tab you are not looking at. Engine-agnostic
-    /// for the same reason the zoom members are (see the note above): the foundation
-    /// under `TerminalPane` is already scheduled for replacement by libghostty
-    /// (`.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §6.2), and a
-    /// status enum shaped around SwiftTerm's callbacks would be rewritten with it.
+    /// for the same reason the zoom members are (see the note above): a status enum
+    /// shaped around any one engine's callbacks would be rewritten if the engine changed.
     var documentStatus: DocumentStatus { get }
 
     /// Retire whatever `documentStatus` was trying to say — the user is looking now.
     ///
-    /// On the protocol so the container can retire a mark without naming a pane type. It
-    /// needs to since PR #21 review item 1 made `isActiveDocument` window-aware: a mark can
-    /// now be raised while the whole app is in the background, including on the tab the user
-    /// returns to, and `windowDidBecomeKey()` is the only hook that sees that return.
+    /// On the protocol so the container can retire a mark without naming a pane type.
+    /// PR #21 review item 1 made `isActiveDocument` window-aware: a mark can now be raised
+    /// while the whole app is in the background, including on the tab the user returns to,
+    /// and `windowDidBecomeKey()` is the only hook that sees that return.
     func clearAttention()
 
     /// Propagate a window-level focus change to the terminal (DECSET 1004). SwiftTerm
     /// fires `setTerminalFocus` only from first-responder changes; switching macOS
     /// window tabs without cycling first-responder leaves tmux focus-events blind.
-    /// `GhosttyPane` inherits the default no-op — libghostty self-manages.
+    /// Non-terminal documents inherit the default no-op.
     func notifyWindowFocus(_ focused: Bool)
 
     /// Return false to veto a close (⌘W, the tab's ×, closing the Space, quitting).
@@ -173,12 +169,12 @@ protocol SpaceDocument: AnyObject {
     ///
     /// A hard requirement with **no default implementation**, and that is the whole
     /// design. A default no-op would let a future conformer that holds a manually-freed
-    /// resource compile, run, and leak — which is exactly what happened here: nothing
-    /// freed a `GhosttyPane`'s surface, because libghostty deliberately removed its own
-    /// deinit safety net (`Surface/TerminalSurface.swift:405-410`: *"Surface should be
-    /// freed explicitly via free() before deinit. The deinit safety net is intentionally
-    /// removed"*) and this seam had nowhere to say so. `deinit` cannot substitute: these
-    /// are `@MainActor` types, and Swift 6 does not let a `deinit` reach MainActor state.
+    /// resource compile, run, and leak — which is exactly what happened: SwiftTerm's
+    /// `terminate()` must send SIGHUP explicitly (the shell ignores SIGTERM, and
+    /// `io?.close()` defers `close(fd)` to a DispatchIO cleanup handler that waits behind
+    /// a never-finishing streaming read), so omitting this call leaked the shell process
+    /// until quit. `deinit` cannot substitute: these are `@MainActor` types, and Swift 6
+    /// does not let a `deinit` reach MainActor state.
     ///
     /// Requiring it also forces the question to be answered in each conformer's own file,
     /// where the answer belongs — including the two conformers whose honest answer is
@@ -237,8 +233,8 @@ protocol SpaceDocumentDelegate: AnyObject {
 /// `(document as? TerminalPane)?.delegate = self`, which compiles and then silently
 /// leaves a second engine-backed pane's delegate nil — a tab that renders and never
 /// retitles, which is precisely the "silently inert rather than loudly broken" class
-/// `emulator-foundation-probe-and-vendor-integrity.md` §8.2 catalogues. A future
-/// `GhosttyPane` conforms and is wired by the same line.
+/// `emulator-foundation-probe-and-vendor-integrity.md` §8.2 catalogues. Any future
+/// conformer is wired by that same line, at no cost to the container.
 ///
 /// Separate from `SpaceDocument` rather than a member of it because it is genuinely
 /// optional: `FileViewerPane` reports edited-state through its own repaint-only
@@ -271,8 +267,8 @@ extension SpaceDocument {
     var documentStatus: DocumentStatus { .idle }
 
     /// Paired with that default: a document with nothing to say has nothing to retire.
-    /// `TerminalPane` and `GhosttyPane` both override with `status = .idle`.
+    /// `TerminalPane` overrides with `status = .idle`; non-terminal documents inherit this.
     func clearAttention() {}
-    /// No-op for non-terminal documents and GhosttyPane (libghostty self-manages).
+    /// No-op for non-terminal documents; terminal panes override to forward focus events.
     func notifyWindowFocus(_ focused: Bool) {}
 }

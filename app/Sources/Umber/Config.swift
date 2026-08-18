@@ -49,7 +49,7 @@ private struct ConfigFile: Decodable {
     var optionAsMeta: Bool?
     var mouseReporting: Bool?
     var renderer: String?
-    var engine: String?
+
     struct EditorSpec: Decodable {
         var tabWidth: Int?
         var softTabs: Bool?
@@ -112,14 +112,7 @@ struct AppConfig {
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
     /// why the default is the conservative one.
     var renderer: Renderer
-    /// Which emulator core backs a NEW terminal document. See `TerminalEngine.swift`.
-    ///
-    /// Read once per document, at construction, and deliberately never re-read: ⌘R applies a
-    /// new config to every LIVE pane (`apply(config:)`), but a live pane cannot change engine
-    /// — rebuilding the core underneath a running shell would discard its scrollback and its
-    /// child process. So editing this and hitting ⌘R affects the next ⌘T, not the tab you are
-    /// looking at, and that is the honest behaviour rather than a limitation to work around.
-    var engine: TerminalEngine
+
     // Editor behaviour — see `Config+Editor.swift` for the resolver.
     var tabWidth: Int
     var softTabs: Bool
@@ -194,7 +187,6 @@ struct AppConfig {
             optionAsMeta: true,
             mouseReporting: true,
             renderer: .default,
-            engine: .default,
             tabWidth: 4,
             softTabs: true,
             wordWrap: .auto,
@@ -261,11 +253,10 @@ struct AppConfig {
             else { config.warnings.append("scrollback must be >= 0 — using \(config.scrollback)") }
         }
         if let sh = file.shell {
-            // A newline is rejected as well as a non-executable, because `shell` is not only
-            // exec'd. `GhosttyPane+Appearance.swift` renders it into a `key = value` line of a
-            // ghostty config whose lines are joined with "\n", so a legal macOS filename
-            // containing one would inject arbitrary further config keys. Caught here so the
-            // result is one fail-soft warning rather than engine-specific silent corruption.
+            // A newline in a shell path is rejected alongside non-executable: a legal macOS
+            // filename containing one could cause subtle breakage if any downstream consumer
+            // joins paths with newlines (config renderers, diagnostic output). Caught here so
+            // the result is one fail-soft warning rather than silent corruption.
             if sh.contains(where: \.isNewline) {
                 config.warnings.append("shell path contains a newline — using \(config.shell)")
             } else if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
@@ -281,20 +272,6 @@ struct AppConfig {
                         + " — using \(config.renderer.configName)")
             }
         }
-        if let raw = file.engine {
-            if let e = TerminalEngine.named(raw) { config.engine = e }
-            else {
-                // `acceptedConfigNames`, not `configNames`: this message is read by someone who
-                // just mistyped the field, so it must name every spelling that would have
-                // worked — including `libghostty`, which `named(_:)` takes and the canonical
-                // list omits (PR #21 review, item 5). `configNames` stays the canonical list.
-                config.warnings.append(
-                    "engine '\(raw)' unrecognised (expected one of:"
-                        + " \(TerminalEngine.acceptedConfigNames))"
-                        + " — using \(config.engine.configName)")
-            }
-        }
-
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
                                wordWrap: e.wordWrap,

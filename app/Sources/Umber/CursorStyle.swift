@@ -29,8 +29,8 @@ import Foundation
 ///
 /// Six cases rather than a shape-plus-a-Bool because that is exactly what DECSCUSR encodes
 /// (`CSI Ps SP q`, values 1–6) and what the config file has always accepted. Engines that
-/// model it as shape + blink separately — libghostty does — decompose it on the way out
-/// rather than making every call site carry two values.
+/// model cursor style as shape + blink separately decompose it on the way out via `blinks`
+/// and `shape` below, rather than making every call site carry two values.
 enum CursorStyle: CaseIterable {
     case blinkBlock
     case steadyBlock
@@ -77,8 +77,7 @@ enum CursorStyle: CaseIterable {
     }
 
     /// Whether the caret blinks. Split out for engines that take shape and blink as two
-    /// settings; libghostty's `TerminalConfiguration` has `.cursorStyle` and a separate
-    /// `.cursorStyleBlink(Bool)`.
+    /// separate settings rather than a single combined value.
     var blinks: Bool {
         switch self {
         case .blinkBlock, .blinkUnderline, .blinkBar: return true
@@ -86,9 +85,9 @@ enum CursorStyle: CaseIterable {
         }
     }
 
-    /// The shape, without the blink state. Spelled as this project's own three-case enum
-    /// rather than returning a libghostty type, so this file stays Foundation-only and
-    /// compilable on its own — the property that makes a pure-mapping check possible.
+    /// The shape, without the blink state. Returned as this project's own three-case enum
+    /// rather than any engine type, so this file stays Foundation-only and compilable on
+    /// its own — the property that makes a pure-mapping check possible.
     var shape: Shape {
         switch self {
         case .blinkBlock, .steadyBlock: return .block

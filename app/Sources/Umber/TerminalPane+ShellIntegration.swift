@@ -5,8 +5,8 @@
 //  Why a separate file:
 //  `TerminalPane.swift` sits at exactly 350 lines — the project ceiling (AFK.md,
 //  "Conventions"). Adding anything there requires a split; this is it. The seam is
-//  the same as `FileViewerPane+Document.swift` and `GhosttyPane+Document.swift`: the
-//  pane's *engine* lives in the main file, its *protocol wiring* lives beside it.
+//  the same as `FileViewerPane+Document.swift`: the pane's *engine* lives in the main
+//  file, its *protocol wiring* lives beside it.
 //
 //  Why two separate concerns are together:
 //  OSC 7 (directory) and OSC 133 (command boundaries) are both shell-integration
@@ -48,9 +48,9 @@ extension Terminal: OscRegistering {}
 // MARK: - UMBER_DIAG helper
 
 /// Emit a diagnostic line to stderr when `UMBER_DIAG` is set in the environment.
-/// Scoped to this file — internal helpers in other files (`GhosttyPane.diag`) are
-/// not reachable here since `diag` is a method on `GhosttyPane`, not a free function.
-/// Mirrors `GhosttyPane.diag` (`GhosttyPane.swift:274-277`) but labels the engine.
+/// Scoped to this file — a free function rather than a method so it is available
+/// without referencing any pane type. Labels the engine ("swiftterm") so multi-engine
+/// diagnostic output is distinguishable.
 private func termDiag(_ message: String) {
     guard ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil else { return }
     FileHandle.standardError.write(Data("[diag] swiftterm: \(message)\n".utf8))
@@ -99,9 +99,9 @@ extension TerminalPane {
     /// Register OSC 133 handlers on `terminal`. Called from `start()` after the process
     /// has been kicked off — `getTerminal()` is valid at that point.
     ///
-    /// The callback routes through `CommandOutcome.of` — the same pure-function policy
-    /// layer that `GhosttyPane+Document.swift:252-261` uses — so the two engine paths
-    /// produce identical status dots from identical inputs.
+    /// The callback routes through `CommandOutcome.of` — a pure-function policy layer
+    /// shared across engine paths — so any engine produces identical status dots from
+    /// identical inputs.
     func registerShellIntegration() {
         let terminal = view.getTerminal()
         let state = ShellIntegration.register(on: terminal) { [weak self] exitCode, nanos in
@@ -117,8 +117,7 @@ extension TerminalPane {
                     isActiveDocument: self.isActiveDocument
                 )
                 self.applyCommandOutcome(outcome)
-                // Match the diag style of GhosttyPane+Document.swift:255-260 so both
-                // engine paths are equally observable under UMBER_DIAG=1.
+                // Emit a diag line so OSC 133 completions are observable under UMBER_DIAG=1.
                 termDiag("""
                     OSC 133 command finished: exit=\(exitCode.map(String.init) ?? "nil") \
                     in \(String(format: "%.1f", Double(nanos) / 1_000_000))ms \
@@ -161,9 +160,9 @@ extension TerminalPane {
     /// stores `txt` verbatim into `hostCurrentDirectory` and the `hasPrefix` branch here
     /// is what actually strips it.)
     ///
-    /// Storing in `_reportedDirectory` mirrors `GhosttyPane`'s `reportedDirectory` pattern:
-    /// `ShellHosting.currentDirectory` answers from the stored value, and the 750ms kernel
-    /// poller (`SpaceViewController+DirectoryFollow.swift`) reads it through `focusedShellHost`.
+    /// Storing in `_reportedDirectory` gives `ShellHosting.currentDirectory` a fast answer from
+    /// the stored value; the 750ms kernel poller (`SpaceViewController+DirectoryFollow.swift`)
+    /// reads it through `focusedShellHost`.
     /// The poller remains the single writer of the file-tree root — calling `followDirectory`
     /// here directly would create a second writer and break the one-writer invariant the
     /// `DirectoryFollow` header documents at length.

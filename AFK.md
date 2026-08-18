@@ -4,7 +4,7 @@
 
 A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + six patches); everything else is 42 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/umber`, single `main` branch.
 
-Naming: the app was renamed from MacTerminal to **Umber** on 2026-07-27 (commit `faf1291`). Code, scripts, bundle id, env var, and config path are all `umber`/`Umber`/`UMBER_` — but the **checkout directory and this repo's local path are still `mac-terminal`**. Remaining `MacTerminal`/`MT_DIAG` strings in `.afk/` are historical records, not stale code; `MacTerminalView` in `KeyBindings.swift` is SwiftTerm's own upstream type name.
+Naming: the app was renamed from MacTerminal to **Umber** on 2026-07-27 (commit `faf1291`). Code, scripts, bundle id, env var, and config path are all `umber`/`Umber`/`UMBER_`. The checkout directory was renamed from `mac-terminal` to `umber` on 2026-08-18. Remaining `MacTerminal`/`MT_DIAG` strings in `.afk/` are historical records, not stale code; `MacTerminalView` in `KeyBindings.swift` is SwiftTerm's own upstream type name.
 
 ## Commands
 

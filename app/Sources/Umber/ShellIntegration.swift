@@ -21,10 +21,9 @@
 //  A clears the start-time guard so the first D after sourcing (before any C)
 //  does not fabricate a duration.
 //
-//  Reference implementation: GhosttyPane+Document.swift:252-261 receives the same
-//  three events through libghostty's TerminalSurfaceCommandFinishedDelegate.
-//  The callback signature is kept identical so downstream CommandOutcome.of logic
-//  is shared between both engine paths without modification.
+//  The callback signature (exitCode, durationNanos) is kept engine-agnostic so
+//  downstream `CommandOutcome.of` logic is shared without modification across
+//  any engine path that produces these two values.
 //
 
 import Foundation
@@ -54,8 +53,7 @@ enum ShellIntegration {
         var commandStartTime: Date?
 
         /// Called with `(exitCode, durationNanos)` when 'D' arrives after a 'C'.
-        /// Signature mirrors `TerminalSurfaceCommandFinishedDelegate.terminalDidFinishCommand`
-        /// so the downstream `CommandOutcome.of` call is identical in both engine paths.
+        /// Feeds directly into `CommandOutcome.of`, which is shared across engine paths.
         let callback: (Int?, UInt64) -> Void
 
         init(callback: @escaping (Int?, UInt64) -> Void) {
@@ -70,8 +68,7 @@ enum ShellIntegration {
     /// - Parameters:
     ///   - terminal: An `OscRegistering` — in production, SwiftTerm's `Terminal`
     ///     (`view.getTerminal()`), conformed in `TerminalPane+ShellIntegration.swift`.
-    ///   - callback: Receives `(exitCode: Int?, durationNanos: UInt64)` when a command
-    ///     ends, matching libghostty's `terminalDidFinishCommand` delegate.
+    ///   - callback: Receives `(exitCode: Int?, durationNanos: UInt64)` when a command ends.
     ///
     /// Returns the `State` so `TerminalPane+ShellIntegration` can retain it; the state
     /// must outlive the handler or callbacks arrive into a dead object.
@@ -115,8 +112,7 @@ enum ShellIntegration {
             state.commandStartTime = nil
 
             let elapsed = Date().timeIntervalSince(start)
-            // Duration in nanoseconds, matching libghostty's `durationNanos` unit
-            // (GhosttyPane+Document.swift:252). Clamped to 0 — a negative interval
+            // Duration in nanoseconds. Clamped to 0 — a negative interval
             // cannot be a real duration and would underflow UInt64.
             let nanos = UInt64(max(elapsed, 0) * 1_000_000_000)
             let exitCode = parseExitCode(from: data)
