@@ -10,10 +10,10 @@
 //  stored properties, and the setter on `documents` is private to that file — while
 //  all the methods that read and manipulate it live here.
 //
-//  v1 scope: exactly ONE split per tab (2 panes). ⌘⇧\ splits right (horizontal).
-//  The split peer is NOT in documents[] — it does not appear as a tab. The tab strip
-//  stays 1:1 with documents[]. ⌘W when split collapses the split (closes the peer),
-//  keeping the primary tab; ⌘W when unsplit closes the tab as before.
+//  v1 scope: exactly ONE split per tab (2 panes). ⌘⇧\ splits right (horizontal);
+//  ⌘⇧- splits down (vertical). The split peer is NOT in documents[] — it does not
+//  appear as a tab. The tab strip stays 1:1 with documents[]. ⌘W when split collapses
+//  the split (closes the peer), keeping the primary tab; ⌘W when unsplit closes the tab.
 //
 
 import AppKit
@@ -31,10 +31,14 @@ extension SpaceViewController {
         makeSplit(direction: .horizontal)
     }
 
-    /// Vertical split — @objc stub for v1. The stub lets a future caller wire ⌘⇧E
-    /// through the responder chain without touching AppMenu.swift. Implement by
-    /// calling makeSplit(direction: .vertical) when vertical is enabled.
-    @objc func splitVertical(_ sender: Any?) {}
+    /// ⌘⇧- — split the active terminal vertically, opening a new pane below.
+    ///
+    /// In a vertical split the primary pane is at the bottom and the peer is at the top.
+    /// Wired from AppMenu.swift (⌘⇧-). Focus movement ⌘⇧K (up) reaches the peer,
+    /// ⌘⇧J (down) reaches the primary.
+    @objc func splitVertical(_ sender: Any?) {
+        makeSplit(direction: .vertical)
+    }
 
     /// Create a split peer for the active document in the given direction.
     ///
@@ -122,37 +126,48 @@ extension SpaceViewController {
     /// ⌘⇧L — move focus to the right pane.
     @objc func moveFocusRight(_ sender: Any?) { moveFocus(toward: .right) }
 
-    /// ⌘⇧K — move focus upward. v1 stub: no vertical splits yet.
+    /// ⌘⇧K — move focus to the top pane (peer in a vertical split).
     @objc func moveFocusUp(_ sender: Any?) { moveFocus(toward: .up) }
 
-    /// ⌘⇧J — move focus downward. v1 stub: no vertical splits yet.
+    /// ⌘⇧J — move focus to the bottom pane (primary in a vertical split).
     @objc func moveFocusDown(_ sender: Any?) { moveFocus(toward: .down) }
 
     private enum FocusDirection { case left, right, up, down }
 
     /// Move keyboard focus between the primary pane and its split peer.
     ///
-    /// v1 has exactly one split per tab, always horizontal, so left/right toggle
-    /// between primary and peer while up/down are no-ops. When vertical splits land,
-    /// this is the single site that needs the direction logic.
+    /// Horizontal split: primary=left, peer=right.
+    ///   .left  → primary   .right → peer   .up/.down → toggle
+    /// Vertical split: primary=bottom, peer=top.
+    ///   .up    → peer      .down  → primary   .left/.right → toggle
     private func moveFocus(toward direction: FocusDirection) {
         guard let primary = activeDocument,
               let peer = splitPeer(for: primary) else { return }
 
+        let splitDirection = splitPeers[ObjectIdentifier(primary)]?.direction
         let fr = view.window?.firstResponder
         let peerHasFocus = isDescendant(fr, of: peer.documentView)
 
-        switch direction {
-        case .left:
-            // In a horizontal split the primary is on the left.
+        switch (splitDirection, direction) {
+        // Horizontal: primary is left, peer is right.
+        case (.horizontal, .left):
             if peerHasFocus { primary.documentDidBecomeActive() }
-        case .right:
-            // The peer is on the right.
+        case (.horizontal, .right):
             if !peerHasFocus { peer.documentDidBecomeActive() }
-        case .up, .down:
-            // v1: no vertical splits — toggle anyway so the keys are not dead.
+        case (.horizontal, .up), (.horizontal, .down):
             if peerHasFocus { primary.documentDidBecomeActive() }
             else { peer.documentDidBecomeActive() }
+        // Vertical: primary is bottom, peer is top.
+        case (.vertical, .up):
+            if !peerHasFocus { peer.documentDidBecomeActive() }
+        case (.vertical, .down):
+            if peerHasFocus { primary.documentDidBecomeActive() }
+        case (.vertical, .left), (.vertical, .right):
+            if peerHasFocus { primary.documentDidBecomeActive() }
+            else { peer.documentDidBecomeActive() }
+        // No split or unknown — no-op.
+        case (nil, _):
+            break
         }
     }
 
