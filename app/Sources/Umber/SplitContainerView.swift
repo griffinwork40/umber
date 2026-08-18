@@ -205,8 +205,9 @@ final class SplitContainerView: NSView {
             available = bounds.height
         }
         guard available > 0 else { return }
-        dividerRatio = (dividerRatio + delta / available)
-            .clamped(to: Self.minPaneSize / available ... 1 - Self.minPaneSize / available)
+        let lo = Self.minPaneSize / available
+        let hi = max(1 - lo, lo)  // mirrors layout()'s guard: handles available < 2*minPaneSize
+        dividerRatio = (dividerRatio + delta / available).clamped(to: lo...hi)
         dragStartPoint = current
         needsLayout = true
         layout()

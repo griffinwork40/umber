@@ -71,7 +71,7 @@ final class SpaceViewController: NSSplitViewController {
     /// Split peers keyed by primary document identity. NOT in `documents[]` — peers
     /// don't appear as tabs. Internal (not `private(set)`) because +Splits.swift needs
     /// subscript-set and removeValue. Writes go through that extension — convention-enforced.
-    var splitPeers: [ObjectIdentifier: SpaceDocument] = [:]
+    var splitPeers: [ObjectIdentifier: (document: SpaceDocument, direction: SplitContainerView.Direction)] = [:]
 
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
@@ -188,8 +188,8 @@ final class SpaceViewController: NSSplitViewController {
         activeIndex = index
         let document = documents[index]
 
-        if let peer = splitPeer(for: document) {
-            documentArea.presentSplit(primaryView: document.documentView, splitView: peer.documentView, direction: .horizontal)
+        if let entry = splitPeers[ObjectIdentifier(document)] {
+            documentArea.presentSplit(primaryView: document.documentView, splitView: entry.document.documentView, direction: entry.direction)
         } else {
             documentArea.present(documentView: document.documentView)
         }
@@ -290,7 +290,8 @@ final class SpaceViewController: NSSplitViewController {
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(splitHorizontal(_:)):
-            return activeDocument is ShellHosting && !hasSplit(for: activeDocument!)
+            guard let doc = activeDocument else { return false }
+            return doc is ShellHosting && !hasSplit(for: doc)
         case #selector(splitVertical(_:)):
             return false  // v1: vertical splits not implemented
         case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
@@ -306,7 +307,7 @@ final class SpaceViewController: NSSplitViewController {
     func apply(config: AppConfig) {
         self.config = config
         for document in documents { document.apply(config: config) }
-        for (_, peer) in splitPeers { peer.apply(config: config) }  // peers not in documents[]
+        for (_, entry) in splitPeers { entry.document.apply(config: config) }  // peers not in documents[]
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
     }
@@ -332,19 +333,16 @@ final class SpaceViewController: NSSplitViewController {
         // that today, but the dot state is cheap to keep honest. After the line above, so
         // the cleared status is what gets drawn rather than the stale one.
         syncDocumentChrome()
-        // Propagate window-level focus-in to the active document so DECSET 1004 focus
-        // events reach the terminal. SwiftTerm only fires `setTerminalFocus` from
-        // `becomeFirstResponder`/`resignFirstResponder` — switching macOS window tabs
-        // (Spaces) without changing first-responder leaves tmux focus-events blind.
-        // Active document only: background tabs are not visible, so delivering CSI I to
-        // them is a spurious focus-in that confuses programs already tracking focus state.
-        // SwiftTerm gates the send on `sendFocus` (DECSET 1004), so a pane without focus
-        // events enabled is a no-op (`Terminal.swift:580`). `GhosttyPane` inherits the
-        // protocol default no-op — libghostty handles window focus via its own
-        // NSNotification observer registered in `AppTerminalView.viewDidMoveToWindow`.
-        // Resign-key counterpart (sends false to ALL documents) lives in
-        // `windowDidResignKey()` in `SpaceViewController+DirectoryFollow.swift` — every
-        // terminal loses focus when the window leaves, visible or not.
+        // Propagate window-level focus-in so DECSET 1004 focus events reach the terminal.
+        // SwiftTerm only fires `setTerminalFocus` from `becomeFirstResponder`/
+        // `resignFirstResponder` — switching macOS window tabs without changing first-
+        // responder leaves tmux focus-events blind. Active document + its split peer only:
+        // background tabs are not visible, so CSI I there is a spurious focus-in. SwiftTerm
+        // gates the send on `sendFocus` (DECSET 1004), so a pane without focus events is a
+        // no-op. Resign-key counterpart lives in `windowDidResignKey()` in +DirectoryFollow.
         activeDocument?.notifyWindowFocus(true)
+        if let active = activeDocument, let peer = splitPeer(for: active) {
+            peer.notifyWindowFocus(true)
+        }
     }
 }

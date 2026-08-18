@@ -10,7 +10,7 @@
 //  stored properties, and the setter on `documents` is private to that file — while
 //  all the methods that read and manipulate it live here.
 //
-//  v1 scope: exactly ONE split per tab (2 panes). ⌘⇧D splits right (horizontal).
+//  v1 scope: exactly ONE split per tab (2 panes). ⌘⇧\ splits right (horizontal).
 //  The split peer is NOT in documents[] — it does not appear as a tab. The tab strip
 //  stays 1:1 with documents[]. ⌘W when split collapses the split (closes the peer),
 //  keeping the primary tab; ⌘W when unsplit closes the tab as before.
@@ -72,7 +72,7 @@ extension SpaceViewController {
         // Register in splitPeers BEFORE starting the shell, so if the shell exits
         // immediately the teardown path (documentDidTerminate via the delegate above)
         // can find it and clean up correctly.
-        splitPeers[ObjectIdentifier(primary)] = peer
+        splitPeers[ObjectIdentifier(primary)] = (document: peer, direction: direction)
 
         // Start the shell. The beforeActivating ordering from addTerminalDocument is
         // not needed here — the peer lives beside the primary, not replacing it, so
@@ -97,7 +97,8 @@ extension SpaceViewController {
     /// routing lives in AppDelegate+EditorActions.swift.
     func closeSplitPane() {
         guard let primary = activeDocument,
-              let peer = splitPeers.removeValue(forKey: ObjectIdentifier(primary)) else { return }
+              let entry = splitPeers.removeValue(forKey: ObjectIdentifier(primary)) else { return }
+        let peer = entry.document
         peer.documentWillClose()
         // dismissSplit() → container.removeSplit() owns removeFromSuperview on the peer —
         // one owner for the hierarchy change, not two (PR #48 review M2).
@@ -109,7 +110,7 @@ extension SpaceViewController {
     // MARK: - Queries
 
     func splitPeer(for document: SpaceDocument) -> SpaceDocument? {
-        splitPeers[ObjectIdentifier(document)]
+        splitPeers[ObjectIdentifier(document)]?.document
     }
 
     func hasSplit(for document: SpaceDocument) -> Bool {
@@ -169,7 +170,7 @@ extension SpaceViewController {
     /// (firstIndex lookup → closeDocument) finds nothing. This handles the peer case:
     /// find the primary, remove the entry from splitPeers, and collapse the split.
     func terminateSplitPeer(_ document: SpaceDocument) {
-        for primary in documents where splitPeers[ObjectIdentifier(primary)] === document {
+        for primary in documents where splitPeers[ObjectIdentifier(primary)]?.document === document {
             splitPeers.removeValue(forKey: ObjectIdentifier(primary))
             document.documentWillClose()
             documentArea.dismissSplit()  // owns removeFromSuperview on the peer
@@ -187,8 +188,8 @@ extension SpaceViewController {
     /// primary's identity is still available as the dictionary key. Also called from
     /// tearDownAllDocuments() in SpaceViewController+Closing.swift.
     func teardownSplit(for document: SpaceDocument) {
-        guard let peer = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
-        peer.documentWillClose()
+        guard let entry = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
+        entry.document.documentWillClose()
         documentArea.dismissSplit()  // owns removeFromSuperview on the peer
     }
 }

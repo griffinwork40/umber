@@ -169,6 +169,7 @@ extension SpaceViewController {
         // resign-key notifies all — every terminal loses focus when the window leaves,
         // regardless of which tab is showing.
         for document in documents { document.notifyWindowFocus(false) }
+        for (_, entry) in splitPeers { entry.document.notifyWindowFocus(false) }
     }
 
     /// Re-poll immediately — see `DirectoryFollow.pollNow()` for why the timer's rhythm
