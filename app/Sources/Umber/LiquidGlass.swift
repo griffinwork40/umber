@@ -3,7 +3,8 @@
 //  macOS 26+ Liquid Glass adoption — the single place all glass-specific code lives.
 //
 //  Umber gets Liquid Glass *automatically* when linked against the macOS 26 SDK
-//  (determined by DTSDKName in Info.plist, injected by make-app-bundle.sh):
+//  (determined by the `sdk` field in the Mach-O LC_BUILD_VERSION load command,
+//  set via -platform_version in make-app-bundle.sh — NOT from Info.plist):
 //  the sidebar (via NSSplitViewItem) becomes a floating glass pane, window corners
 //  round, controls gain glass bezels, and the menu bar goes transparent — all with
 //  zero code changes beyond the plist keys.
