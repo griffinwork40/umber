@@ -265,8 +265,8 @@ extension AppDelegate {
         // Splits — tmux-inspired: ⌘⇧\ (pipe) splits right, ⌘⇧- splits down.
         // Target is nil so AppKit walks the responder chain to
         // `splitHorizontal:`/`splitVertical:` on SpaceViewController; greyed out
-        // by `validateUserInterfaceItem` when inappropriate (no terminal, already
-        // split, or vertical not yet implemented).
+        // by `validateUserInterfaceItem` when inappropriate (no terminal or already
+        // split).
         let splitItem = NSMenuItem(
             title: "Split Right",
             action: Selector(("splitHorizontal:")), keyEquivalent: "\\")

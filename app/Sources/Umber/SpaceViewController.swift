@@ -288,7 +288,8 @@ final class SpaceViewController: NSSplitViewController {
             guard let doc = activeDocument else { return false }
             return doc is ShellHosting && !hasSplit(for: doc)
         case #selector(splitVertical(_:)):
-            return false  // v1: vertical splits not implemented
+            guard let doc = activeDocument else { return false }
+            return doc is ShellHosting && !hasSplit(for: doc)
         case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
              #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
             return activeDocument.map { hasSplit(for: $0) } ?? false
