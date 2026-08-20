@@ -218,7 +218,7 @@ jobs:
       # make-app-bundle.sh; this submits the DMG container so the user never sees
       # a quarantine dialog when opening the downloaded .dmg.
       - name: Notarise DMG
-        if: ${{ secrets.NOTARIZE_KEY_ID != '' }}
+        if: env.NOTARIZE_KEY_ID != ''
         working-directory: app
         env:
           NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
