@@ -17,10 +17,12 @@
     this, those programs segfault inside Umber but work fine in Terminal.app.
 
   com.apple.security.cs.disable-library-validation
-    Load dylibs/bundles not signed by the same team. Required because:
-    1. GhosttyKit.xcframework is a prebuilt upstream binary signed by Ghostty's team.
-    2. Users may run programs that dlopen third-party libraries.
-    Without this, the hardened runtime refuses to load GhosttyKit at all.
+    Load dylibs/bundles not signed by the same team. Required because users run
+    programs that dlopen third-party libraries — without this, the hardened runtime
+    refuses to load any dylib not signed by the app's own team, so interpreters,
+    language servers, and tools that load plugins would fail inside Umber but work
+    in Terminal.app. If GhosttyKit returns as a linked dependency it will add a
+    second justification (prebuilt upstream binary signed by a different team).
 
   The TCC keys (microphone, desktop, etc.) are in Info.plist, not here — those are
   usage-description strings, not entitlements.

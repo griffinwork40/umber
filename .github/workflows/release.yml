@@ -140,12 +140,13 @@ jobs:
           SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
           NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
           NOTARIZE_ISSUER: ${{ secrets.NOTARIZE_ISSUER }}
+          NOTARIZE_KEY: ${{ secrets.NOTARIZE_KEY }}
         run: |
           set -euo pipefail
           # Write the API key to a temp file — notarytool reads it from a path, not stdin.
           if [[ -n "${NOTARIZE_KEY_ID:-}" ]]; then
             KEY_PATH="/tmp/notarize-key.p8"
-            umask 077 && printf '%s\n' "${{ secrets.NOTARIZE_KEY }}" > "$KEY_PATH"
+            umask 077 && printf '%s\n' "$NOTARIZE_KEY" > "$KEY_PATH"
             export NOTARIZE_KEY_PATH="$KEY_PATH"
           fi
           ./Scripts/make-app-bundle.sh release
