@@ -55,12 +55,13 @@ final class UpdateChecker {
         let now = Date().timeIntervalSince1970
         let last = UserDefaults.standard.double(forKey: Self.lastCheckKey)
         guard now - last >= Self.autoCheckInterval else { return }
-        UserDefaults.standard.set(now, forKey: Self.lastCheckKey)
 
         let skippedKey = Self.skippedVersionKey
+        let lastCheckKey = Self.lastCheckKey
         fetchLatestRelease { [weak self] release in
-            guard let release,
-                  UpdateChecker.isNewer(release.version, than: currentVersion),
+            guard let release else { return }
+            UserDefaults.standard.set(now, forKey: lastCheckKey)
+            guard UpdateChecker.isNewer(release.version, than: currentVersion),
                   release.version != UserDefaults.standard.string(forKey: skippedKey)
             else { return }
             self?.showUpdateAlert(release: release, isManual: false)

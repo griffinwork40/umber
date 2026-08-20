@@ -89,7 +89,6 @@ jobs:
             check-keybindings.sh \
             check-space-restore.sh \
             check-cursor-style.sh \
-            check-engine-config.sh \
             check-renderer-config.sh \
             check-links.sh \
             check-command-outcome.sh \

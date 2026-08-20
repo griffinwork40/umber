@@ -145,7 +145,7 @@ jobs:
           # Write the API key to a temp file — notarytool reads it from a path, not stdin.
           if [[ -n "${NOTARIZE_KEY_ID:-}" ]]; then
             KEY_PATH="/tmp/notarize-key.p8"
-            echo "${{ secrets.NOTARIZE_KEY }}" > "$KEY_PATH"
+            umask 077 && printf '%s\n' "${{ secrets.NOTARIZE_KEY }}" > "$KEY_PATH"
             export NOTARIZE_KEY_PATH="$KEY_PATH"
           fi
           ./Scripts/make-app-bundle.sh release
