@@ -53,8 +53,16 @@ whose command failed shows a red dot and a slow command that succeeded shows a g
 (OSC 133) — deliberately silent otherwise, because a dot after every `ls` teaches you to
 stop seeing dots.
 
-**Not built:** splits · preferences UI (config is a JSON file) · URL clicking · profiles ·
-code intelligence in the editor · shell integration under the SwiftTerm engine.
+**Not built:** preferences UI (config is a JSON file) · URL clicking · profiles.
+
+**Partial:** splits (v1, horizontal only — ⌘⇧\\ splits right, ⌘⇧- wired but stub;
+vertical splits and recursive splits are not yet built) · syntax-highlighting in the editor
+(14 languages, regex-based; no tree-sitter, no code intelligence).
+
+**Shell integration ships for both engines.** Under SwiftTerm, set `UMBER_INTEGRATION` in
+your shell environment; `shell-integration.zsh` (bundled with the app) sources
+automatically and emits OSC 7 on every `precmd` and OSC 133 A/C/D around commands. Under
+Ghostty, OSC 7 and OSC 133 are handled natively.
 
 ## Install
 
