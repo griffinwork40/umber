@@ -40,8 +40,9 @@ import AppKit
 
 /// macOS 26+ Liquid Glass helpers.
 ///
-/// Called from three sites: `SpaceWindowController.init` (window chrome),
-/// `CommandPalette.buildPanel`, and `SymbolOutlinePanel.init` (floating panels).
+/// Called from two sites: `SpaceWindowController.init` (window chrome) and
+/// `CommandPalette.buildPanel` (floating panel). `SymbolOutlinePanel` gets glass
+/// automatically via its titled window chrome — no explicit glass view needed.
 /// Keeping them here rather than inlining the `#available` blocks means a single
 /// file to update when the glass API evolves — and a single file to read when
 /// asking "what does Umber do differently on Tahoe?"
