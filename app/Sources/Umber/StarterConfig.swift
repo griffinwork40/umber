@@ -46,11 +46,11 @@ enum StarterConfig {
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
       "// editor.wordWrap": "auto (default, wraps .md/.txt, not code) | on | off",
 
-      "// theme": "OMITTED HERE, WHICH MEANS UMBER — since 2026-08-03 the built-in default is the umber palette, so leaving this out gives you a measured theme rather than the emulator's raw colours. Installing a palette does NOT harm the 256-colour cube: this app pins ansi256PaletteStrategy to .xterm before any colour, so indices 16-255 stay the standard xterm values whatever you set. Set preset to classic if you genuinely want no colours installed.",
+      "// theme": "OMITTED HERE, WHICH MEANS CLASSIC-REPAIRED — since 2026-08-20 the built-in default is classic-repaired, Terminal.app Basic with readable blue and quiet body text. Installing a palette does NOT harm the 256-colour cube: this app pins ansi256PaletteStrategy to .xterm before any colour, so indices 16-255 stay the standard xterm values whatever you set. Set preset to classic if you genuinely want no colours installed.",
       "// theme-example": {
-        "preset": "umber",
-        "// preset-values": "umber | classic-repaired | afk-dark | afk-light | tokyo-night | classic",
-        "// preset-note": "umber is the DEFAULT and the palette designed and measured for this app. classic-repaired keeps classic's true black, quiet body text and saturated ANSI colours while repairing its unreadable blue and collapsed blue bright step. classic itself still installs nothing. Verified by Scripts/check-theme-contrast.sh.",
+        "preset": "classic-repaired",
+        "// preset-values": "classic-repaired | umber | afk-dark | afk-light | tokyo-night | classic",
+        "// preset-note": "classic-repaired is the DEFAULT — Terminal.app Basic with readable blue, quiet body text, and saturated ANSI colours. umber is the palette designed and measured for this app (warm umber-black base). classic installs nothing. Verified by Scripts/check-theme-contrast.sh.",
         "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
         "cursor": "#FF9B5A"
       }

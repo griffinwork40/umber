@@ -28,10 +28,23 @@ ROOT="$(pwd)"
 # see Scripts/verify-vendor.sh for why that case is silent and this one is not.
 "$ROOT/Scripts/verify-vendor.sh"
 
-echo "==> swift build -c $CONFIG"
-swift build -c "$CONFIG"
+# The SDK version embedded in the Mach-O LC_BUILD_VERSION load command is what
+# macOS reads to decide whether to apply Liquid Glass and other modern visuals.
+# SwiftPM sets both `minos` AND `sdk` to the deployment target (14.0), which puts
+# the app in compatibility mode on macOS 26+ even though it was compiled against
+# the current SDK. The fix: pass -platform_version to the linker with the real
+# SDK version, keeping the deployment target (minos) at 14.0.
+#
+# Verified by otool -l: without this flag, sdk=14.0; with it, sdk=<actual>.
+# Apple's Terminal.app shows minos=27.0 sdk=27.0; Umber needs minos=14.0 sdk=27.0
+# because it still supports macOS 14 (Package.swift:11).
+ACTUAL_SDK_VERSION="$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
+PLATFORM_VERSION_FLAGS="-Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker $ACTUAL_SDK_VERSION"
 
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+echo "==> swift build -c $CONFIG (sdk $ACTUAL_SDK_VERSION)"
+swift build -c "$CONFIG" $PLATFORM_VERSION_FLAGS
+
+BIN_DIR="$(swift build -c "$CONFIG" $PLATFORM_VERSION_FLAGS --show-bin-path)"
 BIN="$BIN_DIR/$APP_NAME"
 if [[ ! -x "$BIN" ]]; then
   echo "error: expected executable at $BIN" >&2
@@ -83,6 +96,19 @@ fi
 # NSDocumentsFolderUsageDescription simply returns "Operation not permitted" and
 # there is nowhere to go to fix it. (Microphone and AppleEvents are worse still: the
 # request is met with SIGABRT rather than an error — that is what #23 fixed.)
+# SDK metadata for provenance. The FUNCTIONAL mechanism for Liquid Glass is the
+# Mach-O LC_BUILD_VERSION sdk field (set by -platform_version above, verified by
+# otool -l). These Info.plist DT* keys are what Xcode writes for tooling and are
+# COSMETIC — macOS does not read them for compatibility mode. They are still
+# useful: crash reporters, `mdls`, and Instruments read them for context.
+DT_SDK_NAME="macosx$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
+DT_SDK_BUILD="$(xcrun --show-sdk-build-version 2>/dev/null || echo "unknown")"
+DT_PLATFORM_NAME="macosx"
+DT_PLATFORM_VERSION="$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
+DT_XCODE="$(xcodebuild -version 2>/dev/null | awk '/^Xcode/ {gsub(/\./,"",$2); print $2}' || echo "1500")"
+DT_XCODE_BUILD="$(xcodebuild -version 2>/dev/null | awk '/^Build/ {print $3}' || echo "unknown")"
+DT_MACHINE_BUILD="$(sw_vers -buildVersion 2>/dev/null || echo "unknown")"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -128,6 +154,20 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
+	<key>DTSDKName</key>
+	<string>$DT_SDK_NAME</string>
+	<key>DTSDKBuild</key>
+	<string>$DT_SDK_BUILD</string>
+	<key>DTPlatformName</key>
+	<string>$DT_PLATFORM_NAME</string>
+	<key>DTPlatformVersion</key>
+	<string>$DT_PLATFORM_VERSION</string>
+	<key>DTXcode</key>
+	<string>$DT_XCODE</string>
+	<key>DTXcodeBuild</key>
+	<string>$DT_XCODE_BUILD</string>
+	<key>BuildMachineOSBuild</key>
+	<string>$DT_MACHINE_BUILD</string>
 </dict>
 </plist>
 PLIST

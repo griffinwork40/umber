@@ -60,7 +60,13 @@ final class SymbolOutlinePanel: NSObject, NSTableViewDataSource, NSTableViewDele
         window.isMovableByWindowBackground = true
         window.isFloatingPanel = true
         window.hidesOnDeactivate = false
-        window.backgroundColor = NSColor.windowBackgroundColor
+        // macOS 26+: clear background lets the glass material show through the
+        // titled panel chrome. Pre-26: opaque system colour, same as before.
+        if #available(macOS 26, *) {
+            window.backgroundColor = .clear
+        } else {
+            window.backgroundColor = NSColor.windowBackgroundColor
+        }
         window.level = .floating
 
         super.init()

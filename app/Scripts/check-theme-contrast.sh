@@ -171,8 +171,8 @@ grep -qE 'isActive \? 0\.95 : 0\.72' "$STRIP_DRAW" \
   || drift+=("tab label alpha is no longer 'isActive ? 0.95 : 0.72' — update ALPHA_ACTIVE/ALPHA_INACTIVE in the harness")
 grep -qE 'blended\(withFraction: 0\.07' "$STRIP_DRAW" \
   || drift+=("railBackground no longer lifts by 0.07 — update RAIL_LIFT in the harness")
-grep -qE '^[[:space:]]*theme: \.umber,' "$STRIP_CFG" \
-  || drift+=("AppConfig.defaults() no longer installs .umber — the gate's floors no longer describe what the app ships by default")
+grep -qE '^[[:space:]]*theme: \.classicRepaired,' "$STRIP_CFG" \
+  || drift+=("AppConfig.defaults() no longer installs .classicRepaired — the gate's floors no longer describe what the app ships by default")
 
 # CONSUMER GUARD. A measured colour with no consumer is the failure this repo has already
 # shipped once: `ThemePalette.selection` was designed, measured and asserted from the day the
