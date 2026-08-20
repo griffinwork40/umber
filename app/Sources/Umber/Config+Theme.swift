@@ -39,24 +39,20 @@ extension AppConfig {
         // setting that leaves the engine's own defaults genuinely untouched.
         let wantsClassic = preset?.lowercased() == "classic"
 
-        // The base for a typo, and for an override with no preset, is `umber` rather than
-        // `afk-dark` (changed 2026-08-03). Both are error-ish paths, and landing them on
-        // `afk-dark` put the user on the one shipped palette that
-        // `check-theme-contrast.sh` deliberately EXEMPTS from every legibility floor — it
-        // is a verbatim upstream port whose own doc comment records its comment colour at
-        // APCA Lc 13.1. A fallback should be the measured palette, not the one the gate
-        // declines to judge.
-        var theme: Theme? = wantsClassic ? nil : (preset.flatMap(Theme.preset(named:)) ?? .umber)
+        // The base for a typo, and for an override with no preset, is `classic-repaired`
+        // (changed 2026-08-20, was `umber` since 2026-08-03, was `afk-dark` before that).
+        // Both are error-ish paths, and the fallback should be the default palette.
+        var theme: Theme? = wantsClassic ? nil : (preset.flatMap(Theme.preset(named:)) ?? .classicRepaired)
         if let raw = preset, !wantsClassic, Theme.preset(named: raw) == nil {
-            warnings.append("theme.preset '\(raw)' unrecognised — using umber")
+            warnings.append("theme.preset '\(raw)' unrecognised — using classic-repaired")
         }
 
         // Any explicit colour needs a full palette to sit on; classic + an override cannot
         // stay nil, so promote it to a real base first.
         let hasOverride = background != nil || foreground != nil || cursor != nil || ansi != nil
         if theme == nil && hasOverride {
-            warnings.append("theme.preset 'classic' cannot take colour overrides — using umber as the base")
-            theme = .umber
+            warnings.append("theme.preset 'classic' cannot take colour overrides — using classic-repaired as the base")
+            theme = .classicRepaired
         }
 
         // Optional-chained from here: if `theme` is still nil there are no overrides to

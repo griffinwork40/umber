@@ -82,7 +82,8 @@ struct AppConfig {
     /// standard cube and never reads bg/fg. **A custom palette is free of that
     /// defect**; installing one is now only a question of taste.
     ///
-    /// **The default is `.umber` as of 2026-08-03**, and the reasoning that kept it `nil`
+    /// **The default is `.classicRepaired` as of 2026-08-20** (was `.umber` since 2026-08-03),
+    /// and the reasoning that kept it `nil`
     /// was wrong in a specific way worth recording. It treated "install nothing" as the
     /// conservative choice pending real use. It is not conservative — it is unmeasured.
     /// `nil` renders SwiftTerm's `Color.terminalAppColors` (`Colors.swift:91-108`) on
@@ -169,7 +170,7 @@ struct AppConfig {
     static func defaults() -> AppConfig {
         AppConfig(
             font: preferredMonoFont(family: nil, size: defaultFontSize).font,
-            theme: .umber,
+            theme: .classicRepaired,
             cursorStyle: .default,
             // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
             // thumb as `max(rows / lines.count, 0.01)`
