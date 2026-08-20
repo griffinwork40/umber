@@ -28,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         buildMenu()
         restoreSpaces()
+
+        // Check for a newer release on GitHub, silently, at most once per 24 hours.
+        // Deferred to the next run-loop tick so the window is visible before any
+        // alert appears (auto-check only shows one when a new version exists).
+        DispatchQueue.main.async {
+            UpdateChecker.shared.checkOnLaunch(currentVersion: UpdateChecker.bundleVersion)
+        }
     }
 
     /// ⌘S. A no-op on a terminal (`SpaceDocument.saveDocument()` defaults to a
@@ -115,6 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     // MARK: - Actions
+
+    /// Help → Check for Updates…
+    @objc func checkForUpdates(_ sender: Any?) {
+        UpdateChecker.shared.checkNow(currentVersion: UpdateChecker.bundleVersion)
+    }
 
     /// The root a Space gets when the user did not name one (⌘N, ⌘⇧N, first launch).
     ///
