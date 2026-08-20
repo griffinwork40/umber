@@ -135,23 +135,99 @@ PLIST
 # Signing. The default "-" is an ad-hoc signature: enough for the app to launch on
 # the machine that built it, and nothing more — a build downloaded from anywhere
 # arrives quarantined and Gatekeeper refuses it until the user strips the attribute
-# (see README.md). Kept as a variable rather than a literal so a distribution build
-# is an environment override rather than a patch to this script:
+# (see README.md). Set SIGN_IDENTITY to a Developer ID to produce a distribution build:
 #
-#   SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" ./Scripts/make-app-bundle.sh release
+#   SIGN_IDENTITY="Developer ID Application: Griffin Long (TEAMID)" ./Scripts/make-app-bundle.sh release
 #
-# A real distribution build additionally needs `--options runtime` (hardened runtime)
-# and notarisation via notarytool; neither is wired up, because neither works without
-# a paid Developer ID.
+# When a real identity is supplied the script enables the hardened runtime, signs every
+# embedded bundle inside-out (Apple requires innermost first), and — when notarisation
+# credentials are also present — submits, waits, and staples in one pass. The ad-hoc
+# path is unchanged: no hardened runtime, no notarisation, works on the local machine.
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
-if codesign --force --sign "$SIGN_IDENTITY" "$APP" >/dev/null 2>&1; then
-  if [[ "$SIGN_IDENTITY" == "-" ]]; then
+ENTITLEMENTS="$ROOT/Resources/Umber.entitlements"
+
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+  # --- Distribution signing: hardened runtime + entitlements ---
+  if [[ ! -f "$ENTITLEMENTS" ]]; then
+    echo "error: $ENTITLEMENTS not found — cannot sign with hardened runtime" >&2
+    exit 1
+  fi
+
+  # Sign embedded bundles first (inside-out). Each must be signed individually before
+  # the outer app signature seals the tree — signing the outer app alone with --deep
+  # works on some macOS versions but notarytool rejects it on others.
+  echo "==> signing embedded bundles"
+  shopt -s nullglob
+  for bundle in "$APP/Contents/Resources/"*.bundle; do
+    codesign --force --sign "$SIGN_IDENTITY" \
+      --options runtime \
+      --entitlements "$ENTITLEMENTS" \
+      --timestamp \
+      "$bundle"
+    echo "    signed $(basename "$bundle")"
+  done
+  shopt -u nullglob
+
+  echo "==> signing $APP_NAME.app (hardened runtime)"
+  codesign --force --sign "$SIGN_IDENTITY" \
+    --options runtime \
+    --entitlements "$ENTITLEMENTS" \
+    --timestamp \
+    "$APP"
+
+  # Verify the signature is valid and the hardened runtime flag is set.
+  codesign -v --verbose=2 "$APP" 2>&1
+  echo "==> signed with: $SIGN_IDENTITY"
+
+  # --- Notarisation (optional, requires credentials) ---
+  # Apple accepts three credential forms for notarytool:
+  #   1. App Store Connect API key (recommended for CI):
+  #        NOTARIZE_KEY_ID, NOTARIZE_ISSUER, NOTARIZE_KEY_PATH
+  #   2. Apple ID + app-specific password:
+  #        NOTARIZE_APPLE_ID, NOTARIZE_PASSWORD, NOTARIZE_TEAM_ID
+  #   3. Keychain profile (recommended for local use):
+  #        NOTARIZE_PROFILE (set up once with `xcrun notarytool store-credentials`)
+  #
+  # When none are set the build still produces a signed, hardened-runtime app — it just
+  # triggers Gatekeeper's "unnotarised" dialog on first launch.
+  NOTARIZE=false
+  NOTARY_ARGS=()
+
+  if [[ -n "${NOTARIZE_PROFILE:-}" ]]; then
+    NOTARIZE=true
+    NOTARY_ARGS=(--keychain-profile "$NOTARIZE_PROFILE")
+  elif [[ -n "${NOTARIZE_KEY_ID:-}" && -n "${NOTARIZE_ISSUER:-}" && -n "${NOTARIZE_KEY_PATH:-}" ]]; then
+    NOTARIZE=true
+    NOTARY_ARGS=(--key "$NOTARIZE_KEY_PATH" --key-id "$NOTARIZE_KEY_ID" --issuer "$NOTARIZE_ISSUER")
+  elif [[ -n "${NOTARIZE_APPLE_ID:-}" && -n "${NOTARIZE_PASSWORD:-}" && -n "${NOTARIZE_TEAM_ID:-}" ]]; then
+    NOTARIZE=true
+    NOTARY_ARGS=(--apple-id "$NOTARIZE_APPLE_ID" --password "$NOTARIZE_PASSWORD" --team-id "$NOTARIZE_TEAM_ID")
+  fi
+
+  if [[ "$NOTARIZE" == "true" ]]; then
+    echo "==> notarising (this takes 1–5 minutes)"
+    ZIP_TMP="$(mktemp -d)/Umber-notarize.zip"
+    ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP_TMP"
+
+    xcrun notarytool submit "$ZIP_TMP" "${NOTARY_ARGS[@]}" --wait
+
+    rm -f "$ZIP_TMP"
+
+    echo "==> stapling ticket"
+    xcrun stapler staple "$APP"
+    xcrun stapler validate "$APP"
+    echo "==> notarisation complete"
+  else
+    echo "==> skipping notarisation (no credentials — set NOTARIZE_PROFILE, or see script comments)"
+  fi
+
+else
+  # --- Ad-hoc signing: local use only ---
+  if codesign --force --sign "-" "$APP" >/dev/null 2>&1; then
     echo "==> ad-hoc signed (local use only; a downloaded copy needs xattr -dr com.apple.quarantine)"
   else
-    echo "==> signed with: $SIGN_IDENTITY"
+    echo "==> warning: codesign failed; app may still launch locally"
   fi
-else
-  echo "==> warning: codesign failed with identity '$SIGN_IDENTITY'; app may still launch locally"
 fi
 
 echo "==> built $APP"
