@@ -156,15 +156,25 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   # Sign embedded bundles first (inside-out). Each must be signed individually before
   # the outer app signature seals the tree — signing the outer app alone with --deep
   # works on some macOS versions but notarytool rejects it on others.
+  #
+  # SwiftPM resource bundles (e.g. SwiftTerm_SwiftTerm.bundle containing the Metal
+  # shader) have no executable and no proper bundle structure — codesign rejects them
+  # with "bundle format unrecognized". These are data-only bundles sealed by the outer
+  # app signature; signing them individually is neither possible nor necessary.
   echo "==> signing embedded bundles"
   shopt -s nullglob
   for bundle in "$APP/Contents/Resources/"*.bundle; do
-    codesign --force --sign "$SIGN_IDENTITY" \
-      --options runtime \
-      --entitlements "$ENTITLEMENTS" \
-      --timestamp \
-      "$bundle"
-    echo "    signed $(basename "$bundle")"
+    if [[ -f "$bundle/Contents/Info.plist" ]] && \
+       plutil -extract CFBundleExecutable raw "$bundle/Contents/Info.plist" >/dev/null 2>&1; then
+      codesign --force --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --timestamp \
+        "$bundle"
+      echo "    signed $(basename "$bundle")"
+    else
+      echo "    skipped $(basename "$bundle") (resource-only, no executable)"
+    fi
   done
   shopt -u nullglob
 
