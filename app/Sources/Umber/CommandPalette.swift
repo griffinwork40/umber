@@ -144,16 +144,26 @@ final class CommandPalette: NSObject {
         p.hasShadow = true
         p.delegate = self
 
-        // Container with rounded corners and a blurred background.
-        let container = NSVisualEffectView(
-            frame: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 300))
-        container.material = .hudWindow
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.wantsLayer = true
-        container.layer?.cornerRadius = Self.cornerRadius
-        container.layer?.masksToBounds = true
-        container.autoresizingMask = [.width, .height]
+        // Container with rounded corners and a blurred/glass background.
+        // macOS 26+: NSGlassEffectView for the native Liquid Glass material.
+        // Pre-26: NSVisualEffectView with .hudWindow, the standard HUD blur.
+        let container: NSView
+        if #available(macOS 26, *) {
+            container = LiquidGlass.makeGlassContainer(
+                frame: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 300),
+                cornerRadius: Self.cornerRadius)
+        } else {
+            let vev = NSVisualEffectView(
+                frame: NSRect(x: 0, y: 0, width: Self.panelWidth, height: 300))
+            vev.material = .hudWindow
+            vev.blendingMode = .behindWindow
+            vev.state = .active
+            vev.wantsLayer = true
+            vev.layer?.cornerRadius = Self.cornerRadius
+            vev.layer?.masksToBounds = true
+            vev.autoresizingMask = [.width, .height]
+            container = vev
+        }
         p.contentView = container
 
         // Search field at the top.

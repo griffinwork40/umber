@@ -165,6 +165,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // file tree against a black terminal. See `AppConfig.appearance`.
         window.appearance = config.appearance
         window.titlebarAppearsTransparent = false
+        // macOS 26+: Liquid Glass chrome — fullSizeContentView + transparent
+        // titlebar so the sidebar and titlebar form one continuous glass surface.
+        // Safe area insets prevent the terminal clipping that caused
+        // fullSizeContentView to be declined on pre-26 (see comment at :132).
+        if #available(macOS 26, *) {
+            LiquidGlass.configureWindow(window)
+        }
         window.contentViewController = space
         // Discoverable ⌘B: a button beside the traffic lights, wired to the
         // same responder-chain selector the menu item already used. See
