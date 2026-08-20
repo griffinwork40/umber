@@ -17,7 +17,7 @@
 # Cutting a release:
 #   1. bump VERSION in app/Scripts/make-app-bundle.sh, commit it
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
-#   3. this runs; the zip and its .sha256 appear on the release
+#   3. this runs; the zip, DMG, and their .sha256 checksums appear on the release
 # Forget step 1 and step 3 fails loudly on the tag/bundle mismatch, which is the entire
 # point of asserting it.
 
@@ -180,7 +180,7 @@ jobs:
       # ditto, not zip. A plain `zip` does not preserve the extended attributes and
       # symlink structure a signed .app depends on, and the damage shows up only as a
       # broken signature on the DOWNLOADER's machine, never on the builder's.
-      - name: Package
+      - name: Package zip
         working-directory: app
         run: |
           set -euo pipefail
@@ -191,7 +191,7 @@ jobs:
       # Unpack the artifact that is about to be published and verify the signature
       # SURVIVED the round trip. This is the one failure that is invisible to every step
       # above: the app on disk is fine, the zip is the thing that is broken.
-      - name: Verify the packaged artifact, not the built one
+      - name: Verify the packaged zip, not the built app
         working-directory: app
         run: |
           set -euo pipefail
@@ -201,6 +201,54 @@ jobs:
           test -x /tmp/verify/Umber.app/Contents/MacOS/Umber
           test -f /tmp/verify/Umber.app/Contents/Resources/Umber.icns
           echo "  unpacked signature verifies; executable and icon present"
+
+      # The DMG is the premium distribution artifact: background image, icon
+      # positioning, and an Applications symlink for drag-to-install. The zip
+      # stays as a fallback for Homebrew casks and scripted installs.
+      - name: Package DMG
+        working-directory: app
+        run: |
+          set -euo pipefail
+          ./Scripts/make-dmg.sh build/Umber.app "Umber-${{ steps.v.outputs.tag }}.dmg"
+          shasum -a 256 "Umber-${{ steps.v.outputs.tag }}.dmg" > "Umber-${{ steps.v.outputs.tag }}.dmg.sha256"
+          cat "Umber-${{ steps.v.outputs.tag }}.dmg.sha256"
+
+      # The DMG itself needs notarisation — Gatekeeper checks the disk image, not
+      # just the .app inside it. The app was already notarised and stapled by
+      # make-app-bundle.sh; this submits the DMG container so the user never sees
+      # a quarantine dialog when opening the downloaded .dmg.
+      - name: Notarise DMG
+        if: ${{ secrets.NOTARIZE_KEY_ID != '' }}
+        working-directory: app
+        env:
+          NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
+          NOTARIZE_ISSUER: ${{ secrets.NOTARIZE_ISSUER }}
+        run: |
+          set -euo pipefail
+          DMG="Umber-${{ steps.v.outputs.tag }}.dmg"
+          echo "==> notarising DMG (this takes 1–5 minutes)"
+          xcrun notarytool submit "$DMG" \
+            --key /tmp/notarize-key.p8 \
+            --key-id "$NOTARIZE_KEY_ID" \
+            --issuer "$NOTARIZE_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          echo "  DMG notarised and stapled"
+
+      # Mount the DMG and verify the app inside it survived packaging with its
+      # signature intact — the same round-trip check applied to the zip above.
+      - name: Verify the packaged DMG
+        working-directory: app
+        run: |
+          set -euo pipefail
+          MOUNT="$(hdiutil attach "Umber-${{ steps.v.outputs.tag }}.dmg" -readonly -noverify -noautoopen | \
+            grep '/Volumes/' | sed 's|.*\(/Volumes/.*\)|\1|' | head -1)"
+          codesign -v --verbose=2 "$MOUNT/Umber.app"
+          test -x "$MOUNT/Umber.app/Contents/MacOS/Umber"
+          test -L "$MOUNT/Applications"  # symlink to /Applications must exist
+          hdiutil detach "$MOUNT" -quiet
+          echo "  DMG signature verifies; executable present; Applications symlink intact"
 
       # Scrub the signing key and notarisation credentials. The runner is ephemeral but
       # if: always() means this runs even on failure, so a red build never leaves a
@@ -225,6 +273,7 @@ jobs:
             echo "  no release for $TAG — creating with generated notes"
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
+          DMG="Umber-${TAG}.dmg"
           # --clobber so a re-run replaces rather than erroring on a duplicate name.
-          gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
-          echo "  uploaded $ASSET (+ .sha256) built from $(git rev-parse HEAD)"
+          gh release upload "$TAG" "$ASSET" "$ASSET.sha256" "$DMG" "$DMG.sha256" --clobber
+          echo "  uploaded $ASSET + $DMG (+ checksums) built from $(git rev-parse HEAD)"
