@@ -93,22 +93,12 @@ final class DocumentAreaViewController: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         let bounds = view.bounds
-        // macOS 26 with Liquid Glass enables fullSizeContentView, which extends
-        // this view behind the glass titlebar. safeAreaInsets.top is the titlebar
-        // height the system wants us to avoid — without this the terminal's top
-        // rows would be hidden behind the glass, the exact bug that caused
-        // fullSizeContentView to be declined on pre-26 (SpaceWindowController
-        // :132-141). On pre-26 systems fullSizeContentView is not set, so
-        // safeAreaInsets.top is 0 and this is a no-op.
-        let topInset = view.safeAreaInsets.top
         let stripHeight = isStripVisible ? DocumentTabStrip.height : 0
         // Non-flipped coordinates: the strip is at the TOP, so it takes the high y.
         strip.frame = NSRect(
-            x: 0, y: bounds.height - stripHeight - topInset,
-            width: bounds.width, height: stripHeight)
+            x: 0, y: bounds.height - stripHeight, width: bounds.width, height: stripHeight)
         container.frame = NSRect(
-            x: 0, y: 0, width: bounds.width,
-            height: bounds.height - stripHeight - topInset)
+            x: 0, y: 0, width: bounds.width, height: bounds.height - stripHeight)
         // Children are distributed by SplitContainerView.layout(). Call it
         // immediately rather than deferring via needsLayout so terminal rows/cols
         // are correct on the same pass that resized the container — deferred layout

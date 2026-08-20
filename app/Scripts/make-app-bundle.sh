@@ -83,6 +83,18 @@ fi
 # NSDocumentsFolderUsageDescription simply returns "Operation not permitted" and
 # there is nowhere to go to fix it. (Microphone and AppleEvents are worse still: the
 # request is met with SIGABRT rather than an error — that is what #23 fixed.)
+# SDK metadata — macOS reads DTSDKName / DTSDKBuild to decide whether to apply
+# Liquid Glass and other modern-SDK visuals. Without them the app lands in
+# compatibility mode and the UI looks pre-Tahoe even on macOS 26+. Xcode sets
+# these automatically; SwiftPM + a bundle script must do it by hand.
+DT_SDK_NAME="macosx$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
+DT_SDK_BUILD="$(xcrun --show-sdk-build-version 2>/dev/null || echo "unknown")"
+DT_PLATFORM_NAME="macosx"
+DT_PLATFORM_VERSION="$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
+DT_XCODE="$(xcodebuild -version 2>/dev/null | awk '/^Xcode/ {gsub(/\./,"",$2); print $2}' || echo "1500")"
+DT_XCODE_BUILD="$(xcodebuild -version 2>/dev/null | awk '/^Build/ {print $3}' || echo "unknown")"
+DT_MACHINE_BUILD="$(sw_vers -buildVersion 2>/dev/null || echo "unknown")"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -128,6 +140,20 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
+	<key>DTSDKName</key>
+	<string>$DT_SDK_NAME</string>
+	<key>DTSDKBuild</key>
+	<string>$DT_SDK_BUILD</string>
+	<key>DTPlatformName</key>
+	<string>$DT_PLATFORM_NAME</string>
+	<key>DTPlatformVersion</key>
+	<string>$DT_PLATFORM_VERSION</string>
+	<key>DTXcode</key>
+	<string>$DT_XCODE</string>
+	<key>DTXcodeBuild</key>
+	<string>$DT_XCODE_BUILD</string>
+	<key>BuildMachineOSBuild</key>
+	<string>$DT_MACHINE_BUILD</string>
 </dict>
 </plist>
 PLIST

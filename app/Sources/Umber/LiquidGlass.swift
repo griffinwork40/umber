@@ -2,21 +2,31 @@
 //  LiquidGlass.swift
 //  macOS 26+ Liquid Glass adoption — the single place all glass-specific code lives.
 //
-//  Umber gets Liquid Glass *automatically* when linked against the macOS 26 SDK:
+//  Umber gets Liquid Glass *automatically* when linked against the macOS 26 SDK
+//  (determined by DTSDKName in Info.plist, injected by make-app-bundle.sh):
 //  the sidebar (via NSSplitViewItem) becomes a floating glass pane, window corners
 //  round, controls gain glass bezels, and the menu bar goes transparent — all with
-//  zero code changes. This file handles the enhancements that require explicit API
-//  calls and cannot be automatic:
+//  zero code changes beyond the plist keys.
 //
-//  1. fullSizeContentView + transparent titlebar, so the sidebar and titlebar
-//     merge into one continuous glass surface rather than sitting on an opaque
-//     bar with glass applied to it.
+//  This file handles the enhancements that require explicit API calls:
+//
+//  1. Window chrome adjustments (titlebar separator) so the glass reads cleanly.
 //  2. NSGlassEffectView for floating panels (Command Palette, Symbol Outline),
 //     replacing the older NSVisualEffectView(.hudWindow) material that predates
 //     the glass system.
 //
 //  Everything here is guarded by @available(macOS 26, *). On macOS 14/15, these
 //  helpers are never called, and the app renders exactly as it did before.
+//
+//  fullSizeContentView is deliberately NOT enabled here. It was tried (2026-08-20,
+//  this file's first version) and caused the terminal's top rows to be clipped
+//  behind the glass titlebar — the exact same bug documented at
+//  SpaceWindowController.swift:132-141. The root cause: NSSplitViewController does
+//  not propagate safeAreaInsets.top to a child view controller that uses manual
+//  frame layout (DocumentAreaViewController.viewDidLayout), so the document area
+//  extends behind the titlebar with no offset. Glass does NOT require
+//  fullSizeContentView — the sidebar gets its floating glass pane automatically
+//  via NSSplitViewItem, and the titlebar gets glass from the SDK linkage alone.
 //
 //  The terminal content area and the editor content area are NEVER touched by
 //  glass — the ANSI colour contract, the 345-assertion contrast gate
@@ -38,19 +48,11 @@ import AppKit
 @MainActor
 enum LiquidGlass {
 
-    /// Enable Liquid Glass chrome on a Space window.
+    /// Adjust window chrome for Liquid Glass.
     ///
-    /// Adds `.fullSizeContentView` so the sidebar extends behind the titlebar
-    /// into one continuous glass surface, and makes the titlebar transparent so
-    /// the glass renders through it rather than painting an opaque bar on top.
-    ///
-    /// On pre-26 systems fullSizeContentView was explicitly declined because the
-    /// opaque titlebar hid the terminal's top ~1.7 rows — row 0, where the prompt
-    /// and caret live (SpaceWindowController.swift:132-141). macOS 26 resolves
-    /// this: NSSplitViewController propagates safe area insets to its split items,
-    /// and DocumentAreaViewController.viewDidLayout() respects them via
-    /// `view.safeAreaInsets.top`, so the document area sits *below* the glass
-    /// titlebar rather than behind it.
+    /// The separator between the titlebar and the content area is a hard line
+    /// that contradicts the glass material sitting above it. Removing it lets the
+    /// glass boundary define the edge instead.
     ///
     /// `window.backgroundColor` and `window.appearance` (set by the caller) are
     /// still honoured: the glass material samples the window background for
@@ -58,11 +60,6 @@ enum LiquidGlass {
     /// light-themed one gets light glass — matching the sidebar's own adaptive
     /// tint with no additional code.
     static func configureWindow(_ window: NSWindow) {
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
-        // The separator would draw a hard line through the glass surface where
-        // the titlebar meets the content. With glass the boundary is the
-        // material itself — a painted line contradicts it.
         window.titlebarSeparatorStyle = .none
     }
 
