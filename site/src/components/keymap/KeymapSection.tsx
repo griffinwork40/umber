@@ -66,10 +66,10 @@ const tdStyle: React.CSSProperties = {
 
 export default function KeymapSection() {
   return (
-    <section id="keymap" style={{ backgroundColor: 'var(--color-bg)' }}>
+    <section id="keymap" className="earned-path" style={{ backgroundColor: 'var(--color-bg)', position: 'relative' as const }}>
       <div style={sectionStyle}>
         <h2 style={headingStyle}>Keyboard Shortcuts</h2>
-        <div style={groupsStyle}>
+        <div style={groupsStyle} className="keymap-grid">
           {KEYMAP.map((group) => (
             <div key={group.group} style={groupStyle}>
               <div style={groupHeadingStyle}>{group.group}</div>

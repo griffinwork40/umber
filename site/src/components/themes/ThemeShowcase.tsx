@@ -8,11 +8,14 @@ import Badge from '@/components/ui/Badge'
 const sectionStyle: React.CSSProperties = {
   backgroundColor: 'var(--color-surface)',
   padding: 'var(--space-12) var(--space-6)',
+  position: 'relative',
 }
 
 const innerStyle: React.CSSProperties = {
   maxWidth: 1100,
   margin: '0 auto',
+  position: 'relative',
+  zIndex: 1,
 }
 
 const headingStyle: React.CSSProperties = {
@@ -91,15 +94,15 @@ export default function ThemeShowcase() {
   const current = THEMES.find((t) => t.name === activeTheme) ?? THEMES[0]
 
   return (
-    <section id="themes" style={sectionStyle}>
+    <section id="themes" className="earned-path" style={sectionStyle}>
       <div style={innerStyle}>
         <h2 style={headingStyle}>Themes</h2>
         <p style={subheadStyle}>
-          Five palettes ship out of the box. Umber is designed — not ported.
+          Five palettes ship out of the box. Each is gated by 345 contrast assertions.
         </p>
 
         {/* Tab list */}
-        <div role="tablist" aria-label="Theme selector" style={tabListStyle}>
+        <div role="tablist" aria-label="Theme selector" style={tabListStyle} className="theme-tabs">
           {THEMES.map((theme) => (
             <button
               key={theme.name}

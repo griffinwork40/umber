@@ -5,11 +5,14 @@ import FeatureCard from './FeatureCard'
 const sectionStyle: React.CSSProperties = {
   padding: 'var(--space-12) var(--space-6)',
   backgroundColor: 'var(--color-bg)',
+  position: 'relative',
 }
 
 const innerStyle: React.CSSProperties = {
   maxWidth: 1100,
   margin: '0 auto',
+  position: 'relative',
+  zIndex: 1,
 }
 
 const headingStyle: React.CSSProperties = {
@@ -33,13 +36,13 @@ const gridStyle: React.CSSProperties = {
 
 export default function FeaturesSection() {
   return (
-    <section id="features" style={sectionStyle}>
+    <section id="features" className="scope-rule contour-layer" style={sectionStyle}>
       <div style={innerStyle}>
         <h2 style={headingStyle}>Features</h2>
         <p style={subheadStyle}>
-          What works in v0.1 — no AI features, by design.
+          No AI built in — on purpose. The intelligence belongs to your agent, not the terminal chrome.
         </p>
-        <div style={gridStyle}>
+        <div style={gridStyle} className="features-grid">
           {FEATURES.map((feature) => (
             <FeatureCard key={feature.title} feature={feature} />
           ))}

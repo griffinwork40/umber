@@ -1,4 +1,5 @@
 @import '../styles/tokens.css';
+@import '../styles/signature.css';
 
 /* ── Reset ───────────────────────────────────────────────────────────────────── */
 *,
@@ -23,6 +24,7 @@ body {
   min-height: 100vh;
   background-color: var(--color-bg);
   color: var(--color-fg);
+  overflow-x: hidden;
 }
 
 /* ── Accessibility ───────────────────────────────────────────────────────────── */
@@ -65,4 +67,72 @@ code,
 pre,
 kbd {
   font-family: var(--font-mono);
+}
+
+/* ── Mobile responsive ──────────────────────────────────────────────────────── */
+/*
+ * Inline React.CSSProperties cannot express @media queries, so responsive
+ * overrides live here as utility classes applied alongside inline styles.
+ * Breakpoint: 640px covers phones in portrait and most small tablets.
+ */
+
+@media (max-width: 640px) {
+  /* Hero: stack content + screenshot vertically */
+  .hero-inner {
+    flex-direction: column !important;
+    gap: var(--space-6) !important;
+  }
+  .hero-section {
+    min-height: auto !important;
+    padding-top: var(--space-8) !important;
+    padding-bottom: var(--space-8) !important;
+  }
+  .hero-content {
+    max-width: 100% !important;
+  }
+  .hero-screenshot {
+    max-width: 100% !important;
+  }
+
+  /* Sticky header: hide nav links, keep wordmark + download */
+  .site-header-nav {
+    display: none !important;
+  }
+
+  /* Features grid: allow cards narrower than 300px */
+  .features-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Theme tabs: allow horizontal scroll */
+  .theme-tabs {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .theme-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Keymap grid: single column */
+  .keymap-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Install section: tighter padding */
+  .install-inner {
+    padding-left: var(--space-4) !important;
+    padding-right: var(--space-4) !important;
+  }
+
+  /* Footer: stack vertically */
+  .footer-inner {
+    flex-direction: column !important;
+    text-align: center;
+    gap: var(--space-3) !important;
+  }
+  .footer-meta {
+    margin-left: 0 !important;
+    justify-content: center;
+  }
 }

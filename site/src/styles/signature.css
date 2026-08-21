@@ -1,0 +1,312 @@
+/*
+ * Visual Signature System
+ *
+ * Encodes the worldview: signal → depth → compression → rise → embodiment
+ * through composition, shape language, and color migration.
+ *
+ * Three motifs:
+ *   1. signal-field   — concentric contour rings implying hidden depth
+ *   2. earned-path    — compressed route replacing flat section dividers
+ *   3. scope-rule     — one precise measurement line crossing organic forms
+ *
+ * Color migration: cool depth (top) → warm embodiment (bottom)
+ */
+
+/* ── Signature tokens ────────────────────────────────────────────────────── */
+:root {
+  /* Depth zone — cool, dense, inward */
+  --sig-depth-1: rgba(129, 138, 252, 0.03);    /* faint indigo wash */
+  --sig-depth-2: rgba(129, 138, 252, 0.06);
+  --sig-depth-3: rgba(129, 138, 252, 0.10);
+  --sig-contour: rgba(129, 138, 252, 0.08);    /* contour line stroke */
+  --sig-contour-bright: rgba(161, 168, 253, 0.15);
+
+  /* Embodiment zone — warmer, clearer, more resolved */
+  --sig-warm-1: rgba(161, 168, 253, 0.04);
+  --sig-warm-2: rgba(161, 168, 253, 0.08);
+  --sig-warm-glow: rgba(161, 168, 253, 0.12);
+
+  /* Structural elements */
+  --sig-rule-color: rgba(161, 168, 253, 0.20);
+  --sig-path-color: rgba(129, 138, 252, 0.07);
+
+  /* Motion */
+  --sig-drift: 120s;
+  --sig-ripple: 8s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sig-drift: 0s;
+    --sig-ripple: 0s;
+  }
+}
+
+/* ── 1. Signal Field — concentric contours ───────────────────────────────── */
+
+/*
+ * Topographic contour rings behind the hero, implying vast hidden structure.
+ * Pure CSS radial gradients — no images, no JS, no dependencies.
+ */
+.signal-field {
+  position: relative;
+}
+
+.signal-field::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  /* Concentric rings: multiple radial gradients at offset centers */
+  background:
+    /* Central signal — small, bright */
+    radial-gradient(
+      ellipse 320px 280px at 68% 55%,
+      var(--sig-contour-bright) 0%,
+      transparent 1.5%,
+      transparent 8%,
+      var(--sig-contour) 8.5%,
+      transparent 9.5%,
+      transparent 20%,
+      var(--sig-contour) 20.5%,
+      transparent 21.5%,
+      transparent 35%,
+      var(--sig-contour) 35.5%,
+      transparent 36.5%,
+      transparent 55%,
+      var(--sig-contour) 55.5%,
+      transparent 56.5%,
+      transparent 80%,
+      var(--sig-contour) 80.5%,
+      transparent 81.5%,
+      transparent 100%
+    ),
+    /* Depth wash — large, soft */
+    radial-gradient(
+      ellipse 800px 600px at 65% 50%,
+      var(--sig-depth-3) 0%,
+      var(--sig-depth-2) 30%,
+      var(--sig-depth-1) 60%,
+      transparent 100%
+    );
+  opacity: 1;
+  animation: sig-contour-drift var(--sig-drift) ease-in-out infinite alternate;
+}
+
+@keyframes sig-contour-drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(8px, -4px) scale(1.02);
+  }
+  100% {
+    transform: translate(-4px, 6px) scale(0.98);
+  }
+}
+
+/* ── 2. Earned Path — compressed route between sections ──────────────────── */
+
+/*
+ * Replaces flat border-top dividers with a subtle braided path.
+ * Three staggered sine-ish curves that converge in the center —
+ * "a route the system had to discover."
+ */
+.earned-path {
+  position: relative;
+  overflow: hidden;
+}
+
+.earned-path::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 80px;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    /* Three converging traces */
+    radial-gradient(ellipse 100% 40px at 20% 0%, var(--sig-path-color) 0%, transparent 70%),
+    radial-gradient(ellipse 100% 30px at 50% 0%, var(--sig-path-color) 0%, transparent 60%),
+    radial-gradient(ellipse 100% 40px at 80% 0%, var(--sig-path-color) 0%, transparent 70%);
+  mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+}
+
+/* ── 3. Scope Rule — precise measurement crossing organic field ──────────── */
+
+/*
+ * A single crisp horizontal line with measurement marks.
+ * "Organic depth + one ruthless line of measurement."
+ */
+.scope-rule {
+  position: relative;
+}
+
+.scope-rule::after {
+  content: '';
+  position: absolute;
+  left: var(--space-6);
+  right: var(--space-6);
+  top: 0;
+  height: 1px;
+  background:
+    linear-gradient(
+      to right,
+      transparent 0%,
+      var(--sig-rule-color) 15%,
+      var(--sig-rule-color) 85%,
+      transparent 100%
+    );
+}
+
+/* Tick marks along the scope rule */
+.scope-rule-ticked::after {
+  content: '';
+  position: absolute;
+  left: var(--space-6);
+  right: var(--space-6);
+  top: 0;
+  height: 1px;
+  background:
+    /* Main rule */
+    linear-gradient(
+      to right,
+      transparent 0%,
+      var(--sig-rule-color) 10%,
+      var(--sig-rule-color) 90%,
+      transparent 100%
+    );
+  box-shadow:
+    /* Tick marks — subtle vertical dashes at intervals */
+    0 0 0 0 transparent;
+}
+
+/* ── Deep Field — ambient depth background ───────────────────────────────── */
+
+/*
+ * A cooler, denser background for discovery zones.
+ * "Discovery zones may feel cooler, denser, more layered."
+ */
+.deep-field {
+  position: relative;
+  background:
+    radial-gradient(
+      ellipse 600px 400px at 30% 60%,
+      var(--sig-depth-2) 0%,
+      transparent 70%
+    ),
+    var(--color-bg) !important;
+}
+
+/* ── Elevated Field — warmer, clearer action zone ────────────────────────── */
+
+/*
+ * Warmer radiance for embodiment: install, CTA, proof.
+ * "Embodiment zones may feel warmer, clearer, more action-oriented."
+ */
+.elevated-field {
+  position: relative;
+}
+
+.elevated-field::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      ellipse 500px 300px at 60% 30%,
+      var(--sig-warm-glow) 0%,
+      var(--sig-warm-1) 40%,
+      transparent 80%
+    );
+}
+
+/* ── Contour Layer — subtle terrain behind cards ─────────────────────────── */
+
+/*
+ * A faint topographic texture behind feature grids.
+ * Cards feel like "discoveries extracted from a deeper system."
+ */
+.contour-layer {
+  position: relative;
+}
+
+.contour-layer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background:
+    radial-gradient(ellipse 200px 200px at 15% 30%, var(--sig-contour) 0%, transparent 70%),
+    radial-gradient(ellipse 180px 180px at 75% 70%, var(--sig-contour) 0%, transparent 70%),
+    radial-gradient(ellipse 250px 200px at 45% 50%, var(--sig-depth-1) 0%, transparent 60%);
+}
+
+/* ── Section color migration ─────────────────────────────────────────────── */
+
+/*
+ * Gradual warm/cool shift: the page begins cool/deep and resolves warm/clear.
+ * Applied via subtle background tinting on sections, not by repainting the brand.
+ */
+.migrate-cool {
+  background:
+    linear-gradient(
+      180deg,
+      var(--color-bg) 0%,
+      rgba(13, 13, 26, 1) 100%
+    ) !important;
+}
+
+.migrate-warm {
+  background:
+    linear-gradient(
+      180deg,
+      var(--color-bg) 0%,
+      rgba(18, 14, 12, 1) 100%
+    ) !important;
+}
+
+/* ── Screenshot frame — evidence pulled from the field ───────────────────── */
+
+/*
+ * The product screenshot sits inside a subtle contour-backed recess,
+ * suggesting an artifact extracted from the system rather than
+ * a stock floating rectangle.
+ */
+.contour-frame {
+  position: relative;
+}
+
+.contour-frame::before {
+  content: '';
+  position: absolute;
+  inset: -20px;
+  border-radius: var(--radius-4);
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(
+      ellipse at 50% 50%,
+      var(--sig-depth-3) 0%,
+      var(--sig-depth-1) 40%,
+      transparent 70%
+    );
+  /* Faint contour ring around the screenshot */
+  box-shadow:
+    0 0 0 1px var(--sig-contour),
+    0 0 80px 20px var(--sig-depth-2);
+}
+
+/* ── Utility: relative z-index for content above pseudo-elements ─────────── */
+.sig-content {
+  position: relative;
+  z-index: 1;
+}

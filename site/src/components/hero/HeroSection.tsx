@@ -15,20 +15,21 @@ const sectionStyle: React.CSSProperties = {
 }
 
 const innerStyle: React.CSSProperties = {
-  maxWidth: 1100,
+  maxWidth: 1200,
   margin: '0 auto',
   width: '100%',
   display: 'flex',
   alignItems: 'center',
   gap: 'var(--space-10)',
   flexWrap: 'wrap',
+  position: 'relative',
+  zIndex: 1,
 }
 
 export default function HeroSection() {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    // Trigger entrance animation after mount
     const timer = setTimeout(() => setVisible(true), 50)
     return () => clearTimeout(timer)
   }, [])
@@ -36,6 +37,7 @@ export default function HeroSection() {
   return (
     <section
       aria-labelledby="hero-heading"
+      className="hero-section signal-field"
       style={{
         ...sectionStyle,
         opacity: visible ? 1 : 0,
@@ -43,7 +45,7 @@ export default function HeroSection() {
         transition: `opacity var(--motion-duration) ease, transform var(--motion-duration) ease`,
       }}
     >
-      <div style={innerStyle}>
+      <div style={innerStyle} className="hero-inner">
         <HeroContent />
         <HeroScreenshot />
       </div>
