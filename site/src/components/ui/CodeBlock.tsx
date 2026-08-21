@@ -4,6 +4,8 @@ import React, { useState } from 'react'
 
 interface CodeBlockProps {
   code: string
+  /** 'code' renders a copyable pre/code block (default). 'kbd' renders a keyboard shortcut badge. */
+  variant?: 'code' | 'kbd'
   language?: string
   className?: string
 }
@@ -41,8 +43,29 @@ const copyButtonStyle: React.CSSProperties = {
   transition: 'color var(--motion-duration) ease, border-color var(--motion-duration) ease',
 }
 
-export default function CodeBlock({ code, language, className }: CodeBlockProps) {
+const kbdStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '1px var(--space-2)',
+  backgroundColor: 'var(--color-bg)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-1)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '0.8125rem',
+  color: 'var(--color-fg)',
+  boxShadow: '0 1px 0 var(--color-border)',
+}
+
+export default function CodeBlock({ code, variant = 'code', language, className }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
+
+  // kbd variant: render a keyboard shortcut badge with no copy button
+  if (variant === 'kbd') {
+    return (
+      <kbd style={kbdStyle} className={className}>
+        {code}
+      </kbd>
+    )
+  }
 
   const handleCopy = async () => {
     try {

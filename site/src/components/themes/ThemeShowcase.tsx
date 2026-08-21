@@ -57,9 +57,11 @@ const previewStyle: React.CSSProperties = {
 }
 
 function ThemePreview({ theme }: { theme: typeof THEMES[0] }) {
+  // Inject per-theme colours as CSS custom property overrides so TerminalMockup
+  // continues to consume var(--color-bg) / var(--color-fg) — token-first architecture.
   const themeVars: Record<string, string> = {
-    backgroundColor: theme.background,
-    color: theme.foreground,
+    '--color-bg': theme.background,
+    '--color-fg': theme.foreground,
   }
 
   return (
@@ -68,10 +70,10 @@ function ThemePreview({ theme }: { theme: typeof THEMES[0] }) {
       themeVars={themeVars}
       title={`zsh — ${theme.displayName}`}
     >
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', lineHeight: 1.8, color: theme.foreground }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', lineHeight: 1.8, color: 'var(--color-fg)' }}>
         <div>
           <span style={{ color: theme.ansi[2] }}>✓</span>
-          <span style={{ color: theme.foreground }}> umber </span>
+          <span style={{ color: 'var(--color-fg)' }}> umber </span>
           <span style={{ color: theme.ansi[4] }}>~/Projects/umber</span>
         </div>
         <div style={{ color: theme.ansi[8] }}>$ swift run Umber</div>

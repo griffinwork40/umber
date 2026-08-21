@@ -1,5 +1,6 @@
 import React from 'react'
 import { KEYMAP } from '@/lib/constants'
+import CodeBlock from '@/components/ui/CodeBlock'
 
 const sectionStyle: React.CSSProperties = {
   padding: 'var(--space-12) var(--space-6)',
@@ -62,16 +63,6 @@ const tdStyle: React.CSSProperties = {
   fontSize: '0.875rem',
 }
 
-const kbdStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '1px var(--space-2)',
-  backgroundColor: 'var(--color-bg)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-1)',
-  fontFamily: 'var(--font-mono)',
-  fontSize: '0.8125rem',
-  color: 'var(--color-fg)',
-}
 
 export default function KeymapSection() {
   return (
@@ -96,7 +87,7 @@ export default function KeymapSection() {
                   {group.entries.map((entry) => (
                     <tr key={entry.shortcut}>
                       <td style={tdStyle}>
-                        <kbd style={kbdStyle}>{entry.shortcut}</kbd>
+                        <CodeBlock variant="kbd" code={entry.shortcut} />
                       </td>
                       <td style={tdStyle}>{entry.description}</td>
                     </tr>

@@ -60,6 +60,18 @@ describe('CodeBlock', () => {
     expect(container.querySelector('.language-bash')).toBeInTheDocument()
   })
 
+  it('renders a kbd element when variant="kbd"', () => {
+    const { container } = render(<CodeBlock variant="kbd" code="⌘T" />)
+    const kbd = container.querySelector('kbd')
+    expect(kbd).toBeInTheDocument()
+    expect(kbd).toHaveTextContent('⌘T')
+  })
+
+  it('does not render a copy button when variant="kbd"', () => {
+    render(<CodeBlock variant="kbd" code="⌘T" />)
+    expect(screen.queryByRole('button', { name: 'Copy code' })).not.toBeInTheDocument()
+  })
+
   it('renders multiline code correctly', () => {
     const multiline = './Scripts/make-app-bundle.sh release\nopen build/Umber.app'
     render(<CodeBlock code={multiline} />)

@@ -2,6 +2,12 @@ import React from 'react'
 
 interface TerminalMockupProps {
   children: React.ReactNode
+  /**
+   * CSS custom-property overrides injected onto the terminal body element.
+   * Keys must be CSS custom property names (e.g. '--color-bg', '--color-fg').
+   * The body already consumes var(--color-bg) and var(--color-fg), so
+   * supplying those keys here overrides the global token for this mockup only.
+   */
   themeVars?: Record<string, string>
   title?: string
   'aria-label'?: string
@@ -44,7 +50,9 @@ export default function TerminalMockup({
   title = 'zsh',
   'aria-label': ariaLabel = 'Terminal mockup',
 }: TerminalMockupProps) {
-  const bodyStyle: React.CSSProperties = {
+  // CSS custom properties (--color-bg, --color-fg, …) are not part of the
+  // React.CSSProperties type, so we cast themeVars to the correct shape.
+  const bodyStyle = {
     backgroundColor: 'var(--color-bg)',
     color: 'var(--color-fg)',
     padding: 'var(--space-4)',
@@ -52,10 +60,8 @@ export default function TerminalMockup({
     fontFamily: 'var(--font-mono)',
     fontSize: '0.875rem',
     lineHeight: 1.6,
-    ...(themeVars ? Object.fromEntries(
-      Object.entries(themeVars).map(([k, v]) => [k, v])
-    ) : {}),
-  }
+    ...(themeVars ?? {}),
+  } as React.CSSProperties
 
   return (
     <div style={chromeStyle} aria-label={ariaLabel}>
