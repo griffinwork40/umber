@@ -1,0 +1,77 @@
+/*
+ * Design tokens for the Umber landing page.
+ *
+ * All colour values are drawn from ThemeValues.swift (the canonical source).
+ * The OKLCH triple each colour was derived from is recorded beside its hex.
+ * No component file should contain a hex value — this file is the single source.
+ *
+ * Umber palette (background: #19120D, OKLCH 0.190 0.016 56 — warm umber-black)
+ */
+
+:root {
+  /* ── Colour tokens ────────────────────────────────────────────────────────── */
+
+  /* Base: warm umber-black background */
+  --color-bg: #19120D;          /* OKLCH 0.190 0.016  56 */
+  /* Warm paper foreground */
+  --color-fg: #E5DFD6;          /* OKLCH 0.905 0.014  80 */
+  /* Umber-orange caret / accent */
+  --color-cursor: #FF9B5A;      /* OKLCH 0.780 0.145  52 */
+  --color-accent: #FF9B5A;      /* OKLCH 0.780 0.145  52 — same as cursor for UI accent */
+  /* Warm lift of the background for selections */
+  --color-selection: #453021;   /* OKLCH 0.330 0.040  56 */
+  /* Surface — ANSI 0 (a surface, not text) */
+  --color-surface: #342C26;     /* OKLCH 0.300 0.016  56 */
+  /* Muted — ANSI 8 (comment colour, Lc 51.5) */
+  --color-muted: #AAA19B;       /* OKLCH 0.715 0.014  56 */
+  /* Border — slightly lighter than surface */
+  --color-border: #453C36;      /* derived: surface + slight lift */
+  /* ANSI 2 green */
+  --color-ansi-green: #8AE49E;  /* OKLCH 0.844 0.131 150 */
+  /* ANSI 4 blue */
+  --color-ansi-blue: #739EF0;   /* OKLCH 0.702 0.130 262 */
+
+  /* macOS traffic-light dots — OS chrome constants, NOT app design tokens.
+   * These are the standard macOS window control colours and are intentionally
+   * hardcoded here rather than in component files. They never change with theme.
+   * Using CSS custom properties here satisfies the "no hex in component files" rule. */
+  --color-dot-close: #FF5F57;    /* macOS red   */
+  --color-dot-minimize: #FFBD2E; /* macOS yellow */
+  --color-dot-maximize: #28C840; /* macOS green  */
+  /* macOS terminal chrome — title bar and shadow, darker than surface */
+  --color-titlebar: #2C2928;     /* between --color-surface and --color-bg, warm near-black */
+  --color-shadow: rgba(0, 0, 0, 0.5); /* chrome drop shadow */
+
+  /* ── Spacing (4px grid) ───────────────────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-7:  32px;
+  --space-8:  40px;
+  --space-9:  48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+
+  /* ── Border radius ────────────────────────────────────────────────────────── */
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-3: 8px;
+  --radius-4: 16px;
+
+  /* ── Typography ───────────────────────────────────────────────────────────── */
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  /* ── Motion ───────────────────────────────────────────────────────────────── */
+  --motion-duration: 200ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+  }
+}
