@@ -1,42 +1,17 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its six local patches applied.
+# WITH its seven local patches applied.
 #
-# Why this exists: vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not a
-# git repo, app/Package.swift:20 is an unpinned `.package(path:)`, and
-# Package.resolved is ignored too. So nothing in git recorded either the upstream
-# revision or the local patches. That made the two failure modes asymmetric:
+# Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
+# fine while silently corrupting scrollback (0002), bleeding stale cells across
+# tmux panes (0003), shipping a release-build abort() (0004), dropping DCS Ptmux
+# sequences (0005), and breaking copy/paste (0006, 0007). This script makes that
+# silent case loud. Called first by make-app-bundle.sh.
 #
-#   * missing vendor/            -> loud (SwiftPM cannot resolve the path dependency)
-#   * re-vendored, UNPATCHED     -> depends which patch is missing, and only one of the
-#                                   two is loud:
-#       - 0001 missing  -> LOUD. Upstream's `.process` on Shaders.metal needs the offline
-#                          Metal toolchain, so the build dies at `unable to spawn process
-#                          'metal'`. (This was silent until 2026-07-31, when 0001 stopped
-#                          being an `exclude:` and became a `.copy` resource.)
-#       - 0002/3/4 missing -> SILENT. Compiles, runs, and corrupts the buffer or ships a
-#                          release-build abort(). This is the case that matters.
-#
-# Following app/README.md's recreation steps but forgetting a patch therefore
-# produced a green build against a different dependency than the tested one. This
-# script makes that case loud. It is called first by make-app-bundle.sh.
-#
-# The Buffer.swift patches raised the stakes, which is why the Buffer.swift check
-# below is a HARD FAILURE and not the warning it was until 2026-07-29. A tree missing
-# them compiles, runs, passes every other check, and silently CORRUPTS THE BUFFER:
-# without 0002 (#494) reflow mangles SCROLLBACK on every window narrowing; without 0003
-# the ALT buffer resurrects stale cells on every widening, which under tmux is content
-# bleeding across pane and window boundaries. Same silent-failure asymmetry this script
-# was written to kill, in its worst form yet. Warn-only would have meant the one check
-# that can catch it printing to stderr and exiting 0.
-# All THREE Buffer.swift patches (0002, 0003, 0004) touch the SAME file, so the pin carries
-# ONE combined hash: a tree with only some of them matches neither the patched nor the
-# upstream hash and lands in the exit-3 "unknown" branch, which is the intended outcome —
-# half-patched is not a state this project supports. That is also why 0004 needs no check of
-# its own: unlike 0002 and 0003 its absence corrupts nothing (it only restores a per-resize
-# scrollback walk and a release-build `abort()`), but it still cannot pass, because the
-# combined hash will not match. See the pin's own note on 0004.
+# Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
+# matches neither and lands in the exit-3 "unknown" branch by design. See the
+# pin file (patches/swiftterm/SwiftTerm.pin) for detailed per-patch rationale.
 #
 # Usage:
 #   ./Scripts/verify-vendor.sh            # verify, print one OK line
@@ -67,6 +42,7 @@ PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all
 PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
 PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
 PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
+PATCH_FEEDSEL="$REPO_ROOT/patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -80,7 +56,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -98,6 +74,8 @@ WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
 WANT_PARSER="$(pin_value patched_escape_seq_parser)"
 WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
 WANT_PTMUX="$(pin_value ptmux_dcs_handler)"
+WANT_ATV="$(pin_value patched_apple_terminal_view)"
+WANT_ATV_UPSTREAM="$(pin_value upstream_apple_terminal_view)"
 
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
@@ -106,14 +84,15 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all six patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all seven patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL SIX patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL SEVEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
-  err "adds DCS Ptmux passthrough, and 0006 keeps the selection alive at a plain prompt;"
+  err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
+  err "prompt, and 0007 keeps the selection alive during pty output (feedPrepare);"
   err "check-reflow.sh and check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
   exit 1
 fi
@@ -318,4 +297,43 @@ if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 6 local patches"
+# --- fifth check: is the feedPrepare selection-clear patch applied? ----------------
+# 0007 gates feedPrepare()'s selection.active = false on terminal.mouseMode != .off
+# so that pty output at a plain prompt (mouseMode == .off) preserves the selection.
+# Without it, ANY output between selecting text and pressing ⌘C clears the selection,
+# causing validateUserInterfaceItem to disable Copy and silently swallow the keystroke.
+# Same defect pattern as 0006 (linefeed), different call site (feedPrepare).
+ATV="$VENDOR/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
+if [[ ! -f "$ATV" ]]; then
+  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Apple/AppleTerminalView.swift -- incomplete checkout."
+  exit 1
+fi
+
+GOT_ATV="$(sha256_of "$ATV")"
+
+if [[ "$GOT_ATV" == "$WANT_ATV_UPSTREAM" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err ""
+  err "Patch 0007 gates feedPrepare()'s selection.active = false on"
+  err "terminal.mouseMode != .off. Without it, any pty output between selecting"
+  err "text and pressing ⌘C clears the selection — copy/paste is silently broken."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
+  exit 2
+fi
+
+if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
+  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err ""
+  err "  expected (patched): $WANT_ATV"
+  err "  found:              $GOT_ATV"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
+  err "  # then update patched_apple_terminal_view in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 7 local patches"
