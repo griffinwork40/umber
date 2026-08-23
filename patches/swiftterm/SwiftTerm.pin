@@ -25,11 +25,12 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-08-17 the tree differs from upstream in FIVE places — Package.swift,
-# Buffer.swift, EscapeSequenceParser.swift and MacTerminalView.swift are modified,
-# and PtmuxDcsHandler.swift is added new by 0005 — carrying SIX patches between them:
-# 0001 on Package.swift, 0002/0003/0004 on Buffer.swift, 0005 on
-# EscapeSequenceParser.swift (plus the new file), and 0006 on MacTerminalView.swift.
+# As of 2026-08-23 the tree differs from upstream in SIX places — Package.swift,
+# Buffer.swift, EscapeSequenceParser.swift, MacTerminalView.swift and
+# AppleTerminalView.swift are modified, and PtmuxDcsHandler.swift is added new by
+# 0005 — carrying SEVEN patches between them: 0001 on Package.swift, 0002/0003/0004
+# on Buffer.swift, 0005 on EscapeSequenceParser.swift (plus the new file), 0006 on
+# MacTerminalView.swift, and 0007 on AppleTerminalView.swift.
 # File count and patch count are not the same number and have not been since 0003;
 # do not infer one from the other.
 #
@@ -39,6 +40,7 @@
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -206,3 +208,29 @@ patched_mac_terminal_view  = b9339625f756b8526561f03dd3c2a6e92d7bb8b9230bd65884e
 
 # MacTerminalView.swift as shipped upstream at v1.15.0.
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
+
+# AppleTerminalView.swift AFTER applying
+# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch.
+#
+# What 0007 fixes: upstream's feedPrepare() callback clears the terminal selection
+# on every chunk of pty output when `allowMouseReporting` is true — which it is by
+# default. This is the same defect pattern 0006 fixed in linefeed
+# (MacTerminalView.swift:888): `allowMouseReporting` is a CAPABILITY flag (can this
+# terminal report mouse events?) not an ACTIVE-SESSION flag (is a program actually
+# tracking the mouse?). The correct check is `terminal.mouseMode != .off`.
+#
+# The effect: at a plain shell prompt (mouseMode == .off), ANY pty output between
+# the user finishing their selection and pressing ⌘C clears selection.active, which
+# causes validateUserInterfaceItem to disable Copy, silently swallowing the keystroke.
+# A shell prompt redraw, a cursor position update, or any background output is enough.
+#
+# Severity: SILENT. A tree missing 0007 compiles, runs, and silently prevents
+# copy/paste — the selection highlight may even remain visible while the underlying
+# `selection.active` flag has already been cleared.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+patched_apple_terminal_view  = d08379316e47745b9aeb0b1f6fbede03cedc4441e36685f84638d900207ca786
+
+# AppleTerminalView.swift as shipped upstream at v1.15.0.
+upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e

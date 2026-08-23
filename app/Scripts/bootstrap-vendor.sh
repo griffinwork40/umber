@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Materialise vendor/SwiftTerm from nothing: clone the pinned upstream, apply the
-# six local patches, and hand off to verify-vendor.sh for the verdict.
+# seven local patches, and hand off to verify-vendor.sh for the verdict.
 #
 # Why this script exists: vendor/ is gitignored (.gitignore:20) but
 # app/Package.swift declares `.package(path: "../vendor/SwiftTerm")`, so a fresh
@@ -64,9 +64,11 @@ pin_value() {
 # ungated upstream debug assertion from calling abort() in RELEASE on every
 # resize; 0005 adds DCS Ptmux passthrough so tmux can forward SGR sequences; 0006
 # gates linefeed's selection.selectNone() on terminal.mouseMode != .off so a plain
-# shell prompt keeps the user's selection while output streams. A tree missing any
-# one of them is not the tree this project is tested against, which is the whole
-# reason the pin records hashes rather than a version.
+# shell prompt keeps the user's selection while output streams; 0007 gates
+# feedPrepare()'s selection.active = false the same way so pty output between
+# selecting and ⌘C does not silently disable Copy. A tree missing any one of them
+# is not the tree this project is tested against, which is the whole reason the pin
+# records hashes rather than a version.
 PATCHES=(
   "0001-ship-metal-shader-as-copy-resource.patch"
   "0002-index-iswrapped-buffer-absolute.patch"
@@ -74,6 +76,7 @@ PATCHES=(
   "0004-gate-resize-post-condition-behind-debug.patch"
   "0005-add-dcs-ptmux-passthrough.patch"
   "0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
+  "0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
@@ -84,7 +87,7 @@ fi
 for p in "${PATCHES[@]}"; do
   if [[ ! -f "$PATCH_DIR/$p" ]]; then
     err "error: missing patches/swiftterm/$p"
-    err "       All six patches are required; see SwiftTerm.pin for why."
+    err "       All seven patches are required; see SwiftTerm.pin for why."
     exit 1
   fi
 done
