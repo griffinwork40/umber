@@ -49,8 +49,8 @@ enum StarterConfig {
       "// theme": "OMITTED HERE, WHICH MEANS CLASSIC-REPAIRED — since 2026-08-20 the built-in default is classic-repaired, Terminal.app Basic with readable blue and quiet body text. Installing a palette does NOT harm the 256-colour cube: this app pins ansi256PaletteStrategy to .xterm before any colour, so indices 16-255 stay the standard xterm values whatever you set. Set preset to classic if you genuinely want no colours installed.",
       "// theme-example": {
         "preset": "classic-repaired",
-        "// preset-values": "classic-repaired | umber | afk-dark | afk-light | tokyo-night | classic",
-        "// preset-note": "classic-repaired is the DEFAULT — Terminal.app Basic with readable blue, quiet body text, and saturated ANSI colours. umber is the palette designed and measured for this app (warm umber-black base). classic installs nothing. Verified by Scripts/check-theme-contrast.sh.",
+        "// preset-values": "classic-repaired | umber | afk-dark | afk-light | tokyo-night | catppuccin-mocha | nord | dracula | classic",
+        "// preset-note": "classic-repaired is the DEFAULT — Terminal.app Basic with readable blue, quiet body text, and saturated ANSI colours. umber is the palette designed and measured for this app (warm umber-black base). catppuccin-mocha, nord, and dracula are community ports transcribed verbatim. classic installs nothing. Verified by Scripts/check-theme-contrast.sh.",
         "// overrides": "background/foreground/cursor/ansi may be set on top of a preset; ansi must be exactly 16 colours, 8 normal then 8 bright",
         "cursor": "#FF9B5A"
       }
