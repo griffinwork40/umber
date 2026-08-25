@@ -213,7 +213,7 @@ extension ThemePalette {
     /// `"classic"` is deliberately absent and must resolve to nil — it means "install
     /// nothing and let the engine's own defaults stand". A typo also yields nil; the two are
     /// told apart one layer up in `AppConfig.resolveTheme` (`Config+Theme.swift`), where
-    /// classic stays nil and a typo warns and falls back to `umber`.
+    /// classic stays nil and a typo warns and falls back to `classic-repaired`.
     static func named(_ raw: String) -> ThemePalette? {
         let key = raw.lowercased().replacingOccurrences(of: "_", with: "-")
         return all.first { $0.name == key || $0.name.replacingOccurrences(of: "-", with: "") == key }
