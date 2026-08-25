@@ -57,6 +57,12 @@ private struct ConfigFile: Decodable {
     var optionAsMeta: Bool?
     var mouseReporting: Bool?
     var renderer: String?
+    /// Font dilation on dark backgrounds. Default false.
+    var fontThicken: Bool?
+    /// Line height multiplier. Default 1.0. Range 0.8–2.0.
+    var lineHeight: Double?
+    /// Ligature toggle. Default false. NOT YET IMPLEMENTED — see TerminalPane+Typography.swift.
+    var ligatures: Bool?
 
     struct EditorSpec: Decodable {
         var tabWidth: Int?
@@ -150,6 +156,14 @@ struct AppConfig {
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
     /// why the default is the conservative one.
     var renderer: Renderer
+    /// Apply medium font dilation (CGContextSetFontSmoothingStyle style 48) before
+    /// glyph rendering. Compensates for sub-pixel AA bleed that makes white-on-black
+    /// text appear thinner than the same face on a light background. Mirrors
+    /// Terminal.app's own smoothing style and Ghostty's `font-thicken`. Default false.
+    var fontThicken: Bool
+    /// Multiplier on the font's natural line height. 1.0 = default metrics;
+    /// 1.2 = 20% extra leading. Clamped to 0.8–2.0. Default 1.0.
+    var lineHeight: CGFloat
 
     // Editor behaviour — see `Config+Editor.swift` for the resolver.
     var tabWidth: Int
@@ -241,6 +255,8 @@ struct AppConfig {
             optionAsMeta: true,
             mouseReporting: true,
             renderer: .default,
+            fontThicken: false,
+            lineHeight: 1.0,
             tabWidth: 4,
             softTabs: true,
             wordWrap: .auto,
@@ -342,6 +358,18 @@ struct AppConfig {
                     "renderer '\(raw)' unrecognised (expected one of: \(Renderer.configNames))"
                         + " — using \(config.renderer.configName)")
             }
+        }
+        if let v = file.fontThicken { config.fontThicken = v }
+        if let v = file.lineHeight {
+            let lo = 0.8, hi = 2.0
+            if v >= lo && v <= hi { config.lineHeight = CGFloat(v) }
+            else { config.warnings.append("lineHeight \(v) is outside \(lo)–\(hi) — using \(config.lineHeight)") }
+        }
+        // `ligatures` is accepted in the config file but not yet acted on — the field
+        // is parsed here so the file stays valid when the feature ships. See the header
+        // of TerminalPane+Typography.swift for why it is deferred.
+        if file.ligatures != nil {
+            config.warnings.append("ligatures: not yet implemented — ignored")
         }
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
