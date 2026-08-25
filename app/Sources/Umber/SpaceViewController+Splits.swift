@@ -82,6 +82,23 @@ extension SpaceViewController {
             primaryView: primary.documentView,
             splitView: peer.documentView,
             direction: direction)
+
+        // Register the click callback so that a mouse click on the unfocused pane
+        // updates dimming immediately — before firstResponder has changed — giving
+        // a snappy response rather than waiting for the next key event or poll.
+        // The callback is cleared in closeSplitPane/teardownSplit/terminateSplitPeer
+        // when the split collapses, so it does not linger across split lifetimes.
+        // `[weak self]` prevents a retain cycle: SplitContainerView → closure → self.
+        let capturedPrimary = primary
+        documentArea.container.didReceiveClickInChild = { [weak self] clickedView in
+            guard let self else { return }
+            self.updateSplitDimmingForClickedView(clickedView, primary: capturedPrimary)
+        }
+
+        // Dim the peer immediately on creation — the primary already has focus, so
+        // the peer starts unfocused. `view.window?.firstResponder` is the focused
+        // view, which lives inside the primary's subtree at this point.
+        updateSplitDimming(for: primary)
     }
 
     // MARK: - Split closing
@@ -101,6 +118,9 @@ extension SpaceViewController {
         // dismissSplit() → container.removeSplit() owns removeFromSuperview on the peer —
         // one owner for the hierarchy change, not two (PR #48 review M2).
         documentArea.dismissSplit()
+        // Clear the click callback and reset alpha now that there is no split.
+        documentArea.container.didReceiveClickInChild = nil
+        documentArea.container.setFocusedChild(nil, opacity: 1.0)
         // Restore focus to the primary pane.
         primary.documentDidBecomeActive()
     }
@@ -169,6 +189,11 @@ extension SpaceViewController {
         case (nil, _):
             break
         }
+
+        // After every focus movement, re-resolve which view has focus and update
+        // dimming. `documentDidBecomeActive()` moves firstResponder, so the query
+        // below sees the post-move state correctly.
+        updateSplitDimming(for: primary)
     }
 
     // MARK: - Peer-initiated termination
@@ -183,6 +208,9 @@ extension SpaceViewController {
             splitPeers.removeValue(forKey: ObjectIdentifier(primary))
             document.documentWillClose()
             documentArea.dismissSplit()  // owns removeFromSuperview on the peer
+            // Clear the click callback and dimming — primary is now unsplit.
+            documentArea.container.didReceiveClickInChild = nil
+            documentArea.container.setFocusedChild(nil, opacity: 1.0)
             primary.documentDidBecomeActive()
             return
         }
@@ -200,5 +228,45 @@ extension SpaceViewController {
         guard let entry = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
         entry.document.documentWillClose()
         documentArea.dismissSplit()  // owns removeFromSuperview on the peer
+        // Clear the click callback and reset alpha — tab is closing, split is gone.
+        documentArea.container.didReceiveClickInChild = nil
+        documentArea.container.setFocusedChild(nil, opacity: 1.0)
+    }
+
+    // MARK: - Dimming
+
+    /// Resolve which child view currently holds focus and update pane opacity accordingly.
+    ///
+    /// Called after any event that might change focus: split creation (primary wins),
+    /// keyboard navigation (⌘⇧H/J/K/L), config reload (⌘R), and tab switches.
+    /// The container's `setFocusedChild(_:opacity:)` owns the actual alphaValue writes
+    /// and the 150ms animation; this method only resolves *which* view is focused.
+    ///
+    /// Uses `view.window?.firstResponder` rather than `activeDocument` because in a split
+    /// BOTH panes are simultaneously active — `activeDocument` always points to the primary
+    /// tab, not to whichever pane the user clicked most recently. The first-responder walk
+    /// (`isDescendant`) is the canonical way to answer "which terminal is the user in?"
+    /// (same approach as `focusedShellHost` in `ShellHosting.swift`).
+    func updateSplitDimming(for primary: SpaceDocument) {
+        guard let peer = splitPeer(for: primary) else { return }
+        let opacity = CGFloat(config.unfocusedPaneOpacity)
+        let fr = view.window?.firstResponder
+        // Determine focused child: if firstResponder is in the peer's subtree, the peer
+        // wins; otherwise the primary wins (covers the no-responder case too, where
+        // dimming the primary would be more surprising than dimming the peer).
+        let focusedView: NSView = isDescendant(fr, of: peer.documentView)
+            ? peer.documentView : primary.documentView
+        documentArea.container.setFocusedChild(focusedView, opacity: opacity)
+    }
+
+    /// Update dimming from a `didReceiveClickInChild` callback.
+    ///
+    /// The clicked view IS the focused one (the click is about to make it first
+    /// responder), so we pass it directly to the container instead of re-querying
+    /// `firstResponder` (which has not changed yet at the point this fires).
+    private func updateSplitDimmingForClickedView(_ clicked: NSView, primary: SpaceDocument) {
+        guard splitPeer(for: primary) != nil else { return }
+        let opacity = CGFloat(config.unfocusedPaneOpacity)
+        documentArea.container.setFocusedChild(clicked, opacity: opacity)
     }
 }

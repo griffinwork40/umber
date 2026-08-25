@@ -47,6 +47,9 @@ enum StarterConfig {
       "// padding-note": "Does NOT apply to the file editor (that uses textContainerInset). Values above 100 are rejected and fall back to the default.",
       "padding": 4,
 
+      "// unfocusedPaneOpacity": "0.0-1.0. Alpha of the unfocused pane when a split is open. 1.0 (default) = no dimming. 0.85 is a good starting point: the inactive pane stays readable but the focused one clearly wins. Out-of-range values are ignored and a warning is printed to stderr.",
+      "unfocusedPaneOpacity": 1.0,
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
