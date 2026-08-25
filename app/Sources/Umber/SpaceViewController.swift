@@ -190,6 +190,8 @@ final class SpaceViewController: NSSplitViewController {
         } else {
             documentArea.present(documentView: document.documentView)
         }
+        let pad = document is TerminalPane ? config.terminalPadding : (x: CGFloat(0), y: CGFloat(0))
+        documentArea.setTerminalPadding(pad, backgroundColor: config.effectiveBackground)
         syncDocumentChrome()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
         // Re-check staleness on activation, not just on window-level focus
@@ -306,6 +308,10 @@ final class SpaceViewController: NSSplitViewController {
         for (_, entry) in splitPeers { entry.document.apply(config: config) }  // peers not in documents[]
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
+        if let doc = activeDocument {  // re-apply padding after ⌘R
+            let pad = doc is TerminalPane ? config.terminalPadding : (x: CGFloat(0), y: CGFloat(0))
+            documentArea.setTerminalPadding(pad, backgroundColor: config.effectiveBackground)
+        }
     }
 
     /// Called when the Space's window becomes key — see `FileTreeViewController.refresh()`
