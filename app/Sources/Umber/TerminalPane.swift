@@ -43,8 +43,11 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         }
     }
 
-    private var config: AppConfig
-    private var fontSize: CGFloat
+    // `internal` (not `private`) so `TerminalPane+Typography.swift` can read/write
+    // these in the same module across files — Swift `private` is file-scoped, not
+    // class-scoped, so a cross-file extension cannot reach a `private` stored property.
+    var config: AppConfig
+    var fontSize: CGFloat
 
     /// The directory this terminal's shell starts in — the Space's project root for
     /// ⌘T, a subdirectory of it for the tree's "New Terminal Here"
@@ -192,6 +195,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // hitting ⌘R actually changes the size. A live ⌘+ zoom still outranks the
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
+        applyTypography(config)  // lineHeight + fontThicken — must follow setFontSize; see TerminalPane+Typography.swift
         // `UMBER_DIAG=1` dumps the resolved appearance to stderr — the only
         // observability for a project with no test target. Costs nothing unset.
         if ProcessInfo.processInfo.environment["UMBER_DIAG"] != nil {
@@ -229,43 +233,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         view.feed(text: "\u{1b}[\(style.decscusrCode) q")
     }
 
-    // MARK: - Font sizing
-
-    private static let minFontSize = CGFloat(AppConfig.minFontSize)
-    private static let maxFontSize = CGFloat(AppConfig.maxFontSize)
-
-    /// Moved to `AppConfig.resized(_:to:)` when `FileViewerPane` needed the same
-    /// descriptor-preserving resize — see there for why `NSFont(name:size:)` is
-    /// wrong. Kept as a shim so the call sites below stay readable.
-    private func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
-        AppConfig.resized(base, to: size)
-    }
-
-    /// `persist: false` is for applying someone else's already-stored zoom (a
-    /// reload, or a newly-opened tab) — only a real user gesture should write.
-    func setFontSize(_ size: CGFloat, persist: Bool = true) {
-        let clamped = min(max(size, Self.minFontSize), Self.maxFontSize)
-        fontSize = clamped
-        view.font = resized(config.font, to: clamped)
-        if persist {
-            // Store nothing when the zoom lands back on the configured size, so
-            // editing `font.size` later still takes effect instead of being
-            // permanently masked by a stale override.
-            FontZoom.override = clamped == config.font.pointSize ? nil : clamped
-        }
-    }
-
-    func adjustFontSize(by delta: CGFloat) { setFontSize(fontSize + delta) }
-
-    /// ⌘0 — back to the configured size, dropping the stored zoom.
-    func resetFontSize() {
-        FontZoom.override = nil
-        setFontSize(config.font.pointSize, persist: false)
-    }
-
-    /// The size this pane is currently rendering at, so a zoom applied in one tab
-    /// can be mirrored into the others.
-    var currentFontSize: CGFloat { fontSize }
+    // MARK: - Font sizing and typography — see TerminalPane+Typography.swift
 
     // MARK: - LocalProcessTerminalViewDelegate
 

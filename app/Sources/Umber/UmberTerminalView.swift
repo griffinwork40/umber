@@ -34,7 +34,61 @@ protocol UmberTerminalViewDelegate: AnyObject {
     func terminalViewDidRingBell(_ view: UmberTerminalView)
 }
 
+// MARK: - Private CoreGraphics API for font dilation
+//
+// `CGContextSetFontSmoothingStyle` is an undocumented CoreGraphics function used by
+// Terminal.app, iTerm2, MacVim, and Emacs to control sub-pixel dilation on dark
+// backgrounds. Declared here with `@_silgen_name` (the Swift ABI-stable way to bind
+// a C symbol without a module header) rather than via a bridging header, which this
+// SwiftPM package cannot use.
+//
+// Style values: 16 = thin, 32 = light, 48 = medium (Terminal.app default), 64 = heavy.
+// Style 48 widens strokes approximately half a sub-pixel, which compensates for the
+// anti-aliasing bleed direction on white-on-dark rendering that makes terminal text
+// appear visually thinner than the same font on a light background.
+//
+// This function is PRIVATE API and may be removed by Apple without notice. Its
+// presence on macOS 10.4+ through 26 is well-documented by open-source projects
+// (iTerm2: PTYView.m:253, MacVim: MMBackend.m, Emacs: nsterm.m) but it is not in
+// any public SDK header. The call is confined to `UmberTerminalView.draw(_:)` and
+// guarded by the user's `fontThicken` preference, so it degrades to standard
+// rendering if Apple removes the symbol (the linker would emit a missing-symbol error
+// at build time, not a runtime trap — making the dependency visible immediately).
+@_silgen_name("CGContextSetFontSmoothingStyle")
+private func CGContextSetFontSmoothingStyle(_ context: CGContext, _ style: Int)
+
 final class UmberTerminalView: LocalProcessTerminalView {
+    // MARK: - Typography
+
+    /// When true, `draw(_:)` applies medium font dilation (style 48) to the
+    /// current graphics context before SwiftTerm draws glyphs, compensating for
+    /// sub-pixel AA bleed on dark backgrounds. Mirrors Terminal.app's own smoothing
+    /// style and Ghostty's `font-thicken`. Default: false.
+    ///
+    /// Set by `TerminalPane.applyTypography(_:)` on every `apply(config:)` call.
+    /// The flag lives here (on the view) rather than being read directly from
+    /// `AppConfig` so the draw path has one dependency: `self.fontThicken`.
+    var fontThicken: Bool = false
+
+    /// Override `draw(_:)` only to inject font dilation before SwiftTerm's own
+    /// glyph pass. Every actual drawing is done by `super.draw(dirtyRect)`.
+    ///
+    /// `CGContextSetFontSmoothingStyle` must be called on the SAME `CGContext` that
+    /// SwiftTerm uses for its `CTLineDraw` calls — i.e. `NSGraphicsContext.current?.cgContext`
+    /// at the moment the draw happens. Setting it before `super.draw()` means it is
+    /// live when `drawTerminalContents` calls `context.setShouldSmoothFonts(true)` and
+    /// then issues `CTLineDraw` (AppleTerminalView.swift:1505-1535). The style persists
+    /// for the duration of the Core Graphics context, which is exactly this draw rect.
+    ///
+    /// When `fontThicken` is false this override is a no-op (super is called
+    /// unconditionally), so it adds zero cost to the render path without thickening.
+    override func draw(_ dirtyRect: NSRect) {
+        if fontThicken, let ctx = NSGraphicsContext.current?.cgContext {
+            CGContextSetFontSmoothingStyle(ctx, 48)  // 48 = medium dilation (Terminal.app default)
+        }
+        super.draw(dirtyRect)
+    }
+
     // MARK: - Initialisation
 
     /// Overrides the super's designated initialiser so we can set Umber's link

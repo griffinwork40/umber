@@ -50,6 +50,12 @@ enum StarterConfig {
       "// unfocusedPaneOpacity": "0.0-1.0. Alpha of the unfocused pane when a split is open. 1.0 (default) = no dimming. 0.85 is a good starting point: the inactive pane stays readable but the focused one clearly wins. Out-of-range values are ignored and a warning is printed to stderr.",
       "unfocusedPaneOpacity": 1.0,
 
+      "// fontThicken": "Apply medium font dilation before glyph rendering (default false). White-on-black text appears thinner than light-on-dark due to sub-pixel AA bleed direction. Enabling this applies CGContextSetFontSmoothingStyle(48) — the same style Terminal.app uses — which widens strokes roughly half a sub-pixel. Try it if your font looks too light on dark backgrounds. Note: private CoreGraphics API, same as Terminal.app/iTerm2/Emacs use.",
+      "fontThicken": false,
+
+      "// lineHeight": "Multiplier on the font's natural line height (default 1.0). 1.2 = 20% extra leading. Range 0.8–2.0. Uses SwiftTerm's public lineSpacing property, which correctly resizes the terminal grid after changing.",
+      "lineHeight": 1.0,
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
