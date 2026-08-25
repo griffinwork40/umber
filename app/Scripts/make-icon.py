@@ -42,7 +42,7 @@ SS = 4                    # supersample factor
 TILE = 824                # squircle edge on the 1024 grid (Apple macOS metric)
 SQUIRCLE_N = 5.4          # superellipse exponent; ~5.4 matches Apple's corner
 
-VARIANT_DEFAULT = "path"
+VARIANT_DEFAULT = "prompt"
 
 # The icon is a small window of the app: these are the app's OWN colours.
 # Background is the afk-dark theme background and the mark's mid stop is the
@@ -55,6 +55,11 @@ BG_BOTTOM = (0x0D, 0x11, 0x17)      # Config.swift afkDark.background
 # the ember ramp — this is where "umber" actually lives
 EMBER = [(0.0, (0xFF, 0xCB, 0xA4)), (0.46, (0xE6, 0x7E, 0x4C)), (1.0, (0xAE, 0x44, 0x1C))]
 #                                    ^ Config.swift afkDark.cursor (#E67E4C)
+
+# terrain ramp — teal water → amber highlands, derived from the Umber identity
+# map imagery.  The diagonal in ember_over() flows the teal onto the > (left)
+# and the amber onto the _ (right), matching the natural read direction.
+TERRAIN = [(0.0, (0x24, 0x95, 0xBC)), (1.0, (0xF9, 0xC8, 0x5A))]
 # inverse colourway paints the tile with the ember and knocks the mark out dark
 INK = (0x16, 0x10, 0x0C)
 
@@ -238,15 +243,18 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
     else:
         glyph = mark_mask(tile, variant, scale)
         body = gradient(tile, [(0.0, BG_TOP), (1.0, BG_BOTTOM)]).convert("RGBA")
+        is_terrain = "prompt" in variant
+        ramp = TERRAIN if is_terrain else EMBER
 
-        # ember bloom: the mark lights the surface around it
+        # bloom: the mark lights the surface around it
         bloom = glyph.filter(ImageFilter.GaussianBlur(tile * 0.045)).point(
             lambda v: int(v * BLOOM)
         )
+        bloom_tint = (0xC8, 0x96, 0x3C) if is_terrain else (0xFF, 0x8A, 0x2B)
         body = Image.composite(
-            Image.new("RGBA", (tile, tile), (0xFF, 0x8A, 0x2B, 255)), body, bloom
+            Image.new("RGBA", (tile, tile), bloom_tint + (255,)), body, bloom
         )
-        body = Image.composite(ember_over(tile, glyph, EMBER), body, glyph)
+        body = Image.composite(ember_over(tile, glyph, ramp), body, glyph)
 
     # a single hairline of warm light along the top edge — depth without gloss
     rim = Image.new("L", (tile, tile), 0)
