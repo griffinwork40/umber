@@ -46,6 +46,18 @@ final class SplitContainerView: NSView {
     /// 1px divider view, coloured to hint at the split without drawing a heavy chrome.
     private let dividerView = NSView()
 
+    /// Called when a mouse-down event lands inside one of the child panes — reports
+    /// which child received the click so the owner can update focus-dependent state
+    /// (e.g. split-pane dimming). Fired BEFORE the event reaches the child, so the
+    /// owner can update alpha before the pane renders the caret blink.
+    ///
+    /// Not part of the layout concern this view owns, but there is no clean place to
+    /// intercept a click that lands on a child without sitting at this level: NSView
+    /// event routing delivers mouseDown to the deepest hit-tested descendant, and the
+    /// child pane (SwiftTerm or GhosttyKit) does not report upward. A closure here
+    /// costs nothing when nil (the unsplit case and any owner that does not set it).
+    var didReceiveClickInChild: ((_ child: NSView) -> Void)?
+
     /// Drag bookkeeping — nil when no drag is in progress.
     private var dragStartPoint: NSPoint?
 
@@ -120,6 +132,60 @@ final class SplitContainerView: NSView {
 
     var isSplit: Bool { splitView != nil }
 
+    /// Update pane dimming so the focused child is fully opaque and the other is
+    /// drawn at `opacity`.
+    ///
+    /// WHY alphaValue: it is the AppKit idiomatic way to fade an entire view subtree
+    /// without modifying any child. The value propagates through the layer hierarchy
+    /// automatically — no per-pane knowledge needed, and both engine backends (SwiftTerm
+    /// and GhosttyKit) are opaque to this view, so this is the only approach that works
+    /// without naming either.
+    ///
+    /// WHY NSAnimationContext: a 150ms ease-in-out makes the transition readable without
+    /// drawing attention to itself — the same duration Core Animation uses for implicit
+    /// property animations. Skipped when `opacity == 1.0` (no dimming configured) to
+    /// keep the common case free of animation overhead entirely.
+    ///
+    /// Only has effect when split (`splitView != nil`). When unsplit, the primary is
+    /// always 1.0 and `focusedChild` is ignored. When split but `focusedChild` is nil
+    /// (no pane has focus yet), both are treated as unfocused and both dim — the less
+    /// surprising reset compared to an arbitrary "primary wins".
+    func setFocusedChild(_ focusedChild: NSView?, opacity: CGFloat) {
+        guard let primary = primaryView else { return }
+        guard let peer = splitView else {
+            // Unsplit — ensure the primary is always fully visible.
+            primary.alphaValue = 1.0
+            return
+        }
+
+        let primaryAlpha: CGFloat
+        let peerAlpha: CGFloat
+        if let focused = focusedChild {
+            primaryAlpha = (focused === primary) ? 1.0 : opacity
+            peerAlpha    = (focused === peer)    ? 1.0 : opacity
+        } else {
+            // No identified focus — dim both rather than guessing which one wins.
+            primaryAlpha = opacity
+            peerAlpha    = opacity
+        }
+
+        if opacity < 1.0 {
+            // 150ms ease: perceptible enough to feel intentional, fast enough not to
+            // feel like a system-level repaint is racing the keypress.
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                primary.animator().alphaValue = primaryAlpha
+                peer.animator().alphaValue    = peerAlpha
+            }
+        } else {
+            // opacity == 1.0: no dimming configured — skip animation entirely so
+            // there is zero visual difference from a pre-feature build.
+            primary.alphaValue = 1.0
+            peer.alphaValue    = 1.0
+        }
+    }
+
     // MARK: - Layout
 
     override func layout() {
@@ -184,8 +250,22 @@ final class SplitContainerView: NSView {
         if isNearDivider(point) {
             dragStartPoint = point
         } else {
+            // Not a divider drag — find which child was clicked and report it.
+            // The event still travels to the child via super.mouseDown; the callback
+            // fires first so the owner can update dimming before the pane draws focus.
+            if let callback = didReceiveClickInChild, let child = hitChild(at: point) {
+                callback(child)
+            }
             super.mouseDown(with: event)
         }
+    }
+
+    /// Return the primary or split child whose frame contains `point`, or nil if
+    /// neither does (e.g. the 1pt divider strip itself).
+    private func hitChild(at point: NSPoint) -> NSView? {
+        if let primary = primaryView, primary.frame.contains(point) { return primary }
+        if let peer = splitView, peer.frame.contains(point) { return peer }
+        return nil
     }
 
     override func mouseDragged(with event: NSEvent) {

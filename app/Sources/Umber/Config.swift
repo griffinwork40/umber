@@ -85,6 +85,10 @@ private struct ConfigFile: Decodable {
         }
     }
     var padding: PaddingSpec?
+    /// 0.0–1.0. The alpha applied to the unfocused pane when a split is active.
+    /// 1.0 means no dimming (the default). Fail-soft: out-of-range values degrade
+    /// to 1.0 with a warning rather than refusing to load the rest of the config.
+    var unfocusedPaneOpacity: Double?
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
@@ -159,6 +163,12 @@ struct AppConfig {
     /// rationale and the parsing details (accepted forms, validation, fail-soft contract).
     /// Default (4, 4) — see `defaults()`.
     var terminalPadding: (x: CGFloat, y: CGFloat)
+    /// Alpha applied to the unfocused pane in a split. 1.0 = no dimming (default).
+    /// Clamped to 0.0–1.0 on load; out-of-range values degrade to 1.0 with a warning.
+    /// Affects the ENTIRE pane view (terminal chrome included), not just the text surface.
+    var unfocusedPaneOpacity: Double
+
+
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -224,7 +234,8 @@ struct AppConfig {
             columnGuideColumn: 80,
             showTrailingWhitespace: true,
             stickyScroll: true,
-            terminalPadding: (x: 4, y: 4)
+            terminalPadding: (x: 4, y: 4),
+            unfocusedPaneOpacity: 1.0
         )
     }
 
@@ -313,6 +324,18 @@ struct AppConfig {
         }
         if let p = file.padding {
             config.applyPadding(x: p.x, y: p.y)
+        }
+        if let op = file.unfocusedPaneOpacity {
+            // Fail-soft: a value outside [0, 1] is nonsensical (a transparency cannot
+            // be negative or exceed fully-opaque). Report it and keep the default (1.0)
+            // rather than clamping silently — clamping would make a typo ("10" instead
+            // of "1.0") look like success.
+            if op >= 0.0 && op <= 1.0 {
+                config.unfocusedPaneOpacity = op
+            } else {
+                config.warnings.append(
+                    "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using 1.0 (no dimming)")
+            }
         }
         return config
     }

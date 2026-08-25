@@ -312,6 +312,10 @@ final class SpaceViewController: NSSplitViewController {
             let pad = doc is TerminalPane ? config.terminalPadding : (x: CGFloat(0), y: CGFloat(0))
             documentArea.setTerminalPadding(pad, backgroundColor: config.effectiveBackground)
         }
+        // After a config reload (⌘R) the unfocusedPaneOpacity may have changed —
+        // refresh the active split's dimming immediately so the user sees the effect
+        // without switching focus. No-op when unsplit.
+        if let active = activeDocument { updateSplitDimming(for: active) }
     }
 
     /// Called when the Space's window becomes key — see `FileTreeViewController.refresh()`
