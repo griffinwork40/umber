@@ -41,6 +41,12 @@ enum StarterConfig {
       "// renderer-note": "OPT-IN because upstream calls the GPU path experimental and its speedup here has not been measured. Falls back to coretext by itself if it cannot start, and says so on stderr. Change it and hit Cmd-R; run app/Scripts/check-metal-renderer.sh if you suspect it silently fell back.",
       "renderer": "coretext",
 
+      "// padding": "inner margin around terminal content in points. Default 4. The gap fills with the terminal background colour (seamless, not a border). Two forms accepted:",
+      "// padding-uniform": "  \"padding\": 4               → same on all sides",
+      "// padding-xy":     "  \"padding\": { \"x\": 8, \"y\": 4 }  → separate horizontal / vertical",
+      "// padding-note": "Does NOT apply to the file editor (that uses textContainerInset). Values above 100 are rejected and fall back to the default.",
+      "padding": 4,
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",

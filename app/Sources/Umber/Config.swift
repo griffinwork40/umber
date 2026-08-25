@@ -60,6 +60,31 @@ private struct ConfigFile: Decodable {
         var stickyScroll: Bool?
     }
     var editor: EditorSpec?
+
+    // `padding` accepts two forms:
+    //   "padding": 4               → uniform 4px on all sides
+    //   "padding": { "x": 8, "y": 4 } → separate horizontal / vertical
+    // Both decode via a custom Decodable that tries a plain Double first.
+    struct PaddingSpec: Decodable {
+        let x: CGFloat
+        let y: CGFloat
+
+        private struct XY: Decodable {
+            let x: CGFloat
+            let y: CGFloat
+        }
+
+        init(from decoder: Decoder) throws {
+            let single = try? decoder.singleValueContainer().decode(CGFloat.self)
+            if let v = single {
+                x = v; y = v
+            } else {
+                let xy = try XY(from: decoder)
+                x = xy.x; y = xy.y
+            }
+        }
+    }
+    var padding: PaddingSpec?
 }
 
 /// Resolved, ready-to-use configuration. Never fails: a missing, malformed, or
@@ -130,6 +155,10 @@ struct AppConfig {
     /// Pin the enclosing scope header at the top of the editor while scrolling.
     /// Default: true. Configured via `editor.stickyScroll` in config.json.
     var stickyScroll: Bool
+    /// Inner margin around terminal content. See `Config+Padding.swift` for the full
+    /// rationale and the parsing details (accepted forms, validation, fail-soft contract).
+    /// Default (4, 4) — see `defaults()`.
+    var terminalPadding: (x: CGFloat, y: CGFloat)
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
 
@@ -194,7 +223,8 @@ struct AppConfig {
             indentRainbow: false,
             columnGuideColumn: 80,
             showTrailingWhitespace: true,
-            stickyScroll: true
+            stickyScroll: true,
+            terminalPadding: (x: 4, y: 4)
         )
     }
 
@@ -280,6 +310,9 @@ struct AppConfig {
                                columnGuide: e.columnGuide,
                                showTrailingWhitespace: e.showTrailingWhitespace,
                                stickyScroll: e.stickyScroll)
+        }
+        if let p = file.padding {
+            config.applyPadding(x: p.x, y: p.y)
         }
         return config
     }
