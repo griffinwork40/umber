@@ -25,6 +25,48 @@
 import AppKit
 
 extension AppConfig {
+    /// Resolve an auto-mode theme block. Always returns two real `Theme` values; never
+    /// returns nil (falls back to defaults rather than leaving either slot empty).
+    ///
+    /// Defaults: dark = `classic-repaired`, light = `afk-light`.
+    /// These are the same presets the task brief names and are chosen because:
+    ///  - `classic-repaired` is the app's pinned default for dark environments.
+    ///  - `afk-light` is the only measured light preset.
+    ///
+    /// A bad dark/light name degrades to the same default and appends one warning each.
+    /// That is the same contract as `resolveTheme` for a bad preset: degradation, not
+    /// failure, so a config with one bad auto sub-field still gives two working themes.
+    static func resolveAutoTheme(dark: String?,
+                                 light: String?,
+                                 warnings: inout [String]) -> (dark: Theme, light: Theme) {
+        let darkTheme: Theme
+        if let name = dark {
+            if let t = Theme.preset(named: name) {
+                darkTheme = t
+            } else {
+                warnings.append("theme.dark '\(name)' unrecognised — using classic-repaired")
+                darkTheme = .classicRepaired
+            }
+        } else {
+            // Omitting `dark` in auto mode is fine — the default is well-defined.
+            darkTheme = .classicRepaired
+        }
+
+        let lightTheme: Theme
+        if let name = light {
+            if let t = Theme.preset(named: name) {
+                lightTheme = t
+            } else {
+                warnings.append("theme.light '\(name)' unrecognised — using afk-light")
+                lightTheme = .afkLight
+            }
+        } else {
+            lightTheme = .afkLight
+        }
+
+        return (dark: darkTheme, light: lightTheme)
+    }
+
     /// Resolve a `theme` block. `nil` means "install no colours at all", which is what
     /// `"classic"` (and only `"classic"`) selects.
     ///

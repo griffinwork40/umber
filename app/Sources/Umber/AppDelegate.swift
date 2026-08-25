@@ -19,6 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// file-private, so `reloadConfig` remains the one place this is reassigned.
     private(set) var config = AppConfig.load()
 
+    /// Watches `NSApp.effectiveAppearance` and fans a theme switch out to every open
+    /// Space when the user has configured `"preset": "auto"`. Nil when auto mode is
+    /// not active — the observer exists and listens, but its `applyThemeSwitch` only
+    /// acts on Spaces that have a non-nil `autoTheme`. Created once and held for the
+    /// lifetime of the app; released (and the KVO observation invalidated) with the
+    /// delegate. See `AppearanceObserver.swift` for the full rationale.
+    private let appearanceObserver = AppearanceObserver()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Surface config problems where the user will actually see them, instead
         // of silently substituting defaults and leaving them wondering why their
