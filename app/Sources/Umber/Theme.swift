@@ -177,6 +177,18 @@ struct Theme {
     /// Tokyo Night — the v0.1 default, kept as a preset: `"preset": "tokyo-night"`.
     static let tokyoNight = Theme(.tokyoNight)
 
+    /// Catppuccin Mocha — `"preset": "catppuccin-mocha"`. The most-starred Catppuccin
+    /// flavour. Verbatim port; see `ThemePalette.catppuccinMocha`.
+    static let catppuccinMocha = Theme(.catppuccinMocha)
+
+    /// Nord — `"preset": "nord"`. The Arctic, north-bluish palette.
+    /// Verbatim port; see `ThemePalette.nord`.
+    static let nord = Theme(.nord)
+
+    /// Dracula — `"preset": "dracula"`. The popular dark theme by Zeno Rocha.
+    /// Verbatim port; see `ThemePalette.dracula`.
+    static let dracula = Theme(.dracula)
+
     /// Resolve a `"preset"` name. `"classic"` is deliberately absent: it maps to
     /// `nil`, meaning "install nothing and let SwiftTerm's own defaults stand".
     ///

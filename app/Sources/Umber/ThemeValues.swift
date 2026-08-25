@@ -193,11 +193,118 @@ extension ThemePalette {
         ]
     )
 
+    /// **Catppuccin Mocha** — the most-starred Catppuccin flavour and one of the most-used
+    /// dark themes in the community. Verbatim port of the official Mocha terminal palette
+    /// (https://github.com/catppuccin/catppuccin). Background is `base` (#1e1e2e), foreground
+    /// is `text` (#cdd6f4), cursor is `rosewater` (#f5e0dc), selection is `surface1` (#45475a).
+    ///
+    /// Transcribed verbatim — including the documented weakness that **all eight chromatic
+    /// normal/bright ANSI pairs are identical** (dE-OK 0.000, just like Tokyo Night and Nord).
+    /// That is recorded in ThemeValues.swift's `umber` doc comment and is a property of the
+    /// upstream palette, not a defect to fix here. `check-theme-contrast.sh` does not hold
+    /// community ports to Umber's ring-separation floor — only Umber is measured against it.
+    static let catppuccinMocha = ThemePalette(
+        name: "catppuccin-mocha",
+        background: "#1e1e2e",   // base
+        foreground: "#cdd6f4",   // text
+        cursor:     "#f5e0dc",   // rosewater
+        selection:  "#45475a",   // surface1 — an opaque lift of the background
+        ansi: [
+            "#45475a",  //  0 black         surface1
+            "#f38ba8",  //  1 red           red
+            "#a6e3a1",  //  2 green         green
+            "#f9e2af",  //  3 yellow        yellow
+            "#89b4fa",  //  4 blue          blue
+            "#f5c2e7",  //  5 magenta       pink
+            "#94e2d5",  //  6 cyan          teal
+            "#bac2de",  //  7 white         subtext1
+            "#585b70",  //  8 bright black  surface2
+            "#f38ba8",  //  9 bright red    red (same as normal — upstream spec)
+            "#a6e3a1",  // 10 bright green  green (same as normal — upstream spec)
+            "#f9e2af",  // 11 bright yellow yellow (same as normal — upstream spec)
+            "#89b4fa",  // 12 bright blue   blue (same as normal — upstream spec)
+            "#f5c2e7",  // 13 bright magenta pink (same as normal — upstream spec)
+            "#94e2d5",  // 14 bright cyan   teal (same as normal — upstream spec)
+            "#a6adc8",  // 15 bright white  subtext0
+        ]
+    )
+
+    /// **Nord** — the Arctic, north-bluish palette by Arctic Ice Studio. Verbatim port of
+    /// the official Nord terminal colour mapping (https://www.nordtheme.com). Background is
+    /// `nord0` (#2e3440), foreground is `nord4` (#d8dee9), cursor is `nord4`, selection is
+    /// `nord2` (#434c5e). The Frost and Aurora colour groups fill the ANSI ring.
+    ///
+    /// Like Catppuccin Mocha, Nord ships **identical chromatic normal/bright pairs** in
+    /// several slots — that is the upstream design, transcribed faithfully here. The comment-
+    /// colour weakness (ANSI 8 is `nord3` #4c566a, APCA Lc ~10.3) is noted in `umber`'s
+    /// doc comment as the field's universal failure; it is NOT fixed here because a port's
+    /// job is to be the thing it claims to be.
+    static let nord = ThemePalette(
+        name: "nord",
+        background: "#2e3440",   // nord0 — Polar Night origin
+        foreground: "#d8dee9",   // nord4 — Snow Storm origin
+        cursor:     "#d8dee9",   // nord4
+        selection:  "#434c5e",   // nord2 — active-line/selection shade
+        ansi: [
+            "#3b4252",  //  0 black         nord1 — elevated dark
+            "#bf616a",  //  1 red           nord11 — Aurora red
+            "#a3be8c",  //  2 green         nord14 — Aurora green
+            "#ebcb8b",  //  3 yellow        nord13 — Aurora yellow
+            "#81a1c1",  //  4 blue          nord9 — Frost blue
+            "#b48ead",  //  5 magenta       nord15 — Aurora purple
+            "#88c0d0",  //  6 cyan          nord8 — Frost primary accent
+            "#e5e9f0",  //  7 white         nord5 — Snow Storm mid
+            "#4c566a",  //  8 bright black  nord3 — comment colour
+            "#bf616a",  //  9 bright red    nord11 (same as normal — upstream spec)
+            "#a3be8c",  // 10 bright green  nord14 (same as normal — upstream spec)
+            "#ebcb8b",  // 11 bright yellow nord13 (same as normal — upstream spec)
+            "#81a1c1",  // 12 bright blue   nord9 (same as normal — upstream spec)
+            "#b48ead",  // 13 bright magenta nord15 (same as normal — upstream spec)
+            "#8fbcbb",  // 14 bright cyan   nord7 — calmer Frost teal, distinct from nord8
+            "#eceff4",  // 15 bright white  nord6 — Snow Storm brightest
+        ]
+    )
+
+    /// **Dracula** — the popular dark theme by Zeno Rocha. Verbatim port of the official
+    /// Dracula terminal colour mapping (https://draculatheme.com). Background is #282a36,
+    /// foreground is #f8f8f2, cursor is #f8f8f2, selection is #44475a (the official
+    /// "Selection" colour from the Dracula spec).
+    ///
+    /// Dracula does provide distinct bright variants for most slots, so its ring separation
+    /// is better than Catppuccin Mocha or Nord. The comment colour ANSI 8 (`#6272a4`) is at
+    /// APCA Lc ~36.5 — below Umber's 48 floor but above the field's typical 10–13 range.
+    static let dracula = ThemePalette(
+        name: "dracula",
+        background: "#282a36",   // Background
+        foreground: "#f8f8f2",   // Foreground
+        cursor:     "#f8f8f2",   // Foreground (Dracula uses fg as cursor)
+        selection:  "#44475a",   // Selection
+        ansi: [
+            "#21222c",  //  0 black         slightly deeper than bg
+            "#ff5555",  //  1 red           Red
+            "#50fa7b",  //  2 green         Green
+            "#f1fa8c",  //  3 yellow        Yellow
+            "#bd93f9",  //  4 blue          Purple (maps to ANSI blue)
+            "#ff79c6",  //  5 magenta       Pink
+            "#8be9fd",  //  6 cyan          Cyan
+            "#f8f8f2",  //  7 white         Foreground
+            "#6272a4",  //  8 bright black  Comment / current-line
+            "#ff6e6e",  //  9 bright red    brighter Red
+            "#69ff94",  // 10 bright green  brighter Green
+            "#ffffa5",  // 11 bright yellow brighter Yellow
+            "#d6acff",  // 12 bright blue   brighter Purple
+            "#ff92df",  // 13 bright magenta brighter Pink
+            "#a4ffff",  // 14 bright cyan   brighter Cyan
+            "#ffffff",  // 15 bright white  pure white
+        ]
+    )
+
     /// Every shipped palette, so the gate can iterate them without a second list to
     /// forget to update. `preset(named:)` in `Theme.swift` resolves config strings; this
     /// is the enumeration, and the two must not drift — `check-theme-contrast.sh`
     /// asserts that every name here is reachable from config.
-    static let all: [ThemePalette] = [.umber, .classicRepaired, .afkDark, .tokyoNight, .afkLight]
+    static let all: [ThemePalette] = [.umber, .classicRepaired, .afkDark, .tokyoNight, .afkLight,
+                                       .catppuccinMocha, .nord, .dracula]
 
     /// Resolve a `"preset"` string to a palette. Case-insensitive, reads `_` as `-`, and
     /// accepts the hyphen-stripped spelling (`afkdark`), which is what users actually type.
