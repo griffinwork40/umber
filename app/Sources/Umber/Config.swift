@@ -32,14 +32,22 @@ private struct ConfigFile: Decodable {
     }
     struct ThemeSpec: Decodable {
         /// "umber" | "classic-repaired" | "afk-dark" | "afk-light" | "tokyo-night" |
-        /// "classic". Omitted with other
+        /// "classic" | "auto". Omitted with other
         /// fields present means "umber, with my overrides on top" — see
         /// `Config+Theme.swift` for why the fallback is the measured palette.
+        ///
+        /// When `preset` is `"auto"`, the `dark` and `light` keys name the palettes to
+        /// install for each system appearance. The existing pinned-theme path is unchanged:
+        /// any non-"auto" preset always installs exactly one palette and never observes
+        /// the system appearance.
         var preset: String?
         var background: String?
         var foreground: String?
         var cursor: String?
         var ansi: [String]?
+        // Auto-mode sub-fields — only read when preset == "auto".
+        var dark: String?
+        var light: String?
     }
     var font: FontSpec?
     var theme: ThemeSpec?
@@ -168,6 +176,12 @@ struct AppConfig {
     /// Affects the ENTIRE pane view (terminal chrome included), not just the text surface.
     var unfocusedPaneOpacity: Double
 
+    /// Non-nil when the user has configured `"preset": "auto"`. Holds the two resolved
+    /// palettes so the appearance observer can switch between them without re-parsing the
+    /// config file. Always nil when a pinned preset is in use, which keeps the existing
+    /// appearance-pin path in `SpaceWindowController` completely unchanged — see that
+    /// file's comment at line 166 for why the pin matters.
+    var autoTheme: (dark: Theme, light: Theme)?
 
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
@@ -240,7 +254,11 @@ struct AppConfig {
     }
 
     /// Resolve the user's config, falling back field-by-field.
-    static func load() -> AppConfig {
+    ///
+    /// `@MainActor` because when auto mode is active (`"preset": "auto"`) this reads
+    /// `NSApp.effectiveAppearance` via `AppearanceObserver.currentIsDark` to choose
+    /// the initial palette. All callers are already `@MainActor` (`AppDelegate`).
+    @MainActor static func load() -> AppConfig {
         var config = defaults()
         let url = configURL
         guard let data = try? Data(contentsOf: url) else {
@@ -274,12 +292,23 @@ struct AppConfig {
         // nothing else in `AppConfig`. Primitives rather than the spec itself, so
         // `ConfigFile` can stay `private` to this file.
         if let t = file.theme {
-            config.theme = AppConfig.resolveTheme(preset: t.preset,
-                                                  background: t.background,
-                                                  foreground: t.foreground,
-                                                  cursor: t.cursor,
-                                                  ansi: t.ansi,
-                                                  warnings: &config.warnings)
+            if t.preset?.lowercased() == "auto" {
+                // Auto mode: resolve both palettes now, store them for the observer, and
+                // pick the initial theme from the current system appearance. The observer
+                // in `AppearanceObserver` handles every subsequent switch.
+                let auto = AppConfig.resolveAutoTheme(dark: t.dark,
+                                                      light: t.light,
+                                                      warnings: &config.warnings)
+                config.autoTheme = auto
+                config.theme = AppearanceObserver.currentIsDark ? auto.dark : auto.light
+            } else {
+                config.theme = AppConfig.resolveTheme(preset: t.preset,
+                                                      background: t.background,
+                                                      foreground: t.foreground,
+                                                      cursor: t.cursor,
+                                                      ansi: t.ansi,
+                                                      warnings: &config.warnings)
+            }
         }
 
         if let raw = file.cursor {
