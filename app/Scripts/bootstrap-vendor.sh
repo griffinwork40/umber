@@ -66,9 +66,11 @@ pin_value() {
 # gates linefeed's selection.selectNone() on terminal.mouseMode != .off so a plain
 # shell prompt keeps the user's selection while output streams; 0007 gates
 # feedPrepare()'s selection.active = false the same way so pty output between
-# selecting and ⌘C does not silently disable Copy. A tree missing any one of them
-# is not the tree this project is tested against, which is the whole reason the pin
-# records hashes rather than a version.
+# selecting and ⌘C does not silently disable Copy; 0008 makes draw(_:) `open`
+# instead of `public` so UmberTerminalView can override it for font dilation
+# (required by Xcode 27 / Swift 6 strict access control). A tree missing any
+# one of them is not the tree this project is tested against, which is the whole
+# reason the pin records hashes rather than a version.
 PATCHES=(
   "0001-ship-metal-shader-as-copy-resource.patch"
   "0002-index-iswrapped-buffer-absolute.patch"
@@ -77,6 +79,7 @@ PATCHES=(
   "0005-add-dcs-ptmux-passthrough.patch"
   "0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
   "0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
+  "0008-make-draw-open-for-subclass-override.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

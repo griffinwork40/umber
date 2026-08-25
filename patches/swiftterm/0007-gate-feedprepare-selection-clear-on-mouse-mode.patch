@@ -1,6 +1,6 @@
 --- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 +++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-@@ -2134,7 +2134,16 @@
+@@ -2134,8 +2134,18 @@
      func feedPrepare()
      {
          search.invalidate()

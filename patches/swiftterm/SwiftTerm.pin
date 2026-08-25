@@ -25,12 +25,12 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-08-23 the tree differs from upstream in SIX places — Package.swift,
+# As of 2026-08-25 the tree differs from upstream in SIX places — Package.swift,
 # Buffer.swift, EscapeSequenceParser.swift, MacTerminalView.swift and
 # AppleTerminalView.swift are modified, and PtmuxDcsHandler.swift is added new by
-# 0005 — carrying SEVEN patches between them: 0001 on Package.swift, 0002/0003/0004
-# on Buffer.swift, 0005 on EscapeSequenceParser.swift (plus the new file), 0006 on
-# MacTerminalView.swift, and 0007 on AppleTerminalView.swift.
+# 0005 — carrying EIGHT patches between them: 0001 on Package.swift, 0002/0003/0004
+# on Buffer.swift, 0005 on EscapeSequenceParser.swift (plus the new file), 0006 and
+# 0008 on MacTerminalView.swift, and 0007 on AppleTerminalView.swift.
 # File count and patch count are not the same number and have not been since 0003;
 # do not infer one from the other.
 #
@@ -204,7 +204,7 @@ ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf29349
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
-patched_mac_terminal_view  = b9339625f756b8526561f03dd3c2a6e92d7bb8b9230bd65884eab8ed88ae7fda
+patched_mac_terminal_view  = 0dc5cab8ebad153f5808d4fb209afc8bba1a5288935c2b7c355a4e35d7f773ea
 
 # MacTerminalView.swift as shipped upstream at v1.15.0.
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
