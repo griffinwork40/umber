@@ -23,7 +23,7 @@ func checkPresetRegistry(_ expect: (Bool, String, String) -> Void) {
     // Theme.swift imports AppKit so it cannot be linked here — instead assert the canonical
     // names this harness knows about, and let the shell half grep the switch for each one.
     let expectedNames = ["umber", "classic-repaired", "afk-dark", "tokyo-night", "afk-light",
-                         "catppuccin-mocha", "nord", "dracula"]
+                         "catppuccin-mocha", "nord", "dracula", "gruvbox-dark", "rose-pine"]
     expect(Set(ThemePalette.all.map(\.name)) == Set(expectedNames),
            "preset names", "ThemePalette.all is \(ThemePalette.all.map(\.name)), expected \(expectedNames)")
 

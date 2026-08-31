@@ -50,6 +50,7 @@ say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 cd "$(dirname "$0")/.."
 
 VALUES="Sources/Umber/ThemeValues.swift"
+COMMUNITY="Sources/Umber/ThemeValues+CommunityPresets.swift"
 CONTRAST="Sources/Umber/ThemeContrast.swift"
 SYNTAX="Sources/Umber/SyntaxPalette.swift"
 HARNESS="Scripts/check-theme-contrast-harness.swift"
@@ -63,13 +64,13 @@ command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
   exit 2
 }
-for f in "$VALUES" "$CONTRAST" "$SYNTAX" "$HARNESS" "$SYNHARNESS" "$REGISTRY" "$REPAIR" "$REFERENCE" "$THEME"; do
+for f in "$VALUES" "$COMMUNITY" "$CONTRAST" "$SYNTAX" "$HARNESS" "$SYNHARNESS" "$REGISTRY" "$REPAIR" "$REFERENCE" "$THEME"; do
   [[ -f "$f" ]] || { echo "error: $f not found (run from the app/ directory)." >&2; exit 2; }
 done
 
 # A pure file that has quietly acquired a UI import is a real regression in the split that
 # makes this gate possible, so name it as that rather than as a compile error later.
-for f in "$VALUES" "$CONTRAST" "$SYNTAX"; do
+for f in "$VALUES" "$COMMUNITY" "$CONTRAST" "$SYNTAX"; do
   if grep -qE '^\s*import\s+(AppKit|SwiftUI|Cocoa|SwiftTerm|GhosttyTerminal)' "$f"; then
     echo "error: $f imports a UI framework — it is supposed to be Foundation-only." >&2
     echo "  That split is the only reason this gate can compile it standalone. Fix the" >&2
@@ -83,7 +84,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/pure"
 cp "$HARNESS" "$TMP/pure/main.swift"
 
-if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$CONTRAST" "$SYNTAX" "$SYNHARNESS" "$REGISTRY" "$REPAIR" \
+if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$COMMUNITY" "$CONTRAST" "$SYNTAX" "$SYNHARNESS" "$REGISTRY" "$REPAIR" \
      "$REFERENCE" "$TMP/pure/main.swift" \
      2>"$TMP/compile.log"; then
   echo "error: the pure theme sources would not compile standalone — the gate cannot run." >&2

@@ -96,6 +96,63 @@ func checkSyntaxRoles(_ expect: (Bool, String, String) -> Void) {
                        + "measured ~43.6; below 40 would be a NEW regression on top of the known gap")
                 continue
             }
+            // Gruvbox Dark carries three PINNED weak syntax slots — a property of its "medium"
+            // contrast variant, where the normal ring (ANSI 1–6) is deliberately muted and the
+            // bright ring (ANSI 9–14) carries the vivid colours. All three are verbatim upstream
+            // values; substituting brighter stand-ins would make this palette not-Gruvbox.
+            // Measured on bg0 (#282828):
+            //   keyword  ANSI 4  #458588  Lc 29.8
+            //   string   ANSI 2  #98971a  Lc 40.4  (dark yellow-green)
+            //   type     ANSI 6  #689d6a  Lc 39.6  (dark aqua)
+            // The comment slot (ANSI 8, #928374, Lc 34.4) is also below Lc 45; it is a
+            // deliberate de-emphasis colour in the upstream palette and pinned the same way.
+            // Each floor is set ~7 Lc below the measured value so a real regression is still caught.
+            if p.name == "gruvbox-dark" && role == .keyword {
+                expect(lc >= 22, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~29.8; "
+                       + "below 22 would be a NEW regression on top of the known gap")
+                continue
+            }
+            if p.name == "gruvbox-dark" && role == .string {
+                expect(lc >= 33, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~40.4; "
+                       + "below 33 would be a NEW regression on top of the known gap")
+                continue
+            }
+            if p.name == "gruvbox-dark" && role == .type {
+                expect(lc >= 32, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~39.6; "
+                       + "below 32 would be a NEW regression on top of the known gap")
+                continue
+            }
+            // Gruvbox's ANSI 8 (#928374) measures below the clamp threshold, so the resolved
+            // comment is the composited fallback (foreground at commentAlpha over the background),
+            // which lands near Lc 23 rather than the raw ANSI 8 Lc. Pinned at ≥ 18 so a
+            // regression toward invisible is still caught.
+            if p.name == "gruvbox-dark" && role == .comment {
+                expect(lc >= 18, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~23 (clamped); "
+                       + "below 18 would be a NEW regression on top of the known gap")
+                continue
+            }
+            // Rosé Pine carries two PINNED weak syntax slots. The palette's pine/teal colour
+            // (#31748f, "pine") maps to both ANSI 2 (string) and ANSI 10 (bright string — same
+            // value by upstream spec). It measures Lc 26.4 on base (#191724), well below Lc 45.
+            // The comment slot (ANSI 8, #6e6a86, "muted") measures Lc 26.7 — also below the
+            // floor. Both are verbatim upstream colours; replacing them would make this palette
+            // not-Rosé Pine. Pinned ~6–7 Lc below measured values.
+            if p.name == "rose-pine" && role == .string {
+                expect(lc >= 20, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~26.4; "
+                       + "below 20 would be a NEW regression on top of the known gap")
+                continue
+            }
+            if p.name == "rose-pine" && role == .comment {
+                expect(lc >= 20, "\(p.name) syntax \(role.rawValue) (known gap, pinned — see comment)",
+                       "\(c.hex) is APCA Lc \(String(format: "%.1f", lc)) — expected near ~26.7; "
+                       + "below 20 would be a NEW regression on top of the known gap")
+                continue
+            }
             // Every role must be readable at ANY size. This is the floor the tab strip's inactive
             // label was raised to clear, and code is smaller and denser than a tab label.
             expect(lc >= SyntaxPalette.readableFloor, "\(p.name) syntax \(role.rawValue)",

@@ -304,7 +304,7 @@ extension ThemePalette {
     /// is the enumeration, and the two must not drift — `check-theme-contrast.sh`
     /// asserts that every name here is reachable from config.
     static let all: [ThemePalette] = [.umber, .classicRepaired, .afkDark, .tokyoNight, .afkLight,
-                                       .catppuccinMocha, .nord, .dracula]
+                                       .catppuccinMocha, .nord, .dracula, .gruvboxDark, .rosePine]
 
     /// Resolve a `"preset"` string to a palette. Case-insensitive, reads `_` as `-`, and
     /// accepts the hyphen-stripped spelling (`afkdark`), which is what users actually type.
