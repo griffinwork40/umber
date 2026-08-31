@@ -199,33 +199,7 @@ struct AppConfig {
 
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
-
-    /// 14pt, not 13. The default has to be comfortable on a Retina display
-    /// without touching a config file, and 13 read as cramped in use. Both
-    /// `font.size` and ⌘+ / ⌘− override this.
-    static let defaultFontSize: Double = 14
-
-    /// Bounds for both `font.size` and the live zoom. Below ~6pt the glyphs stop
-    /// being legible; above ~48 a standard window holds too few columns for a TUI
-    /// to lay out. Shared so the config path and the zoom path cannot disagree.
-    static let minFontSize: Double = 6
-    static let maxFontSize: Double = 48
-
-    /// Resize the configured face. Derived from the resolved font's **descriptor**,
-    /// not re-resolved from its family name: the system monospaced face is
-    /// `.AppleSystemUIFontMonospaced`, a dot-prefixed internal family that is not
-    /// guaranteed to survive `NSFont(name:)`, and the old code's fallback for that
-    /// miss was hardcoded Menlo — the exact silent substitution that made v0.1
-    /// render worse than the spike (see `preferredMonoFont`). The descriptor
-    /// carries the resolved face, so zooming cannot change it.
-    ///
-    /// Lives here rather than on one pane because every document kind zooms
-    /// (`SpaceDocument.setFontSize`), and a second private copy in `FileViewerPane`
-    /// is a second place for this fallback to rot.
-    static func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
-        NSFont(descriptor: base.fontDescriptor, size: size)
-            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-    }
+    // Font constants, face resolution, and `applyFont(…)` — see `Config+Font.swift`.
 
     static var configURL: URL {
         FileManager.default
@@ -285,22 +259,9 @@ struct AppConfig {
             return config
         }
 
-        // Font. An out-of-range size is reported rather than silently clamped:
-        // every other field in this file explains itself when it is ignored, and
-        // a size that quietly did nothing is precisely the failure that makes a
-        // configurable setting feel unconfigurable.
-        var size = defaultFontSize
-        if let requested = file.font?.size {
-            if requested >= minFontSize && requested <= maxFontSize {
-                size = requested
-            } else {
-                config.warnings.append(
-                    "font.size \(requested) is outside \(Int(minFontSize))–\(Int(maxFontSize)) — using \(Int(size))")
-            }
-        }
-        let resolvedFont = preferredMonoFont(family: file.font?.family, size: size)
-        config.font = resolvedFont.font
-        if let warning = resolvedFont.warning { config.warnings.append(warning) }
+        config.applyFont(family: file.font?.family, requestedSize: file.font?.size,
+                         fontThicken: file.fontThicken, lineHeight: file.lineHeight,
+                         ligatures: file.ligatures)
 
         // Theme. The whole per-field, fail-soft assembly lives in `Config+Theme.swift` —
         // pulled out when this file hit the 350-line ceiling, because "which palette do we
@@ -359,18 +320,6 @@ struct AppConfig {
                         + " — using \(config.renderer.configName)")
             }
         }
-        if let v = file.fontThicken { config.fontThicken = v }
-        if let v = file.lineHeight {
-            let lo = 0.8, hi = 2.0
-            if v >= lo && v <= hi { config.lineHeight = CGFloat(v) }
-            else { config.warnings.append("lineHeight \(v) is outside \(lo)–\(hi) — using \(config.lineHeight)") }
-        }
-        // `ligatures` is accepted in the config file but not yet acted on — the field
-        // is parsed here so the file stays valid when the feature ships. See the header
-        // of TerminalPane+Typography.swift for why it is deferred.
-        if file.ligatures != nil {
-            config.warnings.append("ligatures: not yet implemented — ignored")
-        }
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
                                wordWrap: e.wordWrap,
@@ -397,31 +346,4 @@ struct AppConfig {
         return config
     }
 
-    /// Names people write in a config when they mean the system monospaced face.
-    /// None of these resolve through `NSFont(name:)`, so they must be mapped.
-    private static let systemMonoAliases: Set<String> = [
-        "sf mono", "sfmono", "sfmono-regular", "sf mono regular", "system", "system mono",
-    ]
-
-    /// Resolve a monospaced font, reporting a human-readable problem when a
-    /// requested family cannot be honoured. Never returns nil — a terminal with
-    /// no font is not a useful failure mode.
-    ///
-    /// With nothing requested this returns the **system monospaced face**, which
-    /// is SF Mono and is also exactly what SwiftTerm's own `FontSet.defaultFont`
-    /// uses. It is deliberately NOT reached via `NSFont(name: "SF Mono")`: that
-    /// call returns nil, because SF Mono is not registered under that name (nor
-    /// under "SFMono-Regular"). v0.1 asked for it by name, silently got Menlo as
-    /// the next candidate, and therefore rendered visibly worse than the Step 0
-    /// spike — which set no font at all and so kept SwiftTerm's default. The
-    /// system-mono call used to sit at the BOTTOM of this function, unreachable,
-    /// because Menlo always resolves first.
-    private static func preferredMonoFont(family: String?, size: Double) -> (font: NSFont, warning: String?) {
-        let systemMono = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        guard let family, !systemMonoAliases.contains(family.lowercased()) else {
-            return (systemMono, nil)
-        }
-        if let f = NSFont(name: family, size: size) { return (f, nil) }
-        return (systemMono, "font.family '\(family)' unavailable — using the system monospaced face")
-    }
 }
