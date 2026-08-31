@@ -3,17 +3,15 @@
 //  The model half of split panes: creating and closing a split, tracking per-tab
 //  split peer documents, and wiring the container to show/hide the split view.
 //
-//  Its own file because this is one whole concern ("a tab can have a split peer")
-//  separable from the document-list operations in SpaceViewController.swift and from
-//  the display plumbing in DocumentAreaViewController.swift. The stored property
-//  (splitPeers) lives in SpaceViewController.swift — Swift extensions cannot add
-//  stored properties, and the setter on `documents` is private to that file — while
-//  all the methods that read and manipulate it live here.
+//  v2 scope: up to TWO levels of split per tab (4 panes / quarters). The outer
+//  split divides the tab into two halves; either half may itself be split into two
+//  sub-panes inside a nested SplitContainerView. The nesting is compositional --
+//  each SplitContainerView still holds exactly 2 children and handles its own
+//  divider drag independently. Depth is capped at 2 (max 4 panes per tab).
 //
-//  v1 scope: exactly ONE split per tab (2 panes). ⌘⇧\ splits right (horizontal);
-//  ⌘⇧- splits down (vertical). The split peer is NOT in documents[] — it does not
-//  appear as a tab. The tab strip stays 1:1 with documents[]. ⌘W when split collapses
-//  the split (closes the peer), keeping the primary tab; ⌘W when unsplit closes the tab.
+//  ⌘⇧\ splits the focused pane horizontally; ⌘⇧- splits it vertically. ⌘W when
+//  split collapses the focused sub-pane first, then the outer split. The tab strip
+//  stays 1:1 with documents[] -- split peers never appear as tabs.
 //
 
 import AppKit
@@ -22,107 +20,174 @@ extension SpaceViewController {
 
     // MARK: - Split creation
 
-    /// ⌘⇧\ — split the active terminal horizontally, opening a new pane to the right.
-    ///
-    /// Wired from AppMenu.swift. Uses the same construction path as addTerminalDocument
-    /// (SpaceViewController+DocumentConstruction.swift) so both engines are handled,
-    /// but deliberately does NOT call add(document:) — the peer must not appear as a tab.
-    @objc func splitHorizontal(_ sender: Any?) {
-        makeSplit(direction: .horizontal)
-    }
+    @objc func splitHorizontal(_ sender: Any?) { makeSplit(direction: .horizontal) }
+    @objc func splitVertical(_ sender: Any?) { makeSplit(direction: .vertical) }
 
-    /// ⌘⇧- — split the active terminal vertically, opening a new pane below.
+    /// Split the focused pane in the given direction.
     ///
-    /// In a vertical split the primary pane is at the bottom and the peer is at the top.
-    /// Wired from AppMenu.swift (⌘⇧-). Focus movement ⌘⇧K (up) reaches the peer,
-    /// ⌘⇧J (down) reaches the primary.
-    @objc func splitVertical(_ sender: Any?) {
-        makeSplit(direction: .vertical)
-    }
-
-    /// Create a split peer for the active document in the given direction.
-    ///
-    /// Does nothing when: no active document, the active document is not a terminal
-    /// (FileViewerPane has no shell whose cwd to inherit), or this tab already has a
-    /// split peer (v1 allows exactly one split per tab).
+    /// Three cases:
+    /// 1. No split yet: create the outer split (primary + peer).
+    /// 2. Outer split exists, focused pane has no sub-split: create a sub-split
+    ///    inside the focused half, nesting a new SplitContainerView.
+    /// 3. Depth 2 already reached on the focused pane: no-op.
     private func makeSplit(direction: SplitContainerView.Direction) {
-        guard let primary = activeDocument else { return }
-        // Only allow splitting terminal documents. A file viewer has no shell.
-        guard primary is ShellHosting else { return }
-        // v1: one split per tab maximum.
-        guard !hasSplit(for: primary) else { return }
+        guard let primary = activeDocument, primary is ShellHosting else { return }
 
-        // Inherit the focused pane's working directory so the new pane opens in the
-        // same location the user is already in. Falls back to the Space root before
-        // the first OSC 7 fires (new tab, pre-first-prompt).
+        if !hasSplit(for: primary) {
+            // Case 1: no split yet -- create the outer split.
+            makeOuterSplit(primary: primary, direction: direction)
+        } else if let entry = splitPeers[ObjectIdentifier(primary)] {
+            // Case 2/3: outer split exists -- try to sub-split the focused pane.
+            makeSubSplit(primary: primary, entry: entry, direction: direction)
+        }
+    }
+
+    /// Case 1: Create the initial outer split for a tab.
+    private func makeOuterSplit(primary: SpaceDocument, direction: SplitContainerView.Direction) {
         let peerDirectory = (primary as? ShellHosting)?.currentDirectory ?? root
-
-        // Build the peer the same way addTerminalDocument does. The frame uses
-        // the current container bounds so the initial size is sane before the split
-        // layout runs for the first time.
         let frame = documentArea.container.bounds
         let peer: SpaceDocument = TerminalPane(
             config: config, frame: frame, workingDirectory: peerDirectory)
-
-        // Wire the delegate so the peer can report title changes and exit.
         (peer as? any SpaceDocumentReporting)?.documentDelegate = self
 
-        // Register in splitPeers BEFORE starting the shell, so if the shell exits
-        // immediately the teardown path (documentDidTerminate via the delegate above)
-        // can find it and clean up correctly.
-        splitPeers[ObjectIdentifier(primary)] = (document: peer, direction: direction)
-
-        // Start the shell. The beforeActivating ordering from addTerminalDocument is
-        // not needed here — the peer lives beside the primary, not replacing it, so
-        // the tab strip geometry is already settled.
+        splitPeers[ObjectIdentifier(primary)] = SplitEntry(
+            document: peer, direction: direction)
         (peer as? TerminalPane)?.start()
 
-        // Hand the peer's view to the container so it appears in the split layout.
         documentArea.presentSplit(
             primaryView: primary.documentView,
             splitView: peer.documentView,
             direction: direction)
 
-        // Register the click callback so that a mouse click on the unfocused pane
-        // updates dimming immediately — before firstResponder has changed — giving
-        // a snappy response rather than waiting for the next key event or poll.
-        // The callback is cleared in closeSplitPane/teardownSplit/terminateSplitPeer
-        // when the split collapses, so it does not linger across split lifetimes.
-        // `[weak self]` prevents a retain cycle: SplitContainerView → closure → self.
+        installClickCallback(primary: primary)
+        updateSplitDimming(for: primary)
+    }
+
+    /// Case 2: Sub-split the focused pane inside an existing outer split.
+    private func makeSubSplit(
+        primary: SpaceDocument, entry: SplitEntry,
+        direction: SplitContainerView.Direction
+    ) {
+        let fr = view.window?.firstResponder
+        let peerHasFocus = isDescendant(fr, of: entry.document.documentView)
+
+        // Check depth: is the focused half already sub-split?
+        if peerHasFocus && entry.peerSubSplit != nil { return }
+        if !peerHasFocus && entry.primarySubSplit != nil { return }
+
+        // The focused document is the one whose pane will be split.
+        let focusedDoc: SpaceDocument = peerHasFocus ? entry.document : primary
+        let focusedView = focusedDoc.documentView
+        let peerDirectory = (focusedDoc as? ShellHosting)?.currentDirectory ?? root
+        let newPeer = TerminalPane(
+            config: config, frame: focusedView.bounds, workingDirectory: peerDirectory)
+        (newPeer as? any SpaceDocumentReporting)?.documentDelegate = self
+
+        // Create a nested SplitContainerView to hold the original pane + new peer.
+        let nested = SplitContainerView(frame: focusedView.frame)
+        nested.autoresizingMask = []
+
+        // Find the parent container that holds focusedView and swap it.
+        let parentContainer = focusedView.superview as? SplitContainerView ?? documentArea.container
+        parentContainer.replaceChild(focusedView, with: nested)
+        nested.setPrimary(focusedView)
+        nested.addSplit(newPeer.documentView, direction: direction)
+
+        // Register in splitPeers before starting the shell.
+        let subSplit = SplitEntry.SubSplit(
+            document: newPeer, container: nested, direction: direction)
+        var updated = entry
+        if peerHasFocus { updated.peerSubSplit = subSplit }
+        else { updated.primarySubSplit = subSplit }
+        splitPeers[ObjectIdentifier(primary)] = updated
+
+        newPeer.start()
+
+        // Install click callbacks on the nested container too.
         let capturedPrimary = primary
-        documentArea.container.didReceiveClickInChild = { [weak self] clickedView in
+        nested.didReceiveClickInChild = { [weak self] _ in
             guard let self else { return }
-            self.updateSplitDimmingForClickedView(clickedView, primary: capturedPrimary)
+            self.updateSplitDimming(for: capturedPrimary)
         }
 
-        // Dim the peer immediately on creation — the primary already has focus, so
-        // the peer starts unfocused. `view.window?.firstResponder` is the focused
-        // view, which lives inside the primary's subtree at this point.
         updateSplitDimming(for: primary)
     }
 
     // MARK: - Split closing
 
-    /// Collapse the split for the active document, tearing down the peer.
+    /// Collapse the focused sub-pane, or the outer split if no sub-split is focused.
     ///
-    /// v1 behavior: always closes the PEER (the right-hand pane), keeping the primary
-    /// tab. This is intentionally simpler than a focus-sensitive swap — the split peer
-    /// is an auxiliary view, and "close the split" means "remove the auxiliary". Called
-    /// from AppDelegate.closeDocument(_:) when the active tab has a split; the ⌘W
-    /// routing lives in AppDelegate+EditorActions.swift.
+    /// ⌘W routing: closeActiveDocument() calls this when the active tab has a split.
+    /// In v2, ⌘W removes the focused leaf one level at a time -- sub-pane first,
+    /// then the outer split on the next ⌘W.
     func closeSplitPane() {
         guard let primary = activeDocument,
-              let entry = splitPeers.removeValue(forKey: ObjectIdentifier(primary)) else { return }
-        let peer = entry.document
-        peer.documentWillClose()
-        // dismissSplit() → container.removeSplit() owns removeFromSuperview on the peer —
-        // one owner for the hierarchy change, not two (PR #48 review M2).
+              var entry = splitPeers[ObjectIdentifier(primary)] else { return }
+
+        let fr = view.window?.firstResponder
+
+        // Check if the focused responder is inside a sub-split. If so, collapse
+        // that sub-split rather than the whole outer split.
+        if let sub = entry.peerSubSplit,
+           isDescendant(fr, of: sub.container) {
+            collapseSubSplit(primary: primary, entry: &entry, side: .peer)
+            splitPeers[ObjectIdentifier(primary)] = entry
+            updateSplitDimming(for: primary)
+            return
+        }
+        if let sub = entry.primarySubSplit,
+           isDescendant(fr, of: sub.container) {
+            collapseSubSplit(primary: primary, entry: &entry, side: .primary)
+            splitPeers[ObjectIdentifier(primary)] = entry
+            updateSplitDimming(for: primary)
+            return
+        }
+
+        // No sub-split focused -- collapse the outer split entirely.
+        // First tear down any sub-splits.
+        teardownSubSplits(entry: &entry)
+        splitPeers.removeValue(forKey: ObjectIdentifier(primary))
+        entry.document.documentWillClose()
         documentArea.dismissSplit()
-        // Clear the click callback and reset alpha now that there is no split.
         documentArea.container.didReceiveClickInChild = nil
         documentArea.container.setFocusedChild(nil, opacity: 1.0)
-        // Restore focus to the primary pane.
         primary.documentDidBecomeActive()
+    }
+
+    private enum SubSplitSide { case primary, peer }
+
+    /// Collapse one sub-split, promoting the surviving pane back to its parent slot.
+    private func collapseSubSplit(
+        primary: SpaceDocument, entry: inout SplitEntry, side: SubSplitSide
+    ) {
+        let sub: SplitEntry.SubSplit
+        let survivingDoc: SpaceDocument
+
+        switch side {
+        case .peer:
+            guard let s = entry.peerSubSplit else { return }
+            sub = s
+            survivingDoc = entry.document
+            entry.peerSubSplit = nil
+        case .primary:
+            guard let s = entry.primarySubSplit else { return }
+            sub = s
+            survivingDoc = primary
+            entry.primarySubSplit = nil
+        }
+
+        sub.document.documentWillClose()
+        sub.container.removeSplit()
+        sub.container.didReceiveClickInChild = nil
+
+        // Replace the nested container with the surviving pane's view.
+        // replaceChild removes the old view from the hierarchy, so no separate
+        // removeFromSuperview is needed.
+        let parentContainer = sub.container.superview as? SplitContainerView
+            ?? documentArea.container
+        parentContainer.replaceChild(sub.container, with: survivingDoc.documentView)
+
+        survivingDoc.documentDidBecomeActive()
     }
 
     // MARK: - Queries
@@ -135,80 +200,47 @@ extension SpaceViewController {
         splitPeers[ObjectIdentifier(document)] != nil
     }
 
-    // MARK: - Focus movement (tmux-inspired ⌘⇧H/J/K/L)
-
-    /// ⌘⇧H — move focus to the left pane.
-    ///
-    /// In v1 (one horizontal split per tab), this moves focus from the peer (right)
-    /// to the primary (left). No-op when unsplit or when the primary already has focus.
-    @objc func moveFocusLeft(_ sender: Any?) { moveFocus(toward: .left) }
-
-    /// ⌘⇧L — move focus to the right pane.
-    @objc func moveFocusRight(_ sender: Any?) { moveFocus(toward: .right) }
-
-    /// ⌘⇧K — move focus to the top pane (peer in a vertical split).
-    @objc func moveFocusUp(_ sender: Any?) { moveFocus(toward: .up) }
-
-    /// ⌘⇧J — move focus to the bottom pane (primary in a vertical split).
-    @objc func moveFocusDown(_ sender: Any?) { moveFocus(toward: .down) }
-
-    private enum FocusDirection { case left, right, up, down }
-
-    /// Move keyboard focus between the primary pane and its split peer.
-    ///
-    /// Horizontal split: primary=left, peer=right.
-    ///   .left  → primary   .right → peer   .up/.down → toggle
-    /// Vertical split: primary=bottom, peer=top.
-    ///   .up    → peer      .down  → primary   .left/.right → toggle
-    private func moveFocus(toward direction: FocusDirection) {
-        guard let primary = activeDocument,
-              let peer = splitPeer(for: primary) else { return }
-
-        let splitDirection = splitPeers[ObjectIdentifier(primary)]?.direction
+    /// Whether the focused pane can accept another split (depth < 2).
+    func canSplitFocusedPane(for primary: SpaceDocument) -> Bool {
+        guard let entry = splitPeers[ObjectIdentifier(primary)] else { return true }
         let fr = view.window?.firstResponder
-        let peerHasFocus = isDescendant(fr, of: peer.documentView)
-
-        switch (splitDirection, direction) {
-        // Horizontal: primary is left, peer is right.
-        case (.horizontal, .left):
-            if peerHasFocus { primary.documentDidBecomeActive() }
-        case (.horizontal, .right):
-            if !peerHasFocus { peer.documentDidBecomeActive() }
-        case (.horizontal, .up), (.horizontal, .down):
-            if peerHasFocus { primary.documentDidBecomeActive() }
-            else { peer.documentDidBecomeActive() }
-        // Vertical: primary is bottom, peer is top.
-        case (.vertical, .up):
-            if !peerHasFocus { peer.documentDidBecomeActive() }
-        case (.vertical, .down):
-            if peerHasFocus { primary.documentDidBecomeActive() }
-        case (.vertical, .left), (.vertical, .right):
-            if peerHasFocus { primary.documentDidBecomeActive() }
-            else { peer.documentDidBecomeActive() }
-        // No split or unknown — no-op.
-        case (nil, _):
-            break
-        }
-
-        // After every focus movement, re-resolve which view has focus and update
-        // dimming. `documentDidBecomeActive()` moves firstResponder, so the query
-        // below sees the post-move state correctly.
-        updateSplitDimming(for: primary)
+        let peerHasFocus = isDescendant(fr, of: entry.document.documentView)
+        if peerHasFocus { return entry.peerSubSplit == nil }
+        return entry.primarySubSplit == nil
     }
+
+    /// All peer documents for a primary (main peer + any sub-split peers).
+    func allSplitDocuments(for primary: SpaceDocument) -> [SpaceDocument] {
+        splitPeers[ObjectIdentifier(primary)]?.allPeerDocuments ?? []
+    }
+
+    // Focus movement (⌘⇧H/J/K/L) and leaf gathering live in
+    // SpaceViewController+SplitFocus.swift — extracted at the 350-LOC ceiling.
 
     // MARK: - Peer-initiated termination
 
-    /// Called from SpaceViewController+Delegates when a split peer's shell exits.
-    ///
-    /// A peer document is NOT in documents[], so documentDidTerminate's normal path
-    /// (firstIndex lookup → closeDocument) finds nothing. This handles the peer case:
-    /// find the primary, remove the entry from splitPeers, and collapse the split.
     func terminateSplitPeer(_ document: SpaceDocument) {
-        for primary in documents where splitPeers[ObjectIdentifier(primary)]?.document === document {
+        for primary in documents {
+            guard var entry = splitPeers[ObjectIdentifier(primary)] else { continue }
+
+            // Check sub-splits first.
+            if entry.primarySubSplit?.document === document {
+                collapseSubSplit(primary: primary, entry: &entry, side: .primary)
+                splitPeers[ObjectIdentifier(primary)] = entry
+                return
+            }
+            if entry.peerSubSplit?.document === document {
+                collapseSubSplit(primary: primary, entry: &entry, side: .peer)
+                splitPeers[ObjectIdentifier(primary)] = entry
+                return
+            }
+
+            // Main peer exiting: tear down the whole split.
+            guard entry.document === document else { continue }
+            teardownSubSplits(entry: &entry)
             splitPeers.removeValue(forKey: ObjectIdentifier(primary))
             document.documentWillClose()
-            documentArea.dismissSplit()  // owns removeFromSuperview on the peer
-            // Clear the click callback and dimming — primary is now unsplit.
+            documentArea.dismissSplit()
             documentArea.container.didReceiveClickInChild = nil
             documentArea.container.setFocusedChild(nil, opacity: 1.0)
             primary.documentDidBecomeActive()
@@ -216,57 +248,38 @@ extension SpaceViewController {
         }
     }
 
-    // MARK: - Teardown (called when a tab closes, so its peer closes too)
+    // MARK: - Teardown
 
-    /// Tear down the split peer for a document that is itself about to close.
-    ///
-    /// Called from SpaceViewController.closeDocument(at:) BEFORE the primary is
-    /// removed from the document list, so the peer can be cleaned up while the
-    /// primary's identity is still available as the dictionary key. Also called from
-    /// tearDownAllDocuments() in SpaceViewController+Closing.swift.
     func teardownSplit(for document: SpaceDocument) {
-        guard let entry = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
+        guard var entry = splitPeers.removeValue(forKey: ObjectIdentifier(document)) else { return }
+        teardownSubSplits(entry: &entry)
         entry.document.documentWillClose()
-        documentArea.dismissSplit()  // owns removeFromSuperview on the peer
-        // Clear the click callback and reset alpha — tab is closing, split is gone.
+        documentArea.dismissSplit()
         documentArea.container.didReceiveClickInChild = nil
         documentArea.container.setFocusedChild(nil, opacity: 1.0)
     }
 
-    // MARK: - Dimming
-
-    /// Resolve which child view currently holds focus and update pane opacity accordingly.
+    /// Close all sub-split peers in an entry. Called before tearing down the outer split.
     ///
-    /// Called after any event that might change focus: split creation (primary wins),
-    /// keyboard navigation (⌘⇧H/J/K/L), config reload (⌘R), and tab switches.
-    /// The container's `setFocusedChild(_:opacity:)` owns the actual alphaValue writes
-    /// and the 150ms animation; this method only resolves *which* view is focused.
-    ///
-    /// Uses `view.window?.firstResponder` rather than `activeDocument` because in a split
-    /// BOTH panes are simultaneously active — `activeDocument` always points to the primary
-    /// tab, not to whichever pane the user clicked most recently. The first-responder walk
-    /// (`isDescendant`) is the canonical way to answer "which terminal is the user in?"
-    /// (same approach as `focusedShellHost` in `ShellHosting.swift`).
-    func updateSplitDimming(for primary: SpaceDocument) {
-        guard let peer = splitPeer(for: primary) else { return }
-        let opacity = CGFloat(config.unfocusedPaneOpacity)
-        let fr = view.window?.firstResponder
-        // Determine focused child: if firstResponder is in the peer's subtree, the peer
-        // wins; otherwise the primary wins (covers the no-responder case too, where
-        // dimming the primary would be more surprising than dimming the peer).
-        let focusedView: NSView = isDescendant(fr, of: peer.documentView)
-            ? peer.documentView : primary.documentView
-        documentArea.container.setFocusedChild(focusedView, opacity: opacity)
+    /// Does NOT replaceChild -- the outer split is dismissed right after, so the
+    /// nested container just needs to release its documents and be removed. Putting
+    /// a zombie view into the outer container (then immediately dismissing it) was
+    /// the cause of Bug #1 in the audit.
+    private func teardownSubSplits(entry: inout SplitEntry) {
+        if let sub = entry.primarySubSplit {
+            sub.document.documentWillClose()
+            sub.container.didReceiveClickInChild = nil
+            sub.container.removeFromSuperview()
+            entry.primarySubSplit = nil
+        }
+        if let sub = entry.peerSubSplit {
+            sub.document.documentWillClose()
+            sub.container.didReceiveClickInChild = nil
+            sub.container.removeFromSuperview()
+            entry.peerSubSplit = nil
+        }
     }
 
-    /// Update dimming from a `didReceiveClickInChild` callback.
-    ///
-    /// The clicked view IS the focused one (the click is about to make it first
-    /// responder), so we pass it directly to the container instead of re-querying
-    /// `firstResponder` (which has not changed yet at the point this fires).
-    private func updateSplitDimmingForClickedView(_ clicked: NSView, primary: SpaceDocument) {
-        guard splitPeer(for: primary) != nil else { return }
-        let opacity = CGFloat(config.unfocusedPaneOpacity)
-        documentArea.container.setFocusedChild(clicked, opacity: opacity)
-    }
+    // Presentation, dimming, and click callbacks live in
+    // SpaceViewController+SplitPresentation.swift — extracted at the 350-LOC ceiling.
 }

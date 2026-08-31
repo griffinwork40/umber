@@ -132,6 +132,31 @@ final class SplitContainerView: NSView {
 
     var isSplit: Bool { splitView != nil }
 
+    /// Replace a child (primary or split) with a different view. Used when a leaf
+    /// is itself being split: its slot becomes a nested SplitContainerView holding
+    /// the original leaf plus a new peer. Returns false if `old` is not a child.
+    @discardableResult
+    func replaceChild(_ old: NSView, with replacement: NSView) -> Bool {
+        replacement.autoresizingMask = []
+        if primaryView === old {
+            old.removeFromSuperview()
+            primaryView = replacement
+            addSubview(replacement)
+            needsLayout = true
+            layout()
+            return true
+        }
+        if splitView === old {
+            old.removeFromSuperview()
+            splitView = replacement
+            addSubview(replacement)
+            needsLayout = true
+            layout()
+            return true
+        }
+        return false
+    }
+
     /// Update pane dimming so the focused child is fully opaque and the other is
     /// drawn at `opacity`.
     ///
