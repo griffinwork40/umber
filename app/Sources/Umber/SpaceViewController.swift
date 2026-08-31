@@ -71,7 +71,7 @@ final class SpaceViewController: NSSplitViewController {
     /// Split peers keyed by primary document identity. NOT in `documents[]` — peers
     /// don't appear as tabs. Internal (not `private(set)`) because +Splits.swift needs
     /// subscript-set and removeValue. Writes go through that extension — convention-enforced.
-    var splitPeers: [ObjectIdentifier: (document: SpaceDocument, direction: SplitContainerView.Direction)] = [:]
+    var splitPeers: [ObjectIdentifier: SplitEntry] = [:]
 
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
@@ -186,7 +186,7 @@ final class SpaceViewController: NSSplitViewController {
         let document = documents[index]
 
         if let entry = splitPeers[ObjectIdentifier(document)] {
-            documentArea.presentSplit(primaryView: document.documentView, splitView: entry.document.documentView, direction: entry.direction)
+            presentSplitEntry(entry, primary: document)
         } else {
             documentArea.present(documentView: document.documentView)
         }
@@ -280,32 +280,14 @@ final class SpaceViewController: NSSplitViewController {
         view.window?.isDocumentEdited = hasEditedDocuments
     }
 
-    // MARK: - Menu validation
-
-    /// Gate split/focus menu items — without this, AppKit auto-enables every item whose
-    /// @objc selector is answered, even when the action would silently no-op.
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
-        case #selector(splitHorizontal(_:)):
-            guard let doc = activeDocument else { return false }
-            return doc is ShellHosting && !hasSplit(for: doc)
-        case #selector(splitVertical(_:)):
-            guard let doc = activeDocument else { return false }
-            return doc is ShellHosting && !hasSplit(for: doc)
-        case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
-             #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
-            return activeDocument.map { hasSplit(for: $0) } ?? false
-        default:
-            return super.validateUserInterfaceItem(item)
-        }
-    }
-
     // MARK: - Config / lifecycle
 
     func apply(config: AppConfig) {
         self.config = config
         for document in documents { document.apply(config: config) }
-        for (_, entry) in splitPeers { entry.document.apply(config: config) }  // peers not in documents[]
+        for (_, entry) in splitPeers {  // peers not in documents[]
+            for peer in entry.allPeerDocuments { peer.apply(config: config) }
+        }
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground)
         if let doc = activeDocument {  // re-apply padding after ⌘R
@@ -347,8 +329,8 @@ final class SpaceViewController: NSSplitViewController {
         // gates the send on `sendFocus` (DECSET 1004), so a pane without focus events is a
         // no-op. Resign-key counterpart lives in `windowDidResignKey()` in +DirectoryFollow.
         activeDocument?.notifyWindowFocus(true)
-        if let active = activeDocument, let peer = splitPeer(for: active) {
-            peer.notifyWindowFocus(true)
+        if let active = activeDocument {
+            for peer in allSplitDocuments(for: active) { peer.notifyWindowFocus(true) }
         }
     }
 }

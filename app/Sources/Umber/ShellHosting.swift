@@ -209,12 +209,16 @@ extension SpaceViewController {
     /// fallback total over shells only, which is exactly what the feature means
     /// (`libghostty-swap-sequencing-2026-07-28.md` §2; `next-sequencing-2026-07-28.md` §1).
     var focusedShellHost: ShellHosting? {
-        // In a split, check whether the first responder lives in the peer's view.
-        // If so, the peer is the intended target even though the primary is "active".
-        if let active = activeDocument,
-           let peer = splitPeer(for: active) as? ShellHosting {
+        // In a split, check whether the first responder lives in any peer's view.
+        // Walk all split documents (main peer + any sub-split peers) so that focus
+        // inside a nested quarter pane resolves to the right shell.
+        if let active = activeDocument {
             let fr = view.window?.firstResponder
-            if isDescendant(fr, of: peer.documentView) { return peer }
+            for peer in allSplitDocuments(for: active) {
+                if let host = peer as? ShellHosting, isDescendant(fr, of: peer.documentView) {
+                    return host
+                }
+            }
         }
         return (activeDocument as? ShellHosting) ?? shellHosts.last
     }

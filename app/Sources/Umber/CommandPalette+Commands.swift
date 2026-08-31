@@ -61,5 +61,24 @@ extension CommandPalette {
         PaletteCommand("Settings…",               key: "⌘,",    action: #selector(AppDelegate.openConfigFile(_:))),
         PaletteCommand("Reload Config",            key: "⌘R",    action: #selector(AppDelegate.reloadConfig(_:))),
         PaletteCommand("New Space",                key: "⌘N",    action: #selector(AppDelegate.newSpace(_:))),
+        // Splits
+        PaletteCommand("Split Right",              key: "⌘⇧\\",  action: #selector(SpaceViewController.splitHorizontal(_:))),
+        PaletteCommand("Split Down",               key: "⌘⇧-",   action: #selector(SpaceViewController.splitVertical(_:))),
     ]
+
+    /// Dynamic commands generated at show-time: one entry per open Space, so the
+    /// palette doubles as a tmux ctrl-b w style window chooser when you type "space"
+    /// or "switch". Rebuilt on each `toggle(in:)` call -- cheap, always fresh.
+    static func spaceCommands() -> [PaletteCommand] {
+        SpaceWindowController.open.enumerated().map { idx, wc in
+            let name = wc.root.lastPathComponent
+            let isCurrent = wc.window?.isKeyWindow == true
+            let prefix = isCurrent ? "● " : ""
+            return PaletteCommand(
+                "\(prefix)Space: \(name)",
+                key: idx < 9 ? "⌘\(idx + 1)" : "",
+                action: #selector(AppDelegate.selectSpace(_:)),
+                tag: idx)
+        }
+    }
 }

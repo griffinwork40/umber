@@ -70,8 +70,9 @@ final class CommandPalette: NSObject {
 
     // MARK: State
 
-    /// The full command list. Filtered into `filtered` on every keystroke.
-    private let all: [PaletteCommand] = CommandPalette.allCommands
+    /// The full command list (static + dynamic). Rebuilt on each `toggle` so
+    /// dynamic entries (open Spaces) are always fresh.
+    private var all: [PaletteCommand] = CommandPalette.allCommands
 
     // Internal so the delegate methods in CommandPalette+UI.swift can read it.
     var filtered: [PaletteCommand] = []
@@ -107,6 +108,8 @@ final class CommandPalette: NSObject {
 
         // Build the panel once; subsequent shows just reset query + reposition.
         if panel == nil { buildPanel() }
+        // Rebuild command list so dynamic entries (open Spaces) are fresh.
+        all = Self.allCommands + Self.spaceCommands()
 
         guard let p = panel, let sf = searchField, let tv = tableView else { return }
 
