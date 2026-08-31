@@ -86,6 +86,21 @@ extension AppConfig {
     /// no-theme `.white` cannot trap here) and ask the pure rule in `ThemeContrast.swift`.
     /// Everything decidable is decided there, where `check-theme-contrast.sh` can
     /// compile it standalone.
+    /// The accent colour painted as a 2px line at the bottom of the active tab.
+    ///
+    /// Sourced from `theme?.cursor` when a theme is installed: the cursor is already
+    /// the brightest, most salient per-theme colour, and using it keeps the tab accent
+    /// visually coherent with the caret the eye is already tracking. That is what
+    /// Ghostty and VS Code do — a thin cursor-coloured line reads as "you are here"
+    /// without competing with the terminal content.
+    ///
+    /// Falls back to `NSColor.controlAccentColor` when no theme is set (`"preset":
+    /// "classic"`) or when the theme's cursor parses to nil. `controlAccentColor` is
+    /// the system's own "action" signal — blue by default, respecting the user's accent
+    /// preference in System Settings — which is the most sensible default available
+    /// with no measured palette to draw from.
+    var effectiveAccent: NSColor { theme?.cursor ?? .controlAccentColor }
+
     func effectiveSelectionColors() -> (background: NSColor, foreground: NSColor)? {
         guard let selection = theme?.selection,
               let sel = RGB(hex: selection.hexString),

@@ -118,7 +118,8 @@ final class SpaceViewController: NSSplitViewController {
         fileTree.delegate = self
         documentArea.strip.delegate = self
         documentArea.strip.apply(
-            background: config.effectiveBackground, foreground: config.effectiveForeground)
+            background: config.effectiveBackground, foreground: config.effectiveForeground,
+            accent: config.effectiveAccent)
 
         // Set the initial divider explicitly. `minimumThickness` alone leaves the
         // sidebar at whatever the split view computes, which is not 220.
@@ -287,7 +288,8 @@ final class SpaceViewController: NSSplitViewController {
         for document in documents { document.apply(config: config) }
         for (_, entry) in splitPeers { entry.document.apply(config: config) }  // peers not in documents[]
         documentArea.strip.apply(
-            background: config.effectiveBackground, foreground: config.effectiveForeground)
+            background: config.effectiveBackground, foreground: config.effectiveForeground,
+            accent: config.effectiveAccent)
         if let doc = activeDocument {  // re-apply padding after ⌘R
             let pad = doc is TerminalPane ? config.terminalPadding : (x: CGFloat(0), y: CGFloat(0))
             documentArea.setTerminalPadding(pad, backgroundColor: config.effectiveBackground)
