@@ -267,12 +267,14 @@ extension SpaceViewController {
     /// the cause of Bug #1 in the audit.
     private func teardownSubSplits(entry: inout SplitEntry) {
         if let sub = entry.primarySubSplit {
+            sub.container.removeSplit()
             sub.document.documentWillClose()
             sub.container.didReceiveClickInChild = nil
             sub.container.removeFromSuperview()
             entry.primarySubSplit = nil
         }
         if let sub = entry.peerSubSplit {
+            sub.container.removeSplit()
             sub.document.documentWillClose()
             sub.container.didReceiveClickInChild = nil
             sub.container.removeFromSuperview()

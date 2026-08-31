@@ -1,9 +1,12 @@
 //
 //  SpaceViewController+SplitFocus.swift
-//  Focus movement between split panes: ⌘⇧H/J/K/L and the spatial leaf-gathering
-//  that drives it.
+//  Focus movement between split panes (⌘⇧H/J/K/L), the spatial leaf-gathering
+//  that drives it, and menu validation for split/focus items.
 //
 //  Extracted from SpaceViewController+Splits.swift at the 350-LOC ceiling.
+//  `validateUserInterfaceItem` was moved here from `SpaceViewController.swift`
+//  when that file hit the ceiling: it only validates split and focus selectors,
+//  so it belongs with the split-focus concern rather than in the container.
 //  This is the focus concern; the model (create/close) stays in +Splits.swift
 //  and the display (dimming/presentation) stays in +SplitPresentation.swift.
 //
@@ -96,5 +99,22 @@ extension SpaceViewController {
         addLeaf(entry.document)
         if let sub = entry.peerSubSplit { addLeaf(sub.document) }
         return leaves
+    }
+
+    // MARK: - Menu validation
+
+    /// Gate split/focus menu items — without this, AppKit auto-enables every item whose
+    /// @objc selector is answered, even when the action would silently no-op.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(splitHorizontal(_:)), #selector(splitVertical(_:)):
+            guard let doc = activeDocument, doc is ShellHosting else { return false }
+            return canSplitFocusedPane(for: doc)
+        case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
+             #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
+            return activeDocument.map { hasSplit(for: $0) } ?? false
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
     }
 }

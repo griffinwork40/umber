@@ -62,8 +62,8 @@ extension CommandPalette {
         PaletteCommand("Reload Config",            key: "⌘R",    action: #selector(AppDelegate.reloadConfig(_:))),
         PaletteCommand("New Space",                key: "⌘N",    action: #selector(AppDelegate.newSpace(_:))),
         // Splits
-        PaletteCommand("Split Right",              key: "⌘⇧\\",  action: Selector(("splitHorizontal:"))),
-        PaletteCommand("Split Down",               key: "⌘⇧-",   action: Selector(("splitVertical:"))),
+        PaletteCommand("Split Right",              key: "⌘⇧\\",  action: #selector(SpaceViewController.splitHorizontal(_:))),
+        PaletteCommand("Split Down",               key: "⌘⇧-",   action: #selector(SpaceViewController.splitVertical(_:))),
     ]
 
     /// Dynamic commands generated at show-time: one entry per open Space, so the
@@ -76,7 +76,7 @@ extension CommandPalette {
             let prefix = isCurrent ? "● " : ""
             return PaletteCommand(
                 "\(prefix)Space: \(name)",
-                key: idx < 9 ? "" : "",
+                key: idx < 9 ? "⌘\(idx + 1)" : "",
                 action: #selector(AppDelegate.selectSpace(_:)),
                 tag: idx)
         }
