@@ -81,6 +81,18 @@ extension DocumentTabStrip {
         if isActive {
             contentBackground.setFill()
             rect.fill()
+
+            // 2px accent line at the very bottom of the active tab — the same
+            // "you are here" signal Ghostty and VS Code use. Drawn after the fill
+            // so it sits on top, and bounded horizontally to the tab rect so it
+            // never bleeds into a neighbour or the rail gap. The colour is
+            // `contentAccent` (the theme's cursor colour, or the system accent),
+            // chosen because the cursor is already the most salient per-theme
+            // colour — visually coherent with the caret the eye tracks in the
+            // terminal below. Height is 2pt; at 1pt it disappears on non-Retina.
+            let accentLine = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 2)
+            contentAccent.setFill()
+            accentLine.fill()
         } else if hoveredTab == index {
             hoverBackground.setFill()
             rect.fill()

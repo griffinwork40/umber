@@ -109,6 +109,9 @@ final class DocumentTabStrip: NSView {
     // with the terminal.
     private(set) var contentBackground: NSColor = .black
     private(set) var contentForeground: NSColor = .white
+    /// Accent colour for the active-tab indicator line. Sourced from `effectiveAccent`
+    /// in `Config+Chrome.swift` — see its doc comment for the sourcing rationale.
+    private(set) var contentAccent: NSColor = .controlAccentColor
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -121,9 +124,10 @@ final class DocumentTabStrip: NSView {
 
     // MARK: - Input from the owner
 
-    func apply(background: NSColor, foreground: NSColor) {
+    func apply(background: NSColor, foreground: NSColor, accent: NSColor) {
         contentBackground = background
         contentForeground = foreground
+        contentAccent = accent
         needsDisplay = true
     }
 
