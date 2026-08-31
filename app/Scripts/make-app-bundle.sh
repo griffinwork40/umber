@@ -57,6 +57,23 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 
+# CLI binary (`umber`). Installed into the app bundle so it travels with the app
+# and is versioned together with it. The recommended install path for users is
+# /usr/local/bin/umber, added as a symlink to the bundle's copy so updates to
+# Umber.app are picked up automatically without re-running any installer:
+#
+#   sudo ln -sf /Applications/Umber.app/Contents/MacOS/umber /usr/local/bin/umber
+#
+# We install the binary at Contents/MacOS/umber (lowercase) alongside Umber so
+# codesign and notarisation treat it as part of the same bundle.
+CLI_BIN="$BIN_DIR/UmberCLI"
+if [[ -x "$CLI_BIN" ]]; then
+  cp "$CLI_BIN" "$APP/Contents/MacOS/umber"
+  echo "==> installed CLI binary: $APP/Contents/MacOS/umber"
+else
+  echo "==> warning: UmberCLI binary not found at $CLI_BIN — 'umber' CLI will not be bundled" >&2
+fi
+
 # Any resource bundles SwiftPM produced for dependencies must travel with the
 # app, or code that looks them up at runtime finds nothing once the binary is
 # moved out of .build.

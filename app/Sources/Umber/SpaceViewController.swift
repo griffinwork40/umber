@@ -280,26 +280,6 @@ final class SpaceViewController: NSSplitViewController {
         view.window?.isDocumentEdited = hasEditedDocuments
     }
 
-    // MARK: - Menu validation
-
-    /// Gate split/focus menu items — without this, AppKit auto-enables every item whose
-    /// @objc selector is answered, even when the action would silently no-op.
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
-        case #selector(splitHorizontal(_:)):
-            guard let doc = activeDocument else { return false }
-            return doc is ShellHosting && !hasSplit(for: doc)
-        case #selector(splitVertical(_:)):
-            guard let doc = activeDocument else { return false }
-            return doc is ShellHosting && !hasSplit(for: doc)
-        case #selector(moveFocusLeft(_:)), #selector(moveFocusRight(_:)),
-             #selector(moveFocusUp(_:)), #selector(moveFocusDown(_:)):
-            return activeDocument.map { hasSplit(for: $0) } ?? false
-        default:
-            return super.validateUserInterfaceItem(item)
-        }
-    }
-
     // MARK: - Config / lifecycle
 
     func apply(config: AppConfig) {
