@@ -36,6 +36,15 @@ let package = Package(
             // The path is relative to the target's `path` ("Sources/Umber"), so two levels
             // up to the package root, then into Resources/.
             resources: [.copy("../../Resources/shell-integration.zsh")]
-        )
+        ),
+        // Standalone CLI binary that enables `EDITOR='umber --wait'` workflows.
+        // No dependency on the Umber target or SwiftTerm — it communicates with
+        // the running app via NSDistributedNotificationCenter and a Unix domain socket.
+        // See Sources/UmberCLI/main.swift for the full IPC design rationale.
+        .executableTarget(
+            name: "UmberCLI",
+            dependencies: [],
+            path: "Sources/UmberCLI"
+        ),
     ]
 )

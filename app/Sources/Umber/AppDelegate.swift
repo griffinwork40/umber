@@ -27,6 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// delegate. See `AppearanceObserver.swift` for the full rationale.
     private let appearanceObserver = AppearanceObserver()
 
+    /// Handles open-file requests from the `umber` CLI binary via
+    /// NSDistributedNotificationCenter. Registered in applicationDidFinishLaunching.
+    /// Held for the app lifetime so its observer token is never released early.
+    private let openFileHandler = OpenFileHandler()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Surface config problems where the user will actually see them, instead
         // of silently substituting defaults and leaving them wondering why their
@@ -36,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         buildMenu()
         restoreSpaces()
+
+        // Register the CLI open-file notification handler. Must happen after
+        // applicationDidFinishLaunching so the run loop is running and distributed
+        // notifications can be delivered. The CLI waits 0.5s after the app appears
+        // in NSRunningApplication before posting, so this registration window is safe.
+        openFileHandler.register()
 
         // Check for a newer release on GitHub, silently, at most once per 24 hours.
         // Deferred to the next run-loop tick so the window is visible before any
