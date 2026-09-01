@@ -1,6 +1,6 @@
 //
 //  Config.swift
-//  The on-disk config shape and the resolved `AppConfig` it loads into.
+//  The on-disk config shape (`ConfigFile`) and the resolved `AppConfig` type.
 //
 //  Config lives at ~/.config/umber/config.json. Every field is optional;
 //  anything absent falls back to a default that is meant to already look good,
@@ -9,12 +9,13 @@
 //  Deliberately plain JSON rather than a bespoke format: it is diffable,
 //  machine-editable, and needs no parser of its own.
 //
-//  This file is the *loader* and the single source of truth for defaults. The
-//  values it resolves into live next door: colour parsing and the presets are in
-//  `Theme.swift`, and the UserDefaults stores (zoom, remembered Space roots) are
-//  in `Defaults.swift` — none of which this file's fail-soft contract depends on.
-//  `ConfigFile` stays `private` here because nothing outside the loader may see
-//  the wire format; every other file reads the resolved `AppConfig` instead.
+//  This file owns: `ConfigFile` (the wire-format struct), `AppConfig` (the resolved
+//  type with its stored properties, statics, `defaults()`, `resized(_:to:)`, and
+//  `configURL`).
+//
+//  `load()`, `preferredMonoFont`, and `systemMonoAliases` live in `Config+Load.swift`
+//  — extracted at the 350-LOC ceiling. `ConfigFile` is `internal` (not `private`) so
+//  that extension file can decode the wire format; nothing else in the module reads it.
 //
 
 import AppKit
@@ -25,7 +26,9 @@ import AppKit
 // MARK: - Config file shape
 
 /// On-disk config. All fields optional — see `AppConfig.resolved`.
-private struct ConfigFile: Decodable {
+/// Internal (not `private`) so `Config+Load.swift` can decode it; nothing else in
+/// the module should read `ConfigFile` directly — use the resolved `AppConfig`.
+struct ConfigFile: Decodable {
     struct FontSpec: Decodable {
         var family: String?
         var size: Double?
@@ -199,7 +202,33 @@ struct AppConfig {
 
     /// Human-readable notes about anything in the config that was ignored.
     var warnings: [String] = []
-    // Font constants, face resolution, and `applyFont(…)` — see `Config+Font.swift`.
+
+    /// 14pt, not 13. The default has to be comfortable on a Retina display
+    /// without touching a config file, and 13 read as cramped in use. Both
+    /// `font.size` and ⌘+ / ⌘− override this.
+    static let defaultFontSize: Double = 14
+
+    /// Bounds for both `font.size` and the live zoom. Below ~6pt the glyphs stop
+    /// being legible; above ~48 a standard window holds too few columns for a TUI
+    /// to lay out. Shared so the config path and the zoom path cannot disagree.
+    static let minFontSize: Double = 6
+    static let maxFontSize: Double = 48
+
+    /// Resize the configured face. Derived from the resolved font's **descriptor**,
+    /// not re-resolved from its family name: the system monospaced face is
+    /// `.AppleSystemUIFontMonospaced`, a dot-prefixed internal family that is not
+    /// guaranteed to survive `NSFont(name:)`, and the old code's fallback for that
+    /// miss was hardcoded Menlo — the exact silent substitution that made v0.1
+    /// render worse than the spike (see `preferredMonoFont`). The descriptor
+    /// carries the resolved face, so zooming cannot change it.
+    ///
+    /// Lives here rather than on one pane because every document kind zooms
+    /// (`SpaceDocument.setFontSize`), and a second private copy in `FileViewerPane`
+    /// is a second place for this fallback to rot.
+    static func resized(_ base: NSFont, to size: CGFloat) -> NSFont {
+        NSFont(descriptor: base.fontDescriptor, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
 
     static var configURL: URL {
         FileManager.default
@@ -241,109 +270,6 @@ struct AppConfig {
             terminalPadding: (x: 4, y: 4),
             unfocusedPaneOpacity: 1.0
         )
-    }
-
-    /// Resolve the user's config, falling back field-by-field.
-    ///
-    /// `@MainActor` because when auto mode is active (`"preset": "auto"`) this reads
-    /// `NSApp.effectiveAppearance` via `AppearanceObserver.currentIsDark` to choose
-    /// the initial palette. All callers are already `@MainActor` (`AppDelegate`).
-    @MainActor static func load() -> AppConfig {
-        var config = defaults()
-        let url = configURL
-        guard let data = try? Data(contentsOf: url) else {
-            return config  // No config file is the normal case, not an error.
-        }
-        guard let file = try? JSONDecoder().decode(ConfigFile.self, from: data) else {
-            config.warnings.append("\(url.path): not valid JSON — using defaults")
-            return config
-        }
-
-        config.applyFont(family: file.font?.family, requestedSize: file.font?.size,
-                         fontThicken: file.fontThicken, lineHeight: file.lineHeight,
-                         ligatures: file.ligatures)
-
-        // Theme. The whole per-field, fail-soft assembly lives in `Config+Theme.swift` —
-        // pulled out when this file hit the 350-line ceiling, because "which palette do we
-        // install given some optional strings a user typed" is one whole concern and needs
-        // nothing else in `AppConfig`. Primitives rather than the spec itself, so
-        // `ConfigFile` can stay `private` to this file.
-        if let t = file.theme {
-            if t.preset?.lowercased() == "auto" {
-                // Auto mode: resolve both palettes now, store them for the observer, and
-                // pick the initial theme from the current system appearance. The observer
-                // in `AppearanceObserver` handles every subsequent switch.
-                let auto = AppConfig.resolveAutoTheme(dark: t.dark,
-                                                      light: t.light,
-                                                      warnings: &config.warnings)
-                config.autoTheme = auto
-                config.theme = AppearanceObserver.currentIsDark ? auto.dark : auto.light
-            } else {
-                config.theme = AppConfig.resolveTheme(preset: t.preset,
-                                                      background: t.background,
-                                                      foreground: t.foreground,
-                                                      cursor: t.cursor,
-                                                      ansi: t.ansi,
-                                                      warnings: &config.warnings)
-            }
-        }
-
-        if let raw = file.cursor {
-            // Same fail-soft shape as `renderer` below: an unrecognised value degrades to
-            // the default and says so, rather than throwing. The spellings themselves moved
-            // to `CursorStyle.named(_:)` so the mapping is compilable without AppKit.
-            if let style = CursorStyle.named(raw) { config.cursorStyle = style }
-            else { config.warnings.append("cursor '\(raw)' unrecognised — using block") }
-        }
-
-        if let sb = file.scrollback {
-            if sb >= 0 { config.scrollback = sb }
-            else { config.warnings.append("scrollback must be >= 0 — using \(config.scrollback)") }
-        }
-        if let sh = file.shell {
-            // A newline in a shell path is rejected alongside non-executable: a legal macOS
-            // filename containing one could cause subtle breakage if any downstream consumer
-            // joins paths with newlines (config renderers, diagnostic output). Caught here so
-            // the result is one fail-soft warning rather than silent corruption.
-            if sh.contains(where: \.isNewline) {
-                config.warnings.append("shell path contains a newline — using \(config.shell)")
-            } else if FileManager.default.isExecutableFile(atPath: sh) { config.shell = sh }
-            else { config.warnings.append("shell '\(sh)' is not executable — using \(config.shell)") }
-        }
-        if let meta = file.optionAsMeta { config.optionAsMeta = meta }
-        if let mr = file.mouseReporting { config.mouseReporting = mr }
-        if let raw = file.renderer {
-            if let r = Renderer.named(raw) { config.renderer = r }
-            else {
-                config.warnings.append(
-                    "renderer '\(raw)' unrecognised (expected one of: \(Renderer.configNames))"
-                        + " — using \(config.renderer.configName)")
-            }
-        }
-        if let e = file.editor {
-            config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
-                               wordWrap: e.wordWrap,
-                               indentRainbow: e.indentRainbow,
-                               columnGuide: e.columnGuide,
-                               showTrailingWhitespace: e.showTrailingWhitespace,
-                               stickyScroll: e.stickyScroll)
-        }
-        if let p = file.padding {
-            config.applyPadding(x: p.x, y: p.y)
-        }
-        if let op = file.unfocusedPaneOpacity {
-            // Fail-soft: a value outside [0, 1] is nonsensical (a transparency cannot
-            // be negative or exceed fully-opaque). Report it and keep the default (1.0)
-            // rather than clamping silently — clamping would make a typo ("10" instead
-            // of "1.0") look like success.
-            if op >= 0.0 && op <= 1.0 {
-                config.unfocusedPaneOpacity = op
-            } else {
-                config.warnings.append(
-                    "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using 1.0 (no dimming)")
-            }
-        }
-        return config
     }
 
 }

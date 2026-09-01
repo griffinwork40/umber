@@ -125,4 +125,24 @@ extension AppDelegate {
             dir = parent
         }
     }
+
+    // MARK: - Space switching (window chooser via command palette)
+
+    /// Switch to a Space by index. Invoked from the command palette's dynamic
+    /// Space entries, where the `tag` is the index into `SpaceWindowController.open`.
+    @objc func selectSpace(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem else { return }
+        let index = item.tag
+        let spaces = SpaceWindowController.open
+        guard spaces.indices.contains(index) else { return }
+        spaces[index].window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// ⌘⇧A: open the command palette as a window chooser. Equivalent to typing
+    /// "space" in the palette, but the shortcut is discoverable from the menu.
+    @objc func showWindowChooser(_ sender: Any?) {
+        guard let window = NSApp.keyWindow ?? SpaceWindowController.open.first?.window
+        else { return }
+        CommandPalette.shared.toggle(in: window)
+    }
 }

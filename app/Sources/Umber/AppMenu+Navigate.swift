@@ -38,6 +38,14 @@ extension AppDelegate {
             action: Selector(("showSymbolOutline:")), keyEquivalent: "o")
         symbolItem.keyEquivalentModifierMask = [.command, .shift]
         navigateMenu.addItem(symbolItem)
+        // ⌘⇧A — Window Chooser. Opens the command palette with Space entries so
+        // you can fuzzy-search and switch between open Spaces and their tabs —
+        // the Umber equivalent of tmux's ctrl-b w.
+        let chooserItem = NSMenuItem(
+            title: "Choose Window…",
+            action: #selector(showWindowChooser(_:)), keyEquivalent: "a")
+        chooserItem.keyEquivalentModifierMask = [.command, .shift]
+        navigateMenu.addItem(chooserItem)
         navigateMenu.addItem(.separator())
         let nextTabItem = NSMenuItem(
             title: "Next Tab", action: #selector(nextDocument(_:)),

@@ -58,10 +58,11 @@ extension SpaceViewController {
     /// would fire `spaceViewControllerDidCloseLastDocument` mid-teardown, asking the delegate
     /// to close a window that is already closing.
     func tearDownAllDocuments() {
-        // Close split peers first, before their primary documents, so the
-        // splitPeers dictionary is cleared while the primary identity is still
-        // valid as a key. teardownSplit(for:) is idempotent — tabs without a
-        // peer produce the guard-nil early return in +Splits.swift.
+        // Close split peers first (including any sub-split peers), before their
+        // primary documents, so the splitPeers dictionary is cleared while the
+        // primary identity is still valid as a key. teardownSplit(for:) is
+        // idempotent — tabs without a peer produce the guard-nil early return
+        // in +Splits.swift. Sub-split peers are closed inside teardownSplit.
         for document in documents { teardownSplit(for: document) }
         for document in documents { document.documentWillClose() }
     }
